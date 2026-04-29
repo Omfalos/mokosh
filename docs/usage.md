@@ -1,0 +1,285 @@
+# Usage Guide
+
+Mokosh can be used as a CLI tool or integrated into your Node.js application.
+
+## CLI Options
+
+The CLI is the easiest way to generate JSON or Mermaid outputs.
+
+```bash
+npx mokosh [options] <entry-point1> <entry-point2> ...
+```
+
+### Options
+
+| Flag | Description |
+| --- | --- |
+| `--cache [file]` | Path to a cache file. Defaults to `mokosh-cache/graph.json`. If it exists, Mokosh reads the graph from it. Otherwise, it generates the graph and saves it to the file. |
+| `--root <dir>` | Project root directory for path resolution. |
+| `--mermaid` | Output a Mermaid diagram string instead of the standard JSON format. |
+| `--propose-tags` | Identify changed files using Git and propose affected test tags. |
+| `--detect-features` | Output files with high in-degree (feature hubs), sorted by number of importers descending. |
+| `--feature-threshold <N>` | Minimum number of importers for a file to be considered a feature hub (default: `5`). Applies to both `--detect-features` and `--propose-tags`. |
+| `--find-unused` | Scan the project for files not reachable from the provided entry points. |
+| `--query <query>` | Filter the output graph using a query string (e.g., `category:logic,tag:auth`). |
+| `--help` | Show the help menu. |
+
+### Supported Languages
+
+Mokosh supports a wide range of languages out of the box:
+
+- **Logic**: JavaScript (.js, .mjs, .cjs), TypeScript (.ts, .tsx), CoffeeScript (.coffee), LiveScript (.ls), Lua (.lua), Gherkin (.feature).
+- **Styles**: CSS (.css), SCSS (.scss), Less (.less), Stylus (.styl).
+
+Each language is parsed using its respective AST or highly optimized regex (for styles) to ensure accurate dependency extraction.
+
+### Configuration File
+
+Place a `mokosh.config.json` or `mokosh.config.js` in your project root to configure mokosh declaratively. The CLI loads it automatically before building the graph.
+
+**`mokosh.config.json`:**
+```json
+{
+  "cachePath": "custom-cache/graph.json",
+  "entryPoints": ["src/index.ts"],
+  "ignoreDirs": ["vendor", "generated"],
+  "extensions": [".graphql"],
+  "configMatchers": [".myconfig."],
+  "testPatterns": [".unit.", ".integration."],
+  "testLibraries": ["@my-org/test-utils"],
+  "barrelThreshold": 0.7
+}
+```
+
+`ignoreDirs` and `extensions` are **additive** — they extend the built-in defaults rather than replacing them.
+
+**`mokosh.config.js`** (supports side effects and factory functions):
+```js
+const { registerParser } = require('mokosh');
+
+// Side-effect: register a custom parser before the graph is built
+registerParser('unknown', (filePath, content) => ({
+  imports: [],
+  exports: [],
+  tags: [],
+  category: 'logic',
+}));
+
+// Export config as a plain object or a factory function
+module.exports = (defaults) => ({
+  ...defaults,
+  barrelThreshold: 0.9,
+  entryPoints: ['src/main.ts'],
+});
+```
+
+**Programmatic config loading:**
+```typescript
+import { loadMokoshConfig, applyConfig, createImportMap } from 'mokosh';
+
+const config = loadMokoshConfig(process.cwd());
+applyConfig(config); // registers matchers, patterns, threshold
+const graph = await createImportMap(process.cwd(), config.entryPoints ?? ['src/index.ts']);
+```
+
+| Config field | Type | Description |
+| --- | --- | --- |
+| `cachePath` | `string` | Override default `mokosh-cache/graph.json` |
+| `entryPoints` | `string[]` | Default entry points when none passed on CLI |
+| `ignoreDirs` | `string[]` | Extra dirs to skip (merged with built-in defaults) |
+| `extensions` | `string[]` | Extra file extensions to scan (merged with built-in defaults) |
+| `configMatchers` | `string[]` | Extra basename substrings that classify a file as `"config"` |
+| `testPatterns` | `string[]` | Extra basename substrings that classify a file as `"test"` |
+| `testLibraries` | `string[]` | Extra import names that classify a file as `"test"` |
+| `barrelThreshold` | `number` | Export-ratio threshold for `"barrel"` detection (default `0.8`) |
+
+### Extensibility
+
+Mokosh features a pluggable parser architecture. You can register custom parsers for new file types or override existing ones:
+
+```typescript
+import { registerParser } from 'mokosh';
+
+registerParser('lua', (filePath, content) => {
+  // Custom logic to extract imports, exports, tags, and category
+  return {
+    imports: [],
+    exports: [],
+    tags: ['custom'],
+    category: 'logic'
+  };
+});
+```
+
+### Advanced Metadata Extraction
+
+Mokosh goes beyond simple dependency tracking by extracting:
+
+- **Tags**: Extracted via five strategies — top-level declaration names, `@word` in string literals, `@tag <name>` in comments, Vitest `{ tags: [...] }` / Playwright `{ tag: '...' }` option bags, and graph-derived tags (test files gain tags from the basenames of their local imports). See the [Test Tag guide](./test-tags.md) for details.
+- **Categories**: Automatically classifies files as `logic`, `ui`, `test`, `config`, `barrel`, or `type-only` based on heuristics (imports, exports, naming).
+- **Exports**: Tracks named exports to perform more granular impact analysis.
+
+### Lock File Support
+
+Mokosh automatically detects `package-lock.json`, `yarn.lock`, and `pnpm-lock.yaml` in the project root. When a lock file is present, Mokosh:
+
+1. **Enriches External Dependencies**: Automatically retrieves the installed version of each `node_modules` dependency.
+2. **Auto-Tagging**: Automatically adds tags to your files based on the libraries they import (e.g., if a file imports `react`, it gets a `react` tag). This makes it easy to filter or search your graph by library usage.
+
+### Examples
+
+**Analysing style dependencies (CSS / SCSS / Less / Stylus):**
+
+Mokosh understands style-specific import forms — `@import`, `@use`, `@forward` (SCSS), and `@require` (Stylus) — and automatically classifies stylesheet files as `barrel` (import-only aggregators) or `ui` (files with actual rule blocks).
+
+```bash
+# Graph all stylesheets reachable from a SCSS entry point
+npx mokosh src/styles/index.scss
+
+# Show only stylesheet barrel files (pure import aggregators)
+npx mokosh --query "category:barrel" src/styles/index.scss
+```
+
+Example output for a SCSS barrel index (`_index.scss` that only forwards tokens):
+```json
+{
+  "path": "src/styles/_index.scss",
+  "type": "scss",
+  "category": "barrel",
+  "imports": [
+    { "rawSpecifier": "./tokens/colors", "type": "re-export", "isStyle": true },
+    { "rawSpecifier": "./tokens/typography", "type": "re-export", "isStyle": true }
+  ]
+}
+```
+
+**Filter graph by category and tag:**
+```bash
+npx mokosh --query "category:logic,tag:auth" src/index.ts
+```
+
+For more details on filtering, see the [Query Language Guide](./query.md).
+
+**Exporting a JSON graph of your project:**
+```bash
+npx mokosh src/main.ts > graph.json
+```
+
+**Generating a Mermaid diagram for documentation:**
+```bash
+npx mokosh --mermaid src/main.ts > dependency-graph.mmd
+```
+
+**Proposing tags for CI/CD pipelines:**
+```bash
+npx mokosh --propose-tags src/tests/e2e.test.ts
+```
+
+**Finding unused files:**
+```bash
+npx mokosh --find-unused src/main.ts
+```
+
+**Detecting feature hub files:**
+```bash
+npx mokosh --detect-features src/main.ts
+```
+
+Output:
+```json
+{
+  "features": [
+    { "path": "src/utils.ts", "inDegree": 14, "tag": "feature:utils" },
+    { "path": "src/config.ts", "inDegree": 8, "tag": "feature:config" }
+  ]
+}
+```
+
+**Proposing tags with a custom feature threshold:**
+```bash
+npx mokosh --propose-tags --feature-threshold 3 src/main.ts
+```
+
+## Programmatic API
+
+For custom integrations, use the exported functions and classes.
+
+### Creating a Graph
+
+```typescript
+import { createImportMap } from 'mokosh';
+
+const graph = createImportMap(process.cwd(), ['src/index.ts']);
+```
+
+### Serializing and Deserializing
+
+Caching is crucial for large projects to avoid re-parsing the entire AST on every run.
+
+```typescript
+import { createImportMap, Graph } from 'mokosh';
+import fs from 'fs';
+
+// Save to cache
+const graph = createImportMap(process.cwd(), ['src/index.ts']);
+const serialized = graph.serialize();
+fs.writeFileSync('cache.json', JSON.stringify(serialized));
+
+// Load from cache
+const raw = JSON.parse(fs.readFileSync('cache.json', 'utf-8'));
+const cachedGraph = Graph.deserialize(raw);
+```
+
+### Proposing Tags Programmatically
+
+```typescript
+import { createImportMap, proposeTags, getGitDiffFiles } from 'mokosh';
+
+const graph = await createImportMap(process.cwd(), ['src/index.ts']);
+const changedFiles = getGitDiffFiles(); // Uses git diff --name-only
+const tags = proposeTags(graph, changedFiles);
+
+console.log('Affected Tags:', tags);
+```
+
+Pass `featureDetection` options to short-circuit traversal at hub files and get feature-level tags:
+
+```typescript
+const tags = proposeTags(graph, changedFiles, {
+  featureDetection: { minInDegree: 3 },
+});
+// If a changed file is a hub: tags will include e.g. "feature:utils"
+// If traversal passes through a hub: stops there, adds the hub's tag
+```
+
+Set `featureDetection: false` to disable hub short-circuiting and always traverse to test nodes:
+
+```typescript
+const tags = proposeTags(graph, changedFiles, { featureDetection: false });
+```
+
+### Detecting Feature Hubs Programmatically
+
+```typescript
+import { createImportMap, detectFeatures } from 'mokosh';
+
+const graph = await createImportMap(process.cwd(), ['src/index.ts']);
+const featureMap = detectFeatures(graph.nodes, { minInDegree: 5 });
+
+for (const feature of featureMap.values()) {
+  console.log(`${feature.path} — ${feature.inDegree} importers → tag: ${feature.tag}`);
+}
+```
+
+### Finding Unused Files Programmatically
+
+```typescript
+import { createImportMap, getAllProjectFiles } from 'mokosh';
+
+const rootDir = process.cwd();
+const graph = createImportMap(rootDir, ['src/index.ts']);
+const allFiles = getAllProjectFiles(rootDir);
+const unusedFiles = graph.findUnusedFiles(allFiles);
+
+console.log('Unused Files:', unusedFiles);
+```

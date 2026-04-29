@@ -1,0 +1,66 @@
+{
+  "name": "mokosh",
+  "version": "0.0.1",
+  "description": "A high-performance, AST-powered dependency graph generator for frontend projects, optimized for AI context and smart test selection.",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "mokosh": "./dist/cli.js",
+    "mokosh-mcp": "./dist/mcp.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "build": "tsup",
+    "lint": "biome lint ./src",
+    "format": "biome format --write ./src",
+    "check": "biome check --write ./src",
+    "example": "tsx example/run-example.ts",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "dependency-graph",
+    "ast",
+    "typescript",
+    "frontend",
+    "ai-ready",
+    "rag",
+    "test-impact-analysis",
+    "mermaid"
+  ],
+  "author": "Mokosh Contributors",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "@biomejs/biome": "^2.4.11",
+    "@types/coffeescript": "^2.5.7",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^25.6.0",
+    "@vitest/coverage-v8": "^4.1.4",
+    "coffeescript": "^2.7.0",
+    "livescript": "^1.6.0",
+    "ts-node": "^10.9.2",
+    "tsup": "^8.5.1",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.4"
+  },
+  "dependencies": {
+    "@cucumber/gherkin": "^39.0.0",
+    "@cucumber/gherkin-streams": "^6.0.0",
+    "@cucumber/gherkin-utils": "^11.0.0",
+    "@cucumber/messages": "^32.2.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@types/luaparse": "^0.2.13",
+    "bootstrap": "^5.3.8",
+    "js-yaml": "^4.1.1",
+    "luaparse": "^0.3.1",
+    "postcss": "^8.5.12",
+    "postcss-less": "^6.0.0",
+    "postcss-scss": "^4.0.9",
+    "stylus": "^0.64.0"
+  }
+}

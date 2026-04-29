@@ -1,0 +1,38 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
+/** Wraps any JSON-serializable value as an MCP text content response block. */
+export function text(data: unknown) {
+  return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+}
+
+/**
+ * Validates that `root` is an absolute path within the user's home directory and
+ * points to an existing directory.
+ *
+ * Called once per request in the central dispatch layer (`server.ts`) before
+ * any tool handler runs, so handlers never receive an out-of-bounds root.
+ *
+ * @throws {Error} with a generic message if any constraint is violated — messages
+ *   are intentionally vague to avoid leaking filesystem structure to callers.
+ */
+export function validateRoot(root: string): void {
+  if (!path.isAbsolute(root)) {
+    throw new Error("root must be an absolute path");
+  }
+  const resolved = path.resolve(root);
+  const home = os.homedir();
+  if (resolved !== home && !resolved.startsWith(home + path.sep)) {
+    throw new Error("root must be within the user home directory");
+  }
+  let stat: fs.Stats;
+  try {
+    stat = fs.statSync(resolved);
+  } catch {
+    throw new Error("root does not exist");
+  }
+  if (!stat.isDirectory()) {
+    throw new Error("root is not a directory");
+  }
+}
