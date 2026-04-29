@@ -8,7 +8,6 @@ Designed for performance and RAG (Retrieval-Augmented Generation) workflows, Mok
 
 - **Multi-Language Support**: Robust extraction from:
     - **JavaScript/TypeScript**: static `import`, dynamic `import()`, `require()`, and re-exports.
-    - **Python**: `import` and `from ... import ...` statements with AST-based analysis (supports `.py`).
     - **CSS/SCSS/Less/Stylus**: tracks `@import` relationships.
     - **CoffeeScript/LiveScript/Lua/Gherkin**: AST-based parsing for dependencies and tags.
 - **Graph Traversal**: Programmatically explore dependencies from any entry point with depth control.
@@ -42,7 +41,6 @@ Mokosh automatically detects file types and uses the appropriate parser. You can
 | --- | --- | --- |
 | JavaScript | `.js`, `.jsx` | `// @tag core` |
 | TypeScript | `.ts`, `.tsx` | `// @tag models` |
-| Python | `.py` | `# @tag logic` |
 | CSS/SCSS/Less | `.css`, `.scss`, `.less` | N/A |
 | Stylus | `.styl` | N/A |
 | CoffeeScript | `.coffee` | `# @tag script` |
