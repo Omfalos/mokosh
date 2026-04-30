@@ -32,14 +32,14 @@ function isExternalCss(specifier: string): boolean {
  * @returns `true` for relative or absolute local paths; `false` for HTTP URLs, protocol-relative URLs, data URIs, and hash fragments
  */
 function isLocalUrl(specifier: string): boolean {
-  const s = specifier.trim();
+  const trimmed = specifier.trim();
   return (
-    s.length > 0 &&
-    !s.startsWith("http://") &&
-    !s.startsWith("https://") &&
-    !s.startsWith("//") &&
-    !s.startsWith("data:") &&
-    !s.startsWith("#")
+    trimmed.length > 0 &&
+    !trimmed.startsWith("http://") &&
+    !trimmed.startsWith("https://") &&
+    !trimmed.startsWith("//") &&
+    !trimmed.startsWith("data:") &&
+    !trimmed.startsWith("#")
   );
 }
 
@@ -94,10 +94,10 @@ function extractAtImportEdge(params: string, filePath: string): ImportEdge | nul
  */
 function extractUrlDeclarationEdges(value: string, filePath: string): ImportEdge[] {
   const edges: ImportEdge[] = [];
-  const URL_RE = /url\(['"]?([^'")]+)['"]?\)/g;
-  let m: RegExpExecArray | null;
-  while ((m = URL_RE.exec(value)) !== null) {
-    const specifier = m[1]?.trim() ?? "";
+  const urlPattern = /url\(['"]?([^'")]+)['"]?\)/g;
+  let match = urlPattern.exec(value);
+  while (match !== null) {
+    const specifier = match[1]?.trim() ?? "";
     if (isLocalUrl(specifier)) {
       edges.push({
         fromPath: filePath,
@@ -107,6 +107,7 @@ function extractUrlDeclarationEdges(value: string, filePath: string): ImportEdge
         type: "static",
       });
     }
+    match = urlPattern.exec(value);
   }
   return edges;
 }
@@ -155,14 +156,22 @@ function stripLineComments(content: string): string {
  */
 function regexFallbackImports(content: string, filePath: string): ImportEdge[] {
   const imports: ImportEdge[] = [];
-  const IMPORT_RE = /@import\s+(?:\(([^)]+)\)\s+)?['"]([^'"]+)['"]/g;
-  let m: RegExpExecArray | null;
-  while ((m = IMPORT_RE.exec(content)) !== null) {
-    const keyword = m[1]?.trim() ?? "";
-    const specifier = m[2] ?? "";
-    if (!specifier) continue;
-    const type = SIDE_EFFECT_KEYWORDS.has(keyword) ? "side-effect" : "static";
-    imports.push({ fromPath: filePath, toPath: "", rawSpecifier: specifier, isStyle: true, type });
+  const atImportPattern = /@import\s+(?:\(([^)]+)\)\s+)?['"]([^'"]+)['"]/g;
+  let match = atImportPattern.exec(content);
+  while (match !== null) {
+    const keyword = match[1]?.trim() ?? "";
+    const specifier = match[2] ?? "";
+    if (specifier) {
+      const type = SIDE_EFFECT_KEYWORDS.has(keyword) ? "side-effect" : "static";
+      imports.push({
+        fromPath: filePath,
+        toPath: "",
+        rawSpecifier: specifier,
+        isStyle: true,
+        type,
+      });
+    }
+    match = atImportPattern.exec(content);
   }
   return imports;
 }

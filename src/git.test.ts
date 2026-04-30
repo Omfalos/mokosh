@@ -31,7 +31,7 @@ describe("GitProvider", () => {
           return "file4.ts";
         }
         return "";
-      }) as any);
+      }) as unknown as typeof execSync);
 
       const changedFiles = provider.getChangedFiles();
 
@@ -54,7 +54,7 @@ describe("GitProvider", () => {
     });
 
     test("should handle empty output from git commands", () => {
-      vi.mocked(execSync).mockReturnValue("" as any);
+      vi.mocked(execSync).mockReturnValue("" as unknown as ReturnType<typeof execSync>);
 
       const changedFiles = provider.getChangedFiles();
       expect(changedFiles).toEqual([]);
@@ -71,7 +71,7 @@ describe("GitProvider", () => {
         }
         // Simulate failure for other commands
         throw new Error("Git command failed");
-      }) as any);
+      }) as unknown as typeof execSync);
 
       const changedFiles = provider.getChangedFiles();
 
@@ -89,7 +89,9 @@ describe("GitProvider", () => {
     });
 
     test("should filter out empty strings and whitespace", () => {
-      vi.mocked(execSync).mockReturnValue("\n  \nfile1.ts\n\nfile2.ts  \n" as any);
+      vi.mocked(execSync).mockReturnValue(
+        "\n  \nfile1.ts\n\nfile2.ts  \n" as unknown as ReturnType<typeof execSync>,
+      );
 
       const changedFiles = provider.getChangedFiles();
       expect(changedFiles).toEqual(["file1.ts", "file2.ts"]);
@@ -114,7 +116,7 @@ describe("GitProvider", () => {
 
       // If we mock Set to throw:
       const originalSet = global.Set;
-      (global as any).Set = vi.fn().mockImplementation(() => {
+      (global as unknown as Record<string, unknown>).Set = vi.fn().mockImplementation(() => {
         throw new Error("Unexpected error in outer catch");
       });
 
@@ -131,7 +133,9 @@ describe("GitProvider", () => {
 
   describe("getGitDiffFiles (deprecated utility)", () => {
     test("should delegate to DefaultGitProvider", () => {
-      vi.mocked(execSync).mockReturnValue("file_from_util.ts" as any);
+      vi.mocked(execSync).mockReturnValue(
+        "file_from_util.ts" as unknown as ReturnType<typeof execSync>,
+      );
 
       const files = getGitDiffFiles();
       expect(files).toEqual(["file_from_util.ts"]);

@@ -9,33 +9,38 @@ import type { ImportEdge } from "../../types";
  */
 export function parseStylusImports(content: string, filePath: string): ImportEdge[] {
   const imports: ImportEdge[] = [];
-  let m: RegExpExecArray | null;
 
-  const AT_REQUIRE_RE = /@require\s+['"]([^'"]+)['"]/g;
-  while ((m = AT_REQUIRE_RE.exec(content)) !== null) {
-    const specifier = m[1];
-    if (!specifier) continue;
-    imports.push({
-      fromPath: filePath,
-      toPath: "",
-      rawSpecifier: specifier,
-      isStyle: true,
-      type: "require",
-    });
+  const atRequirePattern = /@require\s+['"]([^'"]+)['"]/g;
+  let match = atRequirePattern.exec(content);
+  while (match !== null) {
+    const specifier = match[1];
+    if (specifier) {
+      imports.push({
+        fromPath: filePath,
+        toPath: "",
+        rawSpecifier: specifier,
+        isStyle: true,
+        type: "require",
+      });
+    }
+    match = atRequirePattern.exec(content);
   }
 
   // Negative lookbehind on @ avoids re-matching @require entries above
-  const STYLUS_RE = /(?<!@)(?:import|require)\s*\(?\s*['"]([^'"]+)['"]/g;
-  while ((m = STYLUS_RE.exec(content)) !== null) {
-    const specifier = m[1];
-    if (!specifier) continue;
-    imports.push({
-      fromPath: filePath,
-      toPath: "",
-      rawSpecifier: specifier,
-      isStyle: true,
-      type: "static",
-    });
+  const bareImportPattern = /(?<!@)(?:import|require)\s*\(?\s*['"]([^'"]+)['"]/g;
+  match = bareImportPattern.exec(content);
+  while (match !== null) {
+    const specifier = match[1];
+    if (specifier) {
+      imports.push({
+        fromPath: filePath,
+        toPath: "",
+        rawSpecifier: specifier,
+        isStyle: true,
+        type: "static",
+      });
+    }
+    match = bareImportPattern.exec(content);
   }
 
   return imports;

@@ -14,7 +14,7 @@ function makeNodeWithImports(
     category,
     imports: importTargets.map((target) => ({
       fromPath: p,
-      toPath: external ? undefined : target,
+      toPath: target,
       rawSpecifier: `./${target}`,
       type: "static" as const,
       isStyle: false,

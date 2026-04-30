@@ -13,25 +13,41 @@ import {
   proposeTags,
 } from "../index";
 import type { SessionState } from "./cache";
+import type { TextResponse } from "./utils";
 import { text } from "./utils";
 
 // ---------------------------------------------------------------------------
 // Argument types — one per tool, matching the schemas defined in tools.ts
 // ---------------------------------------------------------------------------
 
-type AnalyzeArgs = { root: string; entryPoints: string[] };
-type GetDependenciesArgs = { root: string; file: string; depth?: number };
-type GetDependentsArgs = { root: string; file: string };
-type GetAffectedArgs = { root: string; file: string; testsOnly?: boolean };
-type FindUnusedArgs = { root: string; entryPoints: string[] };
-type ProposeTagsArgs = { root: string; changedFiles?: string[]; featureThreshold?: number };
-type ProposeAffectedTestsArgs = {
+export type AnalyzeArgs = { root: string; entryPoints: string[] };
+export type GetDependenciesArgs = { root: string; file: string; depth?: number };
+export type GetDependentsArgs = { root: string; file: string };
+export type GetAffectedArgs = { root: string; file: string; testsOnly?: boolean };
+export type FindUnusedArgs = { root: string; entryPoints: string[] };
+export type ProposeTagsArgs = { root: string; changedFiles?: string[]; featureThreshold?: number };
+export type ProposeAffectedTestsArgs = {
   root: string;
   changedFiles?: string[];
   featureThreshold?: number;
 };
-type DetectFeaturesArgs = { root: string; entryPoints?: string[]; featureThreshold?: number };
-type QueryArgs = { root: string; entryPoints?: string[]; filter: string; mermaid?: boolean };
+export type DetectFeaturesArgs = {
+  root: string;
+  entryPoints?: string[];
+  featureThreshold?: number;
+};
+export type QueryArgs = { root: string; entryPoints?: string[]; filter: string; mermaid?: boolean };
+
+export type ToolArgs =
+  | AnalyzeArgs
+  | GetDependenciesArgs
+  | GetDependentsArgs
+  | GetAffectedArgs
+  | FindUnusedArgs
+  | ProposeTagsArgs
+  | ProposeAffectedTestsArgs
+  | DetectFeaturesArgs
+  | QueryArgs;
 
 // ---------------------------------------------------------------------------
 // Handlers
@@ -212,7 +228,7 @@ export async function handleDetectFeatures(cache: SessionState, args: DetectFeat
  * nodes as JSON. Pass `mermaid: true` to receive a `graph TD` Mermaid diagram
  * string instead — useful for visual documentation or quick orientation.
  */
-export async function handleQuery(cache: SessionState, args: QueryArgs) {
+export async function handleQuery(cache: SessionState, args: QueryArgs): Promise<TextResponse> {
   const { root, entryPoints, filter, mermaid = false } = args;
   const graph = entryPoints
     ? await cache.getOrBuild(
@@ -222,9 +238,7 @@ export async function handleQuery(cache: SessionState, args: QueryArgs) {
     : cache.require(root);
   const filtered = filterGraph(graph.serialize(), parseQuery(filter));
   if (mermaid) {
-    return {
-      content: [{ type: "text", text: MermaidExporter.toMermaid(Graph.deserialize(filtered)) }],
-    };
+    return text(MermaidExporter.toMermaid(Graph.deserialize(filtered)));
   }
   return text(filtered);
 }

@@ -1,6 +1,6 @@
 # Mokosh 🌊
 
-Mokosh is a lightweight, AST-powered dependency graph generator for modern web and script projects. It extracts import maps from JavaScript, TypeScript, Python, CSS, SCSS, Less, Stylus, CoffeeScript, LiveScript, Lua, and Gherkin files to help AI models and developers understand code relationships efficiently.
+Mokosh is a lightweight, AST-powered dependency graph generator for modern web and script projects. It extracts import maps from JavaScript, TypeScript, CSS, SCSS, Less, Stylus, CoffeeScript, LiveScript, Lua, and Gherkin files to help AI models and developers understand code relationships efficiently.
 
 Designed for performance and RAG (Retrieval-Augmented Generation) workflows, Mokosh enables you to visualize your project structure, traverse dependencies, and even propose test tags based on code changes.
 
@@ -23,7 +23,7 @@ Designed for performance and RAG (Retrieval-Augmented Generation) workflows, Mok
 
 When working with large codebases, providing the entire dependency graph to an AI model can exceed context limits or waste tokens. Use the `--query` flag to filter the output to only what's relevant:
 
-- **Filter by language**: `--query "type:python"`
+- **Filter by language**: `--query "type:typescript"`
 - **Filter by category**: `--query "category:ui"`
 - **Filter by tag**: `--query "tag:core"`
 - **Combine filters**: `--query "category:logic,tag:api"`
@@ -138,89 +138,3 @@ For detailed information on each process, check the following guides:
 - [Graph Traversal](./docs/traversal.md)
 - [Test Tag Proposal](./docs/test-tags.md)
 - [Lock File Analysis](./docs/lock-files.md)
-
-## License
-
-ISC
-
-
-### MERMAID 
-
-```mermaid
-graph TD
-src/config.ts --> node:fs
-src/config.ts --> node:path
-src/config.ts --> src/parser/classify.ts
-src/git.ts --> node:child_process
-src/parser/lockfile.ts --> node:fs
-src/parser/lockfile.ts --> node:path
-src/parser/lockfile.ts --> js-yaml
-src/parser/file-type.ts --> node:path
-src/parser/file-type.ts --> src/types.ts
-src/parser/types.ts --> src/types.ts
-src/parser/tagging/index.ts --> typescript
-src/parser/tagging/index.ts --> src/parser/types.ts
-src/parser/code.ts --> node:path
-src/parser/code.ts --> typescript
-src/parser/code.ts --> src/types.ts
-src/parser/code.ts --> src/parser/classify.ts
-src/parser/code.ts --> src/parser/file-type.ts
-src/parser/code.ts --> src/parser/tagging/index.ts
-src/parser/code.ts --> src/parser/types.ts
-src/parser/coffee.ts --> coffeescript
-src/parser/coffee.ts --> src/types.ts
-src/parser/coffee.ts --> src/parser/file-type.ts
-src/parser/coffee.ts --> src/parser/types.ts
-src/parser/registry.ts --> src/types.ts
-src/parser/registry.ts --> src/parser/types.ts
-src/parser/gherkin.ts --> cucumber/gherkin
-src/parser/gherkin.ts --> cucumber/messages
-src/parser/gherkin.ts --> src/parser/registry.ts
-src/parser/gherkin.ts --> src/parser/types.ts
-src/parser/ls.ts --> livescript
-src/parser/ls.ts --> src/types.ts
-src/parser/ls.ts --> src/parser/file-type.ts
-src/parser/ls.ts --> src/parser/types.ts
-src/parser/lua.ts --> luaparse
-src/parser/lua.ts --> src/types.ts
-src/parser/lua.ts --> src/parser/file-type.ts
-src/parser/lua.ts --> src/parser/types.ts
-src/parser/python.ts --> node:crypto
-src/parser/python.ts --> node:fs
-src/parser/python.ts --> node:https
-src/parser/python.ts --> node:os
-src/parser/python.ts --> node:path
-src/parser/python.ts --> web-tree-sitter
-src/parser/python.ts --> src/types.ts
-src/parser/python.ts --> src/parser/file-type.ts
-src/parser/python.ts --> src/parser/types.ts
-src/parser/style.ts --> src/types.ts
-src/parser/style.ts --> src/parser/file-type.ts
-src/parser/style.ts --> src/parser/types.ts
-src/parser.ts --> src/parser/code.ts
-src/parser.ts --> src/parser/coffee.ts
-src/parser.ts --> src/parser/file-type.ts
-src/parser.ts --> src/parser/gherkin.ts
-src/parser.ts --> src/parser/ls.ts
-src/parser.ts --> src/parser/lua.ts
-src/parser.ts --> src/parser/python.ts
-src/parser.ts --> src/parser/registry.ts
-src/parser.ts --> src/parser/style.ts
-src/parser.ts --> src/parser/types.ts
-src/parser.ts --> src/types.ts
-src/parser.ts --> src/parser/classify.ts
-src/graph/analyzer.ts --> src/types.ts
-src/graph/model.ts --> src/types.ts
-src/graph/model.ts --> src/graph/analyzer.ts
-src/graph/resolver.ts --> node:fs
-src/graph/resolver.ts --> node:path
-src/graph/builder.ts --> node:fs
-src/graph/builder.ts --> node:path
-src/graph/builder.ts --> src/parser/lockfile.ts
-src/graph/builder.ts --> src/parser.ts
-src/graph/builder.ts --> src/types.ts
-src/graph/builder.ts --> src/graph/model.ts
-src/graph/builder.ts --> src/graph/resolver.ts
-src/graph/exporter.ts --> src/graph/model.ts
-src/graph/features/index.ts --> node:path
-```

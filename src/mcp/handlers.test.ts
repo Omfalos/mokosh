@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { Graph } from "../index";
 import type { SerializedGraph } from "../types";
 import type { SessionState } from "./cache";
@@ -109,7 +109,7 @@ describe("handleAnalyze", () => {
   });
 
   test("applies config when root is not yet configured", async () => {
-    const { loadMokoshConfig, applyConfig } = await import("../index");
+    const { loadMokoshConfig, applyConfig } = await import("../index.js");
     const cache = makeCache();
     await handleAnalyze(cache, { root: ROOT, entryPoints: ["src/a.ts"] });
 
@@ -119,7 +119,7 @@ describe("handleAnalyze", () => {
   });
 
   test("skips config when root is already configured", async () => {
-    const { applyConfig } = await import("../index");
+    const { applyConfig } = await import("../index.js");
     vi.mocked(applyConfig).mockClear();
     const cache = makeCache();
     vi.mocked(cache.isConfigured).mockReturnValue(true);
@@ -246,7 +246,7 @@ describe("handleQuery", () => {
     };
 
     expect(data.nodes).toHaveLength(1);
-    expect(data.nodes[0]!.path).toBe("src/a.ts");
+    expect(data.nodes[0]?.path).toBe("src/a.ts");
   });
 
   test("returns a Mermaid diagram when mermaid=true", async () => {
@@ -256,6 +256,6 @@ describe("handleQuery", () => {
       mermaid: true,
     });
 
-    expect(result.content[0]!.text).toContain("graph TD");
+    expect(result.content[0]?.text).toContain("graph TD");
   });
 });

@@ -30,9 +30,9 @@ describe("LockFileParser", () => {
 
     const result = parsePackageLock(lockPath);
     expect(result.dependencies.lodash).toBeDefined();
-    expect(result.dependencies.lodash!.version).toBe("4.17.21");
+    expect(result.dependencies.lodash?.version).toBe("4.17.21");
     expect(result.dependencies["@types/node"]).toBeDefined();
-    expect(result.dependencies["@types/node"]!.version).toBe("18.0.0");
+    expect(result.dependencies["@types/node"]?.version).toBe("18.0.0");
   });
 
   test("should parse yarn.lock v1 (classic)", () => {
@@ -51,9 +51,9 @@ lodash@^4.17.21:
 
     const result = parseYarnLock(lockPath);
     expect(result.dependencies.lodash).toBeDefined();
-    expect(result.dependencies.lodash!.version).toBe("4.17.21");
+    expect(result.dependencies.lodash?.version).toBe("4.17.21");
     expect(result.dependencies["@types/node"]).toBeDefined();
-    expect(result.dependencies["@types/node"]!.version).toBe("18.0.0");
+    expect(result.dependencies["@types/node"]?.version).toBe("18.0.0");
   });
 
   test("should parse yarn.lock v2 (berry)", () => {
@@ -75,9 +75,9 @@ __metadata:
 
     const result = parseYarnLock(lockPath);
     expect(result.dependencies.lodash).toBeDefined();
-    expect(result.dependencies.lodash!.version).toBe("4.17.21");
+    expect(result.dependencies.lodash?.version).toBe("4.17.21");
     expect(result.dependencies["@types/node"]).toBeDefined();
-    expect(result.dependencies["@types/node"]!.version).toBe("18.0.0");
+    expect(result.dependencies["@types/node"]?.version).toBe("18.0.0");
   });
 
   test("should parse pnpm-lock.yaml", () => {
@@ -100,6 +100,6 @@ packages:
 
     const result = parsePnpmLock(lockPath);
     expect(result.dependencies.lodash).toBeDefined();
-    expect(result.dependencies.lodash!.version).toBe("4.17.21");
+    expect(result.dependencies.lodash?.version).toBe("4.17.21");
   });
 });

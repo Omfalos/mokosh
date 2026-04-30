@@ -16,10 +16,12 @@
     "test": "vitest run",
     "build": "tsup",
     "lint": "biome lint ./src",
+    "typecheck": "tsc --noEmit",
     "format": "biome format --write ./src",
     "check": "biome check --write ./src",
     "example": "tsx example/run-example.ts",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "prepare": "husky"
   },
   "keywords": [
     "dependency-graph",
@@ -34,6 +36,11 @@
   "author": "Mokosh Contributors",
   "license": "ISC",
   "type": "commonjs",
+  "lint-staged": {
+    "src/**/*.{ts,tsx,js,jsx,json}": [
+      "biome check --write"
+    ]
+  },
   "devDependencies": {
     "@biomejs/biome": "^2.4.11",
     "@types/coffeescript": "^2.5.7",
@@ -41,6 +48,8 @@
     "@types/node": "^25.6.0",
     "@vitest/coverage-v8": "^4.1.4",
     "coffeescript": "^2.7.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.4.0",
     "livescript": "^1.6.0",
     "ts-node": "^10.9.2",
     "tsup": "^8.5.1",

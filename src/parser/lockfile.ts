@@ -110,7 +110,7 @@ export function parseYarnLock(filePath: string): LockFileData {
   const lines = content.split("\n");
 
   for (let i = 0; i < lines.length; i++) {
-    const rawLine = lines[i]!;
+    const rawLine = lines[i] ?? "";
     const line = rawLine.trim();
     if (line.length === 0 || line.startsWith("#") || line.startsWith("  ")) continue;
 
@@ -144,15 +144,16 @@ export function parseYarnLock(filePath: string): LockFileData {
         for (const pkg of packageNamesFoundInThisLine) {
           // Look ahead for version
           for (let j = i + 1; j < Math.min(i + 10, lines.length); j++) {
-            const nextLine = lines[j]!.trim();
-            if (nextLine.startsWith('version "')) {
+            const nextLine = lines[j]?.trim();
+            if (nextLine?.startsWith('version "')) {
               const vMatch = nextLine.match(/version "(.*?)"/);
               if (vMatch) {
-                result.dependencies[pkg]!.version = vMatch[1]!;
+                const dep = result.dependencies[pkg];
+                if (dep) dep.version = vMatch[1] ?? "";
               }
               break;
             }
-            if (nextLine.length > 0 && !lines[j]!.startsWith(" ")) break;
+            if (nextLine && nextLine.length > 0 && !lines[j]?.startsWith(" ")) break;
           }
         }
       }
