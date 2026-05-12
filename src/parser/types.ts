@@ -1,10 +1,12 @@
-import type { ImportEdge, NodeCategory, StructuredTag } from "../types";
+import type ts from "typescript";
+import type { ExportedSymbol, ImportEdge, NodeCategory, StructuredTag } from "../types";
 
 export interface ParseContext {
   filePath: string;
   imports: ImportEdge[];
-  exports: Set<string>;
+  exports: Map<string, ExportedSymbol>;
   tags: Set<StructuredTag>;
+  sourceFile: ts.SourceFile;
   hasUI: boolean;
   hasTypesOnly: boolean;
   totalStatements: number;
@@ -13,7 +15,8 @@ export interface ParseContext {
 
 export interface ParseResult {
   imports: ImportEdge[];
-  exports: string[];
+  exports: ExportedSymbol[];
   tags: StructuredTag[];
   category: NodeCategory;
+  description?: string;
 }

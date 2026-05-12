@@ -1,17 +1,31 @@
 import path from "node:path";
 import ts from "typescript";
-import type { FileType, ImportEdge, ImportType, NodeCategory, StructuredTag } from "../types";
+import type {
+  ExportedSymbol,
+  FileType,
+  ImportEdge,
+  ImportType,
+  NodeCategory,
+  StructuredTag,
+} from "../types";
 import { getBarrelThreshold, getTestLibraries, getTestPatterns, isConfigFile } from "./classify";
 import { isStyleFile } from "./file-type";
 import { handleTagging } from "./tagging";
 import type { ParseContext, ParseResult } from "./types";
 
 /**
- * Parses JavaScript and TypeScript files using the TypeScript Compiler API.
+ * @description Parses a JavaScript or TypeScript file using the TypeScript Compiler API.
+ *
+ * Creates a source file AST, walks every node to collect imports, exports, tags, and
+ * category hints, then classifies the file and returns a structured result.
+ * @param filePath - Absolute path of the file; used as the node identifier in the graph.
+ * @param content - Raw source content of the file.
+ * @param fileType - Determines the TS script kind (`TSX` for TypeScript, `JSX` for JavaScript).
+ * @returns Parsed result containing imports, exports, tags, category, and an optional file-level description.
  */
 export function parseCodeFile(filePath: string, content: string, fileType: FileType): ParseResult {
   const imports: ImportEdge[] = [];
-  const exports: Set<string> = new Set();
+  const exports: Map<string, ExportedSymbol> = new Map();
   const tags: Set<StructuredTag> = new Set();
 
   const sourceFile = ts.createSourceFile(
@@ -27,6 +41,7 @@ export function parseCodeFile(filePath: string, content: string, fileType: FileT
     imports,
     exports,
     tags,
+    sourceFile,
     hasUI: false,
     hasTypesOnly: true,
     totalStatements: 0,
@@ -40,6 +55,8 @@ export function parseCodeFile(filePath: string, content: string, fileType: FileT
 
   visit(sourceFile);
 
+  const description = sourceFile.statements[0] ? extractJsDoc(sourceFile.statements[0]) : undefined;
+
   const category = determineCategory(filePath, context);
   if (category === "test" || category === "barrel") {
     tags.add({ name: category, kind: "comment-marker" });
@@ -47,28 +64,156 @@ export function parseCodeFile(filePath: string, content: string, fileType: FileT
 
   return {
     imports,
-    exports: Array.from(exports),
+    exports: Array.from(exports.values()),
     tags: Array.from(tags),
     category,
+    ...(description !== undefined ? { description } : {}),
   };
 }
 
-function analyzeNode(node: ts.Node, ctx: ParseContext) {
-  if (ts.isSourceFile(node)) {
-    const statements = node.statements.filter((s) => !ts.isEmptyStatement(s));
-    ctx.totalStatements = statements.length;
-    ctx.exportStatements = statements.filter(
-      (s) => ts.isExportDeclaration(s) || ts.isExportAssignment(s) || hasExportModifier(s),
-    ).length;
-  }
+/**
+ * @description Constructs an `ExportedSymbol` from an AST declaration node, attaching JSDoc, flags, and type signature where available.
+ * @param name - The exported symbol name.
+ * @param declNode - The specific declaration node (e.g. function or variable declarator) used for flags and signature extraction.
+ * @param stmtNode - The parent statement node used for JSDoc extraction.
+ * @param sourceFile - The source file, required by the TS printer for signature serialisation.
+ * @returns The fully populated `ExportedSymbol`.
+ */
+function makeExportedSymbol(
+  name: string,
+  declNode: ts.Node,
+  stmtNode: ts.Node,
+  sourceFile: ts.SourceFile,
+): ExportedSymbol {
+  const sym: ExportedSymbol = { name };
+  const doc = extractJsDoc(stmtNode);
+  if (doc !== undefined) sym.doc = doc;
+  const flags = extractJsDocFlags(declNode);
+  if (flags !== undefined) sym.flags = flags;
+  const sig = extractSignature(declNode, sourceFile);
+  if (sig !== undefined) sym.signature = sig;
+  return sym;
+}
 
-  // Detect UI elements
+/**
+ * @description Extracts the text of the first JSDoc comment block attached to a node.
+ * @param node - The AST node to inspect.
+ * @returns The comment text, or `undefined` if no JSDoc is present.
+ */
+function extractJsDoc(node: ts.Node): string | undefined {
+  const cmts = ts.getJSDocCommentsAndTags(node);
+  for (const c of cmts) {
+    if (ts.isJSDoc(c) && c.comment) {
+      return ts.getTextOfJSDocComment(c.comment) || undefined;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * @description Extracts known JSDoc tag names from a node.
+ *
+ * Only a fixed set of tags is recognised: `deprecated`, `internal`, `public`, `alpha`, `beta`.
+ * Unknown tags are ignored so that project-specific markers don't pollute the symbol metadata.
+ * @param node - The AST node to inspect.
+ * @returns Array of matched tag names, or `undefined` if none are present.
+ */
+function extractJsDocFlags(node: ts.Node): string[] | undefined {
+  const KNOWN = new Set(["deprecated", "internal", "public", "alpha", "beta"]);
+  const flags = ts
+    .getJSDocTags(node)
+    .map((t) => t.tagName.text)
+    .filter((name) => KNOWN.has(name));
+  return flags.length > 0 ? flags : undefined;
+}
+
+/**
+ * @description Serialises the type signature of a declaration node into a human-readable string.
+ *
+ * Covers functions, methods, variable declarations (including arrow functions), classes,
+ * interfaces, type aliases, and enums. Returns `undefined` for node kinds with no
+ * meaningful signature (e.g. plain object literals).
+ * @param node - The declaration node to serialise.
+ * @param sourceFile - Required by the TS printer to resolve node text.
+ * @returns The signature string, or `undefined` if the node kind is not supported.
+ */
+function extractSignature(node: ts.Node, sourceFile: ts.SourceFile): string | undefined {
+  const printer = ts.createPrinter({ removeComments: true });
+  const print = (n: ts.Node) => printer.printNode(ts.EmitHint.Unspecified, n, sourceFile);
+
+  if (ts.isFunctionDeclaration(node) || ts.isMethodDeclaration(node)) {
+    const params = node.parameters.map(print).join(", ");
+    const ret = node.type ? print(node.type) : "void";
+    const tps = node.typeParameters
+      ? `<${node.typeParameters.map((tp) => tp.name.text).join(", ")}>`
+      : "";
+    return `${tps}(${params}) => ${ret}`;
+  }
+  if (ts.isVariableDeclaration(node)) {
+    if (node.type) return print(node.type);
+    if (
+      node.initializer &&
+      (ts.isArrowFunction(node.initializer) || ts.isFunctionExpression(node.initializer))
+    ) {
+      const fn = node.initializer;
+      const params = fn.parameters.map(print).join(", ");
+      const ret = fn.type ? print(fn.type) : "unknown";
+      return `(${params}) => ${ret}`;
+    }
+    return undefined;
+  }
+  if (ts.isClassDeclaration(node) && node.name) return `class ${node.name.text}`;
+  if (ts.isInterfaceDeclaration(node)) return `interface ${node.name.text}`;
+  if (ts.isTypeAliasDeclaration(node)) return print(node.type);
+  if (ts.isEnumDeclaration(node)) return `enum ${node.name.text}`;
+  return undefined;
+}
+
+/**
+ * @description Dispatches a single AST node to all analysis handlers that update the parse context.
+ * @param node - The current AST node being visited.
+ * @param ctx - The shared parse context accumulating imports, exports, tags, and category hints.
+ */
+function analyzeNode(node: ts.Node, ctx: ParseContext) {
+  updateStatementCounts(node, ctx);
+  updateCategoryHints(node, ctx);
+  handleImports(node, ctx);
+  handleExports(node, ctx);
+  handleCalls(node, ctx);
+  handleTagging(node, ctx);
+}
+
+/**
+ * @description Counts total and export statements in a source file and writes the totals to the parse context.
+ *
+ * Only runs for `SourceFile` nodes — all other node kinds are ignored.
+ * The counts are later used by `determineCategory` to detect barrel files.
+ * @param node - The current AST node; only `SourceFile` nodes are processed.
+ * @param ctx - The parse context to update.
+ */
+function updateStatementCounts(node: ts.Node, ctx: ParseContext) {
+  if (!ts.isSourceFile(node)) return;
+  const statements = node.statements.filter((s) => !ts.isEmptyStatement(s));
+  ctx.totalStatements = statements.length;
+  ctx.exportStatements = statements.filter(
+    (s) => ts.isExportDeclaration(s) || ts.isExportAssignment(s) || hasExportModifier(s),
+  ).length;
+}
+
+/**
+ * @description Updates `hasUI` and `hasTypesOnly` flags on the context based on the current node kind.
+ *
+ * JSX nodes set `hasUI`; function/class/variable/enum nodes clear `hasTypesOnly`.
+ * Both flags feed into `determineCategory` after the full AST walk.
+ * @param node - The current AST node.
+ * @param ctx - The parse context whose flags are mutated.
+ */
+function updateCategoryHints(node: ts.Node, ctx: ParseContext) {
   if (ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node) || ts.isJsxFragment(node)) {
     ctx.hasUI = true;
     ctx.hasTypesOnly = false;
+    return;
   }
-
-  // Detect logic vs types
   if (
     ts.isFunctionDeclaration(node) ||
     ts.isMethodDeclaration(node) ||
@@ -79,16 +224,16 @@ function analyzeNode(node: ts.Node, ctx: ParseContext) {
   ) {
     ctx.hasTypesOnly = false;
   }
-
-  // Handle imports/exports
-  handleImports(node, ctx);
-  handleExports(node, ctx);
-  handleCalls(node, ctx);
-
-  // Metadata / Tagging
-  handleTagging(node, ctx);
 }
 
+/**
+ * @description Handles a static `import` declaration and pushes an `ImportEdge` onto the context.
+ *
+ * Symbol extraction distinguishes default imports, named imports, and namespace imports (`* as ns`).
+ * A declaration with no import clause (side-effect import) produces an edge with no symbols.
+ * @param node - The current AST node; only `ImportDeclaration` nodes are processed.
+ * @param ctx - The parse context whose `imports` array is updated.
+ */
 function handleImports(node: ts.Node, ctx: ParseContext) {
   if (!ts.isImportDeclaration(node)) return;
   if (!node.moduleSpecifier || !ts.isStringLiteral(node.moduleSpecifier)) return;
@@ -119,7 +264,7 @@ function handleImports(node: ts.Node, ctx: ParseContext) {
 }
 
 /**
- * Visits an AST node and records any exports it declares into `ctx`.
+ * @description Visits an AST node and records any exports it declares into `ctx`.
  *
  * Handles three syntactic forms:
  *
@@ -133,36 +278,46 @@ function handleImports(node: ts.Node, ctx: ParseContext) {
  *
  * 3. **Inline export modifier** (`export function foo`, `export const bar`, `export default`):
  *    Registers the exported name (or `"default"` for `export default`) in `ctx.exports`.
+ * @param node - The current AST node to inspect.
+ * @param ctx - The parse context whose `exports` and `imports` are updated.
  */
 function handleExports(node: ts.Node, ctx: ParseContext) {
   if (ts.isExportDeclaration(node)) {
     handleExportDeclaration(node, ctx);
   } else if (ts.isExportAssignment(node)) {
-    ctx.exports.add("default");
+    ctx.exports.set("default", { name: "default" });
   } else if (hasExportModifier(node)) {
     handleInlineExport(node, ctx);
   }
 }
 
 /**
- * Handles `export { ... }` and `export { ... } from '...'` / `export * from '...'`.
+ * @description Handles `export { ... }` and `export { ... } from '...'` / `export * from '...'`.
+ *
  * When a module specifier is present this is a re-export edge; otherwise it is a
  * local symbol registration.
+ * @param node - The export declaration node.
+ * @param ctx - The parse context to update.
  */
 function handleExportDeclaration(node: ts.ExportDeclaration, ctx: ParseContext) {
   if (node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
     handleReExport(node, node.moduleSpecifier.text, ctx);
   } else if (node.exportClause && ts.isNamedExports(node.exportClause)) {
     for (const element of node.exportClause.elements) {
-      ctx.exports.add(element.name.text);
+      const name = element.name.text;
+      ctx.exports.set(name, { name });
     }
   }
 }
 
 /**
- * Records a cross-module re-export as an `ImportEdge`.
+ * @description Records a cross-module re-export as an `ImportEdge`.
+ *
  * Extracts named symbols from `export { A } from '...'`, or uses `"*"` for
  * `export * from '...'` (no export clause).
+ * @param node - The export declaration node.
+ * @param specifier - The raw module specifier string from the source.
+ * @param ctx - The parse context whose `imports` array is updated.
  */
 function handleReExport(node: ts.ExportDeclaration, specifier: string, ctx: ParseContext) {
   const symbols = extractReExportSymbols(node);
@@ -177,7 +332,14 @@ function handleReExport(node: ts.ExportDeclaration, specifier: string, ctx: Pars
   ctx.imports.push(edge);
 }
 
-/** Returns the exported symbol names, or `["*"]` when the clause is absent (star re-export). */
+/**
+ * @description Returns the exported symbol names from a re-export declaration.
+ *
+ * Returns `["*"]` when the export clause is absent (star re-export), or an empty
+ * array for namespace re-exports (`export * as ns from '...'`) which are not yet tracked.
+ * @param node - The export declaration node to inspect.
+ * @returns Array of symbol names, or `["*"]` for a star re-export.
+ */
 function extractReExportSymbols(node: ts.ExportDeclaration): string[] {
   if (!node.exportClause) return ["*"];
   if (ts.isNamedExports(node.exportClause)) {
@@ -187,9 +349,12 @@ function extractReExportSymbols(node: ts.ExportDeclaration): string[] {
 }
 
 /**
- * Handles declarations that carry an `export` modifier, e.g.:
+ * @description Handles declarations that carry an `export` modifier, e.g.:
  * `export function foo`, `export class Bar`, `export const baz`, `export type T`.
- * Registers each exported name into `ctx.exports`.
+ *
+ * Registers each exported name into `ctx.exports` with its signature and JSDoc metadata.
+ * @param node - The exported declaration node.
+ * @param ctx - The parse context whose `exports` map is updated.
  */
 function handleInlineExport(node: ts.Node, ctx: ParseContext) {
   const isNamedDeclaration =
@@ -200,48 +365,64 @@ function handleInlineExport(node: ts.Node, ctx: ParseContext) {
     ts.isEnumDeclaration(node);
 
   if (isNamedDeclaration && node.name) {
-    ctx.exports.add(node.name.text);
+    const name = node.name.text;
+    ctx.exports.set(name, makeExportedSymbol(name, node, node, ctx.sourceFile));
     return;
   }
 
   if (ts.isVariableStatement(node)) {
     for (const decl of node.declarationList.declarations) {
-      if (ts.isIdentifier(decl.name)) ctx.exports.add(decl.name.text);
+      if (ts.isIdentifier(decl.name)) {
+        const name = decl.name.text;
+        ctx.exports.set(name, makeExportedSymbol(name, decl, node, ctx.sourceFile));
+      }
     }
   }
 }
 
+/**
+ * @description Handles dynamic `import()` calls and `require()` calls, pushing import edges onto the context.
+ *
+ * The string argument is hoisted before the call-type check so both branches share the
+ * same guard, removing a level of nesting. Non-string (computed) specifiers are silently ignored.
+ * @param node - The current AST node; only `CallExpression` nodes are processed.
+ * @param ctx - The parse context whose `imports` array is updated.
+ */
 function handleCalls(node: ts.Node, ctx: ParseContext) {
   if (!ts.isCallExpression(node)) return;
 
-  // Dynamic import()
+  const arg = node.arguments[0];
+  if (!arg || !ts.isStringLiteral(arg)) return;
+
   if (node.expression.kind === ts.SyntaxKind.ImportKeyword) {
-    const arg = node.arguments[0];
-    if (arg && ts.isStringLiteral(arg)) {
-      ctx.imports.push({
-        fromPath: ctx.filePath,
-        toPath: "",
-        rawSpecifier: arg.text,
-        isStyle: isStyleFile(arg.text),
-        type: "dynamic",
-      });
-    }
-  }
-  // require()
-  else if (ts.isIdentifier(node.expression) && node.expression.text === "require") {
-    const arg = node.arguments[0];
-    if (arg && ts.isStringLiteral(arg)) {
-      ctx.imports.push({
-        fromPath: ctx.filePath,
-        toPath: "",
-        rawSpecifier: arg.text,
-        isStyle: isStyleFile(arg.text),
-        type: "require",
-      });
-    }
+    ctx.imports.push({
+      fromPath: ctx.filePath,
+      toPath: "",
+      rawSpecifier: arg.text,
+      isStyle: isStyleFile(arg.text),
+      type: "dynamic",
+    });
+  } else if (ts.isIdentifier(node.expression) && node.expression.text === "require") {
+    ctx.imports.push({
+      fromPath: ctx.filePath,
+      toPath: "",
+      rawSpecifier: arg.text,
+      isStyle: isStyleFile(arg.text),
+      type: "require",
+    });
   }
 }
 
+/**
+ * @description Classifies a parsed file into a `NodeCategory` based on file name patterns, imports, and AST shape.
+ *
+ * Checks are ordered from most to least specific: explicit test files, config files,
+ * testing-library imports, JSX/UI presence, barrel ratio, type-only content, and finally
+ * the default `"logic"` bucket.
+ * @param filePath - The file path, checked against test and config name patterns.
+ * @param ctx - The parse context with accumulated category hints from the AST walk.
+ * @returns The most specific matching `NodeCategory`.
+ */
 function determineCategory(filePath: string, ctx: ParseContext): NodeCategory {
   const baseName = path.basename(filePath).toLowerCase();
   const ext = path.extname(filePath).toLowerCase();
@@ -275,6 +456,11 @@ function determineCategory(filePath: string, ctx: ParseContext): NodeCategory {
   return "logic";
 }
 
+/**
+ * @description Checks whether a node has an `export` keyword modifier.
+ * @param node - The AST node to inspect.
+ * @returns `true` if the node carries an `export` modifier.
+ */
 function hasExportModifier(node: ts.Node): boolean {
   return (
     ts.canHaveModifiers(node) &&

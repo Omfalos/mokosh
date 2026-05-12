@@ -23,18 +23,26 @@ export interface StructuredTag {
   kind: TagKind;
 }
 
+export interface ExportedSymbol {
+  name: string;
+  doc?: string;
+  flags?: string[];
+  signature?: string;
+}
+
 export interface GraphNode {
   path: string;
   type: FileType;
   category: NodeCategory;
   imports: ImportEdge[];
-  exports: string[];
+  exports: ExportedSymbol[];
   tags: StructuredTag[];
 }
 
 export interface FileNode extends GraphNode {
   mtime: number;
   size: number;
+  description?: string;
 }
 
 export interface SerializedGraph {

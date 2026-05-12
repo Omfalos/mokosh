@@ -37,7 +37,7 @@ const FIXTURE: SerializedGraph = {
       category: "logic",
       tags: [{ name: "auth", kind: "comment-marker" as const }],
       imports: [],
-      exports: ["foo"],
+      exports: [{ name: "foo" }],
       mtime: 0,
       size: 0,
     },

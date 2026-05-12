@@ -8,8 +8,9 @@ function makeCtx(): ParseContext {
   return {
     filePath: "test.ts",
     imports: [],
-    exports: new Set(),
+    exports: new Map(),
     tags: new Set<StructuredTag>(),
+    sourceFile: ts.createSourceFile("test.ts", "", ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX),
     hasUI: false,
     hasTypesOnly: true,
     totalStatements: 0,
