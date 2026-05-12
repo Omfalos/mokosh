@@ -154,7 +154,7 @@ require './b'`;
   test("tag and category extraction for Coffee, LS, Lua", async () => {
     const coffeeContent = "# @tag coffee-test\nimport { a } from './a'";
     const coffeeResult = await parseFile("test.coffee", coffeeContent);
-    expect(coffeeResult.tags).toContain("coffee-test");
+    expect(coffeeResult.tags.map((t) => t.name)).toContain("coffee-test");
     expect(coffeeResult.category).toBe("logic");
 
     const coffeeTestContent = "# @tag test\nimport './a'";
@@ -163,7 +163,7 @@ require './b'`;
 
     const luaTestContent = "-- @tag performance\nrequire 'mod'";
     const luaResult = await parseFile("test.lua", luaTestContent);
-    expect(luaResult.tags).toContain("performance");
+    expect(luaResult.tags.map((t) => t.name)).toContain("performance");
     expect(luaResult.category).toBe("logic");
 
     const luaSpecContent = "-- unit test\nrequire 'mod'";
@@ -172,7 +172,7 @@ require './b'`;
 
     const lsContent = "# @tag ls-meta\nimport './a'";
     const lsResult = await parseFile("test.ls", lsContent);
-    expect(lsResult.tags).toContain("ls-meta");
+    expect(lsResult.tags.map((t) => t.name)).toContain("ls-meta");
   });
 
   test("Gherkin (.feature) parsing", async () => {
@@ -193,11 +193,11 @@ require './b'`;
     `;
     const result = await parseFile("login.feature", content);
     expect(result.category).toBe("test");
-    expect(result.tags).toContain("smoke");
-    expect(result.tags).toContain("ui");
-    expect(result.tags).toContain("auth");
-    expect(result.tags).toContain("negative");
-    expect(result.tags).toContain("slow");
+    expect(result.tags.map((t) => t.name)).toContain("smoke");
+    expect(result.tags.map((t) => t.name)).toContain("ui");
+    expect(result.tags.map((t) => t.name)).toContain("auth");
+    expect(result.tags.map((t) => t.name)).toContain("negative");
+    expect(result.tags.map((t) => t.name)).toContain("slow");
     expect(result.imports.length).toBe(0);
   });
 });

@@ -80,5 +80,10 @@ export function parseLua(filePath: string, content: string): ParseResult {
     // Ignore parse errors
   }
 
-  return { imports, exports: [], tags: Array.from(tags), category };
+  return {
+    imports,
+    exports: [],
+    tags: Array.from(tags).map((name) => ({ name, kind: "comment-marker" as const })),
+    category,
+  };
 }

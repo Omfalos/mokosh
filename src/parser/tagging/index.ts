@@ -1,4 +1,5 @@
 import ts from "typescript";
+import type { TagKind } from "../../types";
 import type { ParseContext } from "../types";
 
 const TEST_CALL_NAMES = new Set(["test", "describe", "it"]);
@@ -38,7 +39,17 @@ function collectDeclarationNameTags(node: ts.Node, ctx: ParseContext): void {
     ts.isIdentifier(node.name) &&
     isTopLevel(node)
   ) {
-    ctx.tags.add(node.name.text);
+    let kind: TagKind;
+    if (ts.isFunctionDeclaration(node)) {
+      kind = "function";
+    } else {
+      const init = node.initializer;
+      kind =
+        init && (ts.isArrowFunction(init) || ts.isFunctionExpression(init))
+          ? "function"
+          : "variable";
+    }
+    ctx.tags.add({ name: node.name.text, kind });
   }
 }
 
@@ -58,7 +69,7 @@ function collectStringLiteralAtTags(node: ts.Node, ctx: ParseContext): void {
   if (!ts.isStringLiteral(node)) return;
   const matches = node.text.match(/@[\w-]+/g);
   if (matches) {
-    for (const tag of matches) ctx.tags.add(tag.substring(1));
+    for (const tag of matches) ctx.tags.add({ name: tag.substring(1), kind: "comment-marker" });
   }
 }
 
@@ -72,7 +83,7 @@ function collectCommentAnnotationTags(node: ts.Node, ctx: ParseContext): void {
   const fullText = node.getFullText();
   let match = tagRegex.exec(fullText);
   while (match !== null) {
-    if (match[1]) ctx.tags.add(match[1]);
+    if (match[1]) ctx.tags.add({ name: match[1], kind: "comment-marker" });
     match = tagRegex.exec(fullText);
   }
 }
@@ -116,11 +127,12 @@ function collectTagsFromObjectLiteral(obj: ts.ObjectLiteralExpression, ctx: Pars
       continue;
     if (prop.name.text === "tag" && ts.isStringLiteral(prop.initializer)) {
       // Playwright: tag: '@smoke'
-      ctx.tags.add(prop.initializer.text.replace(/^@/, ""));
+      ctx.tags.add({ name: prop.initializer.text.replace(/^@/, ""), kind: "comment-marker" });
     } else if (ts.isArrayLiteralExpression(prop.initializer)) {
       // Vitest: tags: ['foo']  /  Playwright: tag: ['@smoke']
       for (const el of prop.initializer.elements) {
-        if (ts.isStringLiteral(el)) ctx.tags.add(el.text.replace(/^@/, ""));
+        if (ts.isStringLiteral(el))
+          ctx.tags.add({ name: el.text.replace(/^@/, ""), kind: "comment-marker" });
       }
     }
   }

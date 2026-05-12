@@ -1,10 +1,10 @@
-import type { ImportEdge, NodeCategory } from "../types";
+import type { ImportEdge, NodeCategory, StructuredTag } from "../types";
 
 export interface ParseContext {
   filePath: string;
   imports: ImportEdge[];
   exports: Set<string>;
-  tags: Set<string>;
+  tags: Set<StructuredTag>;
   hasUI: boolean;
   hasTypesOnly: boolean;
   totalStatements: number;
@@ -14,6 +14,6 @@ export interface ParseContext {
 export interface ParseResult {
   imports: ImportEdge[];
   exports: string[];
-  tags: string[];
+  tags: StructuredTag[];
   category: NodeCategory;
 }

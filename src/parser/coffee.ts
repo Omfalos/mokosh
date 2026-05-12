@@ -109,5 +109,10 @@ export function parseCoffeeScript(filePath: string, content: string): ParseResul
     // coffeescript compiler throws on invalid syntax; return what we have
   }
 
-  return { imports, exports: [], tags: Array.from(tags), category };
+  return {
+    imports,
+    exports: [],
+    tags: Array.from(tags).map((name) => ({ name, kind: "comment-marker" as const })),
+    category,
+  };
 }

@@ -1,11 +1,11 @@
 import { applyConfig, Graph } from "../index";
 import { parseArgs } from "./args";
-import * as affectedTests from "./commands/affected-tests";
-import * as checkCycles from "./commands/check-cycles";
-import * as detectFeatures from "./commands/detect-features";
-import * as findUnused from "./commands/find-unused";
-import * as graphOutput from "./commands/graph-output";
-import * as proposeTags from "./commands/propose-tags";
+import { run as runAffectedTests } from "./commands/affected-tests";
+import { run as runCheckCycles } from "./commands/check-cycles";
+import { run as runDetectFeatures } from "./commands/detect-features";
+import { run as runFindUnused } from "./commands/find-unused";
+import { run as runGraphOutput } from "./commands/graph-output";
+import { run as runProposeTags } from "./commands/propose-tags";
 import { resolveConfig } from "./config";
 import { buildGraph, loadGraphFromCache, saveGraphToCache } from "./graph-loader";
 import { HELP_TEXT } from "./help";
@@ -23,28 +23,30 @@ export async function run(): Promise<void> {
   applyConfig(config.rawConfig);
   const { rootDir, resolvedEntryPoints, resolvedCachePath, scanOptions } = config;
   const {
-    proposeTagsFlag,
-    proposeTagsPlain,
-    affectedTestsFlag,
-    detectFeaturesFlag,
-    findUnusedFlag,
+    proposeTags,
+    plain,
+    affectedTests,
+    detectFeatures,
+    findUnused,
     excludeTests,
-    checkCyclesFlag,
+    checkCycles,
     silent,
+    featureThreshold,
+    query: queryStr,
+    mermaid: mermaidOutput,
   } = parsed;
-  const { featureThreshold, queryStr, mermaidOutput } = parsed;
 
-  const autoScanFlag = proposeTagsFlag || affectedTestsFlag;
+  const autoScan = proposeTags || affectedTests;
 
   let graph: Graph = loadGraphFromCache(resolvedCachePath) ?? new Graph(new Map());
 
-  if (resolvedEntryPoints.length > 0 || !autoScanFlag) {
+  if (resolvedEntryPoints.length > 0 || !autoScan) {
     if (
       resolvedEntryPoints.length === 0 &&
-      !autoScanFlag &&
-      !findUnusedFlag &&
-      !detectFeaturesFlag &&
-      !checkCyclesFlag
+      !autoScan &&
+      !findUnused &&
+      !detectFeatures &&
+      !checkCycles
     ) {
       console.error("Error: No entry points provided");
       process.exit(1);
@@ -61,21 +63,21 @@ export async function run(): Promise<void> {
     featureThreshold,
     queryStr,
     mermaidOutput,
-    plain: proposeTagsPlain,
+    plain,
     excludeTests,
   };
 
-  if (proposeTagsFlag) {
-    await proposeTags.run(ctx);
-  } else if (affectedTestsFlag) {
-    await affectedTests.run(ctx);
-  } else if (detectFeaturesFlag) {
-    await detectFeatures.run(ctx);
-  } else if (findUnusedFlag) {
-    await findUnused.run(ctx);
-  } else if (checkCyclesFlag) {
-    await checkCycles.run(ctx);
+  if (proposeTags) {
+    await runProposeTags(ctx);
+  } else if (affectedTests) {
+    await runAffectedTests(ctx);
+  } else if (detectFeatures) {
+    await runDetectFeatures(ctx);
+  } else if (findUnused) {
+    await runFindUnused(ctx);
+  } else if (checkCycles) {
+    await runCheckCycles(ctx);
   } else {
-    await graphOutput.run(ctx);
+    await runGraphOutput(ctx);
   }
 }

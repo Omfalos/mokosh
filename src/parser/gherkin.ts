@@ -11,7 +11,7 @@ const uuidFn = IdGenerator.uuid();
  * Gherkin files are categorized as 'test' by default.
  */
 export function parseGherkin(_filePath: string, content: string): ParseResult {
-  const tags = new Set<string>();
+  const rawTags = new Set<string>();
 
   try {
     const builder = new AstBuilder(uuidFn);
@@ -23,20 +23,20 @@ export function parseGherkin(_filePath: string, content: string): ParseResult {
     if (gherkinDocument.feature) {
       // Feature tags
       gherkinDocument.feature.tags.forEach((tag) => {
-        tags.add(tag.name.startsWith("@") ? tag.name.slice(1) : tag.name);
+        rawTags.add(tag.name.startsWith("@") ? tag.name.slice(1) : tag.name);
       });
 
       // Child tags (Scenarios, Rules, etc.)
       gherkinDocument.feature.children.forEach((child) => {
         if (child.scenario) {
           child.scenario.tags.forEach((tag) => {
-            tags.add(tag.name.startsWith("@") ? tag.name.slice(1) : tag.name);
+            rawTags.add(tag.name.startsWith("@") ? tag.name.slice(1) : tag.name);
           });
 
           // Example tags
           child.scenario.examples.forEach((example) => {
             example.tags.forEach((tag) => {
-              tags.add(tag.name.startsWith("@") ? tag.name.slice(1) : tag.name);
+              rawTags.add(tag.name.startsWith("@") ? tag.name.slice(1) : tag.name);
             });
           });
         }
@@ -45,7 +45,7 @@ export function parseGherkin(_filePath: string, content: string): ParseResult {
           child.rule.children.forEach((ruleChild) => {
             if (ruleChild.scenario) {
               ruleChild.scenario.tags.forEach((tag) => {
-                tags.add(tag.name.startsWith("@") ? tag.name.slice(1) : tag.name);
+                rawTags.add(tag.name.startsWith("@") ? tag.name.slice(1) : tag.name);
               });
             }
           });
@@ -59,7 +59,7 @@ export function parseGherkin(_filePath: string, content: string): ParseResult {
   return {
     imports: [],
     exports: [],
-    tags: Array.from(tags),
+    tags: Array.from(rawTags).map((name) => ({ name, kind: "comment-marker" as const })),
     category: "test",
   };
 }

@@ -23,8 +23,9 @@ export function matchNode(node: FileNode, query: NodeQuery): boolean {
   if (query.tags && query.tags.length > 0) {
     const positive = query.tags.filter((t) => !t.startsWith("!"));
     const negative = query.tags.filter((t) => t.startsWith("!")).map((t) => t.slice(1));
-    if (positive.length > 0 && !positive.some((t) => node.tags.includes(t))) return false;
-    if (negative.some((t) => node.tags.includes(t))) return false;
+    if (positive.length > 0 && !positive.some((t) => node.tags.some((st) => st.name === t)))
+      return false;
+    if (negative.some((t) => node.tags.some((st) => st.name === t))) return false;
   }
 
   return true;

@@ -132,7 +132,7 @@ export function handleGetAffected(cache: SessionState, args: GetAffectedArgs) {
     file,
     (node) => {
       if (node.path === file) return true;
-      const isTest = node.category === "test" || node.tags.includes("test");
+      const isTest = node.category === "test" || node.tags.some((t) => t.name === "test");
       if (!testsOnly || isTest) affected.push(node.path);
       return true;
     },

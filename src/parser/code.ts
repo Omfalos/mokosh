@@ -1,6 +1,6 @@
 import path from "node:path";
 import ts from "typescript";
-import type { FileType, ImportEdge, ImportType, NodeCategory } from "../types";
+import type { FileType, ImportEdge, ImportType, NodeCategory, StructuredTag } from "../types";
 import { getBarrelThreshold, getTestLibraries, getTestPatterns, isConfigFile } from "./classify";
 import { isStyleFile } from "./file-type";
 import { handleTagging } from "./tagging";
@@ -12,7 +12,7 @@ import type { ParseContext, ParseResult } from "./types";
 export function parseCodeFile(filePath: string, content: string, fileType: FileType): ParseResult {
   const imports: ImportEdge[] = [];
   const exports: Set<string> = new Set();
-  const tags: Set<string> = new Set();
+  const tags: Set<StructuredTag> = new Set();
 
   const sourceFile = ts.createSourceFile(
     filePath,
@@ -42,7 +42,7 @@ export function parseCodeFile(filePath: string, content: string, fileType: FileT
 
   const category = determineCategory(filePath, context);
   if (category === "test" || category === "barrel") {
-    tags.add(category);
+    tags.add({ name: category, kind: "comment-marker" });
   }
 
   return {

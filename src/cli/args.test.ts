@@ -47,19 +47,19 @@ describe("parseArgs", () => {
   });
 
   it("parses --mermaid", () => {
-    expect(parseArgs(["--mermaid", "src/index.ts"]).mermaidOutput).toBe(true);
+    expect(parseArgs(["--mermaid", "src/index.ts"]).mermaid).toBe(true);
   });
 
   it("parses --propose-tags", () => {
-    expect(parseArgs(["--propose-tags"]).proposeTagsFlag).toBe(true);
+    expect(parseArgs(["--propose-tags"]).proposeTags).toBe(true);
   });
 
   it("parses --affected-tests", () => {
-    expect(parseArgs(["--affected-tests"]).affectedTestsFlag).toBe(true);
+    expect(parseArgs(["--affected-tests"]).affectedTests).toBe(true);
   });
 
   it("parses --detect-features", () => {
-    expect(parseArgs(["--detect-features"]).detectFeaturesFlag).toBe(true);
+    expect(parseArgs(["--detect-features"]).detectFeatures).toBe(true);
   });
 
   it("parses --feature-threshold as integer", () => {
@@ -67,11 +67,11 @@ describe("parseArgs", () => {
   });
 
   it("parses --find-unused", () => {
-    expect(parseArgs(["--find-unused"]).findUnusedFlag).toBe(true);
+    expect(parseArgs(["--find-unused"]).findUnused).toBe(true);
   });
 
   it("parses --query", () => {
-    expect(parseArgs(["--query", "category:logic"]).queryStr).toBe("category:logic");
+    expect(parseArgs(["--query", "category:logic"]).query).toBe("category:logic");
   });
 
   it("collects positional args as entryPoints", () => {

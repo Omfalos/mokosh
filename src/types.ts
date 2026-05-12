@@ -16,13 +16,20 @@ export type ImportType = "static" | "dynamic" | "require" | "re-export" | "side-
 
 export type NodeCategory = "logic" | "ui" | "type-only" | "config" | "test" | "barrel" | "other";
 
+export type TagKind = "function" | "class" | "variable" | "type" | "import" | "comment-marker";
+
+export interface StructuredTag {
+  name: string;
+  kind: TagKind;
+}
+
 export interface GraphNode {
   path: string;
   type: FileType;
   category: NodeCategory;
   imports: ImportEdge[];
-  exports: string[]; // List of named exports
-  tags: string[];
+  exports: string[];
+  tags: StructuredTag[];
 }
 
 export interface FileNode extends GraphNode {

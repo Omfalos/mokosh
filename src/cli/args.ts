@@ -2,128 +2,139 @@ import path from "node:path";
 
 export interface ParsedArgs {
   rootDir: string;
-  cachePath: string | undefined;
+  cachePath: string;
   configPath: string | undefined;
-  mermaidOutput: boolean;
-  proposeTagsFlag: boolean;
-  proposeTagsPlain: boolean;
-  affectedTestsFlag: boolean;
-  detectFeaturesFlag: boolean;
+  mermaid: boolean;
+  proposeTags: boolean;
+  plain: boolean;
+  affectedTests: boolean;
+  detectFeatures: boolean;
   featureThreshold: number | undefined;
-  findUnusedFlag: boolean;
+  findUnused: boolean;
   excludeTests: boolean;
-  checkCyclesFlag: boolean;
+  checkCycles: boolean;
   silent: boolean;
-  queryStr: string | undefined;
+  query: string | undefined;
   entryPoints: string[];
   help: boolean;
 }
 
 /**
- * Parses raw CLI argv into structured flags and values.
+ * Extracts and resolves the `--root` argument from raw argv, falling back to
+ * the current working directory when the flag is absent.
  *
- * Uses two passes: --root must be resolved first because the default cache path
- * is derived from it, and subsequent path arguments are resolved relative to it.
+ * @param argv - Raw process arguments (everything after `node <script>`)
+ * @returns Absolute path to use as the project root
  */
-export function parseArgs(argv: string[]): ParsedArgs {
-  const help = argv.length === 0 || argv.includes("--help");
-
-  let rootDir = process.cwd();
+function resolveRootDir(argv: string[]): string {
   for (let i = 0; i < argv.length; i++) {
-    if (argv[i] === "--root" && i + 1 < argv.length) {
-      const next = argv[i + 1];
-      if (next) {
-        rootDir = path.resolve(next);
-        i++;
-      }
+    if (argv[i] === "--root" && argv[i + 1]) {
+      return path.resolve(argv[i + 1]!);
     }
   }
+  return process.cwd();
+}
 
-  const defaultCacheDir = path.resolve(rootDir, "mokosh-cache");
-  const defaultCachePath = path.join(defaultCacheDir, "graph.json");
+/**
+ * Parses raw CLI arguments into a structured options object, with all paths
+ * resolved to absolute values.
+ *
+ * `--root` is resolved in a first pass because the default cache path is
+ * derived from it; every subsequent path argument is then resolved relative
+ * to that root.
+ *
+ * @param argv - Raw process arguments (everything after `node <script>`)
+ * @returns A fully populated {@link ParsedArgs} with boolean flags set and
+ *   path arguments converted to absolute paths
+ */
+export function parseArgs(argv: string[]): ParsedArgs {
+  const rootDir = resolveRootDir(argv);
+  const defaultCachePath = path.join(path.resolve(rootDir, "mokosh-cache"), "graph.json");
 
-  let cachePath: string | undefined;
-  let configPath: string | undefined;
-  let mermaidOutput = false;
-  let proposeTagsFlag = false;
-  let proposeTagsPlain = false;
-  let affectedTestsFlag = false;
-  let detectFeaturesFlag = false;
-  let featureThreshold: number | undefined;
-  let findUnusedFlag = false;
-  let excludeTests = false;
-  let checkCyclesFlag = false;
-  let silent = false;
-  let queryStr: string | undefined;
-  const entryPoints: string[] = [];
+  const result: ParsedArgs = {
+    rootDir,
+    cachePath: defaultCachePath,
+    configPath: undefined,
+    mermaid: false,
+    proposeTags: false,
+    plain: false,
+    affectedTests: false,
+    detectFeatures: false,
+    featureThreshold: undefined,
+    findUnused: false,
+    excludeTests: false,
+    checkCycles: false,
+    silent: false,
+    query: undefined,
+    entryPoints: [],
+    help: argv.length === 0 || argv.includes("--help"),
+  };
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
-    if (arg === "--cache") {
-      const next = argv[i + 1];
-      if (next && !next.startsWith("--")) {
-        cachePath = path.resolve(rootDir, next);
+    const next = argv[i + 1];
+
+    switch (arg) {
+      case "--root":
         i++;
-      } else {
-        cachePath = defaultCachePath;
-      }
-    } else if (arg === "--config" && i + 1 < argv.length) {
-      const next = argv[i + 1];
-      if (next) {
-        configPath = path.resolve(rootDir, next);
-        i++;
-      }
-    } else if (arg === "--root") {
-      i++;
-    } else if (arg === "--mermaid") {
-      mermaidOutput = true;
-    } else if (arg === "--propose-tags") {
-      proposeTagsFlag = true;
-    } else if (arg === "--plain") {
-      proposeTagsPlain = true;
-    } else if (arg === "--affected-tests") {
-      affectedTestsFlag = true;
-    } else if (arg === "--detect-features") {
-      detectFeaturesFlag = true;
-    } else if (arg === "--feature-threshold" && i + 1 < argv.length) {
-      featureThreshold = parseInt(argv[i + 1] ?? "", 10);
-      i++;
-    } else if (arg === "--find-unused") {
-      findUnusedFlag = true;
-    } else if (arg === "--exclude-tests") {
-      excludeTests = true;
-    } else if (arg === "--check-cycles") {
-      checkCyclesFlag = true;
-    } else if (arg === "--silent") {
-      silent = true;
-    } else if (arg === "--query" && i + 1 < argv.length) {
-      queryStr = argv[i + 1];
-      i++;
-    } else if (arg && !arg.startsWith("--")) {
-      entryPoints.push(arg);
+        break;
+      case "--cache":
+        if (next && !next.startsWith("--")) {
+          result.cachePath = path.resolve(rootDir, next);
+          i++;
+        }
+        break;
+      case "--config":
+        if (next) {
+          result.configPath = path.resolve(rootDir, next);
+          i++;
+        }
+        break;
+      case "--query":
+        if (next) {
+          result.query = next;
+          i++;
+        }
+        break;
+      case "--feature-threshold":
+        if (next) {
+          result.featureThreshold = parseInt(next, 10);
+          i++;
+        }
+        break;
+      case "--mermaid":
+        result.mermaid = true;
+        break;
+      case "--propose-tags":
+        result.proposeTags = true;
+        break;
+      case "--plain":
+        result.plain = true;
+        break;
+      case "--affected-tests":
+        result.affectedTests = true;
+        break;
+      case "--detect-features":
+        result.detectFeatures = true;
+        break;
+      case "--find-unused":
+        result.findUnused = true;
+        break;
+      case "--exclude-tests":
+        result.excludeTests = true;
+        break;
+      case "--check-cycles":
+        result.checkCycles = true;
+        break;
+      case "--silent":
+        result.silent = true;
+        break;
+      default:
+        if (arg && !arg.startsWith("--")) {
+          result.entryPoints.push(arg);
+        }
     }
   }
 
-  if (!cachePath) {
-    cachePath = defaultCachePath;
-  }
-
-  return {
-    rootDir,
-    cachePath,
-    configPath,
-    mermaidOutput,
-    proposeTagsFlag,
-    proposeTagsPlain,
-    affectedTestsFlag,
-    detectFeaturesFlag,
-    featureThreshold,
-    findUnusedFlag,
-    excludeTests,
-    checkCyclesFlag,
-    silent,
-    queryStr,
-    entryPoints,
-    help,
-  };
+  return result;
 }

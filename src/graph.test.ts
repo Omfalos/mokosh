@@ -211,9 +211,9 @@ describe("graph", () => {
       expect(mainNode).toBeDefined();
 
       // Check for automatic tags
-      expect(mainNode?.tags).toContain("lodash");
-      expect(mainNode?.tags).toContain("react");
-      expect(mainNode?.tags).toContain("@scope/pkg");
+      expect(mainNode?.tags.map((t) => t.name)).toContain("lodash");
+      expect(mainNode?.tags.map((t) => t.name)).toContain("react");
+      expect(mainNode?.tags.map((t) => t.name)).toContain("@scope/pkg");
 
       // Check for versions in imports
       const lodashImport = mainNode?.imports.find((i) => i.rawSpecifier === "lodash");

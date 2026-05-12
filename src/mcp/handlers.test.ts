@@ -35,7 +35,7 @@ const FIXTURE: SerializedGraph = {
       path: "src/a.ts",
       type: "typescript",
       category: "logic",
-      tags: ["auth"],
+      tags: [{ name: "auth", kind: "comment-marker" as const }],
       imports: [],
       exports: ["foo"],
       mtime: 0,
@@ -63,7 +63,7 @@ const FIXTURE: SerializedGraph = {
       path: "src/a.test.ts",
       type: "typescript",
       category: "test",
-      tags: ["a"],
+      tags: [{ name: "a", kind: "comment-marker" as const }],
       imports: [
         {
           fromPath: "src/a.test.ts",

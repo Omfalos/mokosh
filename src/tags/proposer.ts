@@ -100,7 +100,7 @@ export function proposeTags(
     (feature) => proposedTags.add(feature.tag),
     (node) => {
       if (identifier.isTestNode(node)) {
-        for (const tag of node.tags) proposedTags.add(tag);
+        for (const tag of node.tags) proposedTags.add(tag.name);
       }
     },
   );

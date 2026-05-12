@@ -9,7 +9,7 @@ describe("QueryEngine", () => {
         path: "src/logic.ts",
         type: "typescript",
         category: "logic",
-        tags: ["auth"],
+        tags: [{ name: "auth", kind: "comment-marker" as const }],
         imports: [
           {
             fromPath: "src/logic.ts",
@@ -37,7 +37,7 @@ describe("QueryEngine", () => {
         path: "src/ui.tsx",
         type: "typescript",
         category: "ui",
-        tags: ["theme"],
+        tags: [{ name: "theme", kind: "comment-marker" as const }],
         imports: [],
         exports: [],
         mtime: 0,

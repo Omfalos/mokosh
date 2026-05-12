@@ -11,12 +11,22 @@ export interface ResolvedConfig {
   rawConfig: MokoshConfig;
 }
 
+type ConfigInput = Pick<ParsedArgs, "rootDir" | "entryPoints" | "cachePath" | "configPath">;
+
 /**
- * Loads the mokosh config file and merges it with parsed CLI args.
- * Pure: no side effects. The caller is responsible for calling `applyConfig(result.rawConfig)`
- * to apply global parser settings before graph building begins.
+ * Merges parsed CLI arguments with the mokosh config file into a single
+ * resolved configuration ready for graph building.
+ *
+ * CLI arguments take precedence: when entry points or a cache path are
+ * provided on the command line they override the config-file equivalents.
+ * Call `applyConfig(result.rawConfig)` after this function and before
+ * starting the build to apply global parser settings.
+ *
+ * @param parsed - The CLI arguments needed for config resolution
+ * @returns Fully resolved paths, entry points, and scan options derived from
+ *   the combination of CLI flags and the loaded config file
  */
-export function resolveConfig(parsed: ParsedArgs): ResolvedConfig {
+export function resolveConfig(parsed: ConfigInput): ResolvedConfig {
   const { rootDir, entryPoints, cachePath, configPath } = parsed;
   const config = configPath
     ? loadMokoshConfig(configPath, { isExplicitPath: true })

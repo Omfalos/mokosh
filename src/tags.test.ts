@@ -25,8 +25,8 @@ describe("tags", () => {
     `;
     const result = await parseFile("test.ts", content);
 
-    expect(result.tags).toContain("login");
-    expect(result.tags).toContain("logout");
+    expect(result.tags.map((t) => t.name)).toContain("login");
+    expect(result.tags.map((t) => t.name)).toContain("logout");
   });
 
   test("parseFile - extracts tags from @ notation in strings", async () => {
@@ -35,19 +35,19 @@ describe("tags", () => {
     `;
     const result = await parseFile("test.ts", content);
 
-    expect(result.tags).toContain("smoke");
-    expect(result.tags).toContain("regression");
+    expect(result.tags.map((t) => t.name)).toContain("smoke");
+    expect(result.tags.map((t) => t.name)).toContain("regression");
   });
 
   test("parseFile - identifies test files", async () => {
     const result = await parseFile("app.test.ts", "const x = 1;");
-    expect(result.tags).toContain("test");
+    expect(result.tags.map((t) => t.name)).toContain("test");
 
     const result2 = await parseFile("app.spec.ts", "const x = 1;");
-    expect(result2.tags).toContain("test");
+    expect(result2.tags.map((t) => t.name)).toContain("test");
 
     const result3 = await parseFile("app.ts", "const x = 1;");
-    expect(result3.tags.includes("test")).toBe(false);
+    expect(result3.tags.some((t) => t.name === "test")).toBe(false);
   });
 
   test("proposeTags - identifies affected test tags based on changes", async () => {
@@ -110,7 +110,7 @@ describe("tags", () => {
     const testFile = "app.test.ts";
     nodes.set(testFile, {
       ...stubNode(testFile, "test"),
-      tags: ["smoke"],
+      tags: [{ name: "smoke", kind: "comment-marker" as const }],
       imports: [
         {
           fromPath: testFile,
@@ -149,7 +149,7 @@ describe("tags", () => {
     const testFile = "app.test.ts";
     nodes.set(testFile, {
       ...stubNode(testFile, "test"),
-      tags: ["smoke"],
+      tags: [{ name: "smoke", kind: "comment-marker" as const }],
       imports: [
         {
           fromPath: testFile,
@@ -175,7 +175,7 @@ describe("tags", () => {
     const testFile = "auth.test.ts";
     nodes.set(testFile, {
       ...stubNode(testFile, "test"),
-      tags: ["auth"],
+      tags: [{ name: "auth", kind: "comment-marker" as const }],
       imports: [
         {
           fromPath: testFile,
