@@ -43,6 +43,7 @@ export interface FileNode extends GraphNode {
   mtime: number;
   size: number;
   description?: string;
+  testedBy?: string[];
 }
 
 export interface SerializedGraph {

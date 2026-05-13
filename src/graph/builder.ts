@@ -3,7 +3,7 @@ import path from "node:path";
 import { type LockFileData, loadLockFile } from "../parser/lockfile.js";
 import { getFileType, parseFile } from "../parser.js";
 import type { DependencyGraph, FileNode, ImportEdge } from "../types.js";
-import { enrichLibraryTags, enrichTestNodeTags } from "./enrichment.js";
+import { enrichLibraryTags, enrichTestedBy, enrichTestNodeTags } from "./enrichment.js";
 import { Graph } from "./model.js";
 import { DefaultResolver, type PathResolver } from "./resolver.js";
 
@@ -76,6 +76,7 @@ export class GraphBuilder {
     }
 
     enrichTestNodeTags(this.graph.nodes);
+    enrichTestedBy(this.graph.nodes);
     return new Graph(this.graph.nodes);
   }
 
