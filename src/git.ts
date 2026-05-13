@@ -47,3 +47,17 @@ export class DefaultGitProvider implements GitProvider {
 export function getGitDiffFiles(): string[] {
   return new DefaultGitProvider().getChangedFiles();
 }
+
+export interface GitFileStats {
+  commitCount90d: number;
+  lastAuthor: string | undefined;
+}
+
+export function getGitFileStats(rootDir: string, relativePath: string): GitFileStats {
+  const output = execSync(
+    `git -C "${rootDir}" log --follow --format="%ae" --since="90 days ago" -- "${relativePath}"`,
+    { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] },
+  );
+  const lines = output.split("\n").filter(Boolean);
+  return { commitCount90d: lines.length, lastAuthor: lines[0] };
+}

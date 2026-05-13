@@ -18,7 +18,7 @@ export async function createImportMap(
   rootDir: string,
   entryPoints: string[],
   previousGraph: Graph | null = null,
-  options: { silent?: boolean } = {},
+  options: { silent?: boolean; gitStats?: boolean } = {},
 ): Promise<Graph> {
   const progressCallback = options.silent
     ? undefined
@@ -30,6 +30,7 @@ export async function createImportMap(
     previousGraph,
     undefined,
     progressCallback,
+    options.gitStats ?? false,
   );
   return await builder.build(entryPoints);
 }

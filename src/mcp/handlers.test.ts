@@ -84,7 +84,7 @@ function makeCache(): SessionState {
   const graph = Graph.deserialize(FIXTURE);
   return {
     isConfigured: vi.fn().mockReturnValue(false),
-    markConfigured: vi.fn(),
+    storeConfig: vi.fn(),
     getOrBuild: vi.fn().mockResolvedValue(graph),
     require: vi.fn().mockReturnValue(graph),
   } as unknown as SessionState;
@@ -115,7 +115,7 @@ describe("handleAnalyze", () => {
 
     expect(loadMokoshConfig).toHaveBeenCalledWith(ROOT, { allowJs: false });
     expect(applyConfig).toHaveBeenCalled();
-    expect(cache.markConfigured).toHaveBeenCalledWith(ROOT);
+    expect(cache.storeConfig).toHaveBeenCalledWith(ROOT, {});
   });
 
   test("skips config when root is already configured", async () => {

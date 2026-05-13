@@ -44,6 +44,8 @@ export interface FileNode extends GraphNode {
   size: number;
   description?: string;
   testedBy?: string[];
+  commitCount90d?: number;
+  lastAuthor?: string;
 }
 
 export interface SerializedGraph {

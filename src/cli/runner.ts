@@ -51,7 +51,13 @@ export async function run(): Promise<void> {
       console.error("Error: No entry points provided");
       process.exit(1);
     }
-    graph = await buildGraph(rootDir, resolvedEntryPoints, graph, silent);
+    graph = await buildGraph(
+      rootDir,
+      resolvedEntryPoints,
+      graph,
+      silent,
+      config.rawConfig.gitStats ?? false,
+    );
 
     saveGraphToCache(graph, resolvedCachePath);
   }

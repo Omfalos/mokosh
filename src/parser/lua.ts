@@ -3,6 +3,7 @@ import luaparse from "luaparse";
 import type { ImportEdge } from "../types";
 import { isStyleFile } from "./file-type";
 import type { ParseResult } from "./types";
+import { stripQuotes } from "./utils";
 
 /**
  * Parses Lua files using luaparse for dependency extraction (require calls).
@@ -42,12 +43,12 @@ export function parseLua(filePath: string, content: string): ParseResult {
           const arg = node.arguments?.[0];
           if (arg?.type === "StringLiteral") {
             // raw is like "'module'" or '"module"'
-            specifier = arg.raw.slice(1, -1);
+            specifier = stripQuotes(arg.raw);
           }
         } else if (node.type === "StringCallExpression") {
           const arg = node.argument;
           if (arg?.type === "StringLiteral") {
-            specifier = arg.raw.slice(1, -1);
+            specifier = stripQuotes(arg.raw);
           }
         }
 

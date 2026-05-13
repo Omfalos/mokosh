@@ -24,6 +24,8 @@ export interface MokoshConfig {
   testLibraries?: string[];
   /** Ratio of export-statements to total statements required for `"barrel"` classification. Default: `0.8`. */
   barrelThreshold?: number;
+  /** When true, enriches each node with `commitCount90d` and `lastAuthor` via git log. Only fetched for new/modified files. */
+  gitStats?: boolean;
 }
 
 const CONFIG_FILENAMES = ["mokosh.config.js", "mokosh.config.cjs", "mokosh.config.json"];

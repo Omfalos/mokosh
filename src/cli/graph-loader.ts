@@ -46,6 +46,7 @@ export async function buildGraph(
   entryPoints: string[],
   cachedGraph: Graph | null,
   silent = false,
+  gitStats = false,
 ): Promise<Graph> {
-  return createImportMap(rootDir, entryPoints, cachedGraph, { silent });
+  return createImportMap(rootDir, entryPoints, cachedGraph, { silent, gitStats });
 }

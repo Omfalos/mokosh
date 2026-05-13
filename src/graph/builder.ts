@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { getGitFileStats } from "../git.js";
 import { type LockFileData, loadLockFile } from "../parser/lockfile.js";
 import { getFileType, parseFile } from "../parser.js";
 import type { DependencyGraph, FileNode, ImportEdge } from "../types.js";
@@ -39,12 +40,14 @@ export class GraphBuilder {
    * @param previousGraph - Optional graph from a prior run. Nodes whose `mtime` and `size` match are reused as-is, making incremental builds significantly faster.
    * @param resolver - Strategy for turning raw import specifiers into absolute file paths. Defaults to {@link DefaultResolver}, which handles relative paths, tsconfig aliases, and node_modules.
    * @param progressCallback - Called every 100 files processed; useful for rendering a progress indicator in long-running CLI builds.
+   * @param gitStats - When true, fetches `commitCount90d` and `lastAuthor` for each cache-missed file via git log.
    */
   constructor(
     private rootDir: string,
     previousGraph: Graph | null = null,
     resolver?: PathResolver,
     progressCallback?: (count: number) => void,
+    private readonly enableGitStats = false,
   ) {
     this.previousGraph = previousGraph;
     this.resolver = resolver || new DefaultResolver(rootDir);
@@ -152,7 +155,7 @@ export class GraphBuilder {
 
     enrichLibraryTags(imports, tags);
 
-    return {
+    const node: FileNode = {
       path: relativePath,
       type: getFileType(filePath),
       category,
@@ -163,6 +166,18 @@ export class GraphBuilder {
       size: stats.size,
       ...(description !== undefined ? { description } : {}),
     };
+
+    if (this.enableGitStats) {
+      try {
+        const git = getGitFileStats(this.rootDir, relativePath);
+        node.commitCount90d = git.commitCount90d;
+        if (git.lastAuthor !== undefined) node.lastAuthor = git.lastAuthor;
+      } catch {
+        // git not available or file not tracked — silent
+      }
+    }
+
+    return node;
   }
 
   /**

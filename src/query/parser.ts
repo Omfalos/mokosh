@@ -5,7 +5,9 @@ import type { NodeQuery } from "./types";
  *
  * Format: `"key1:value1,key2:value2"`
  *
- * Supported keys: `category`, `type`, `tag` / `tags`, `path`, `external`
+ * Supported keys: `category`, `type`, `tag` / `tags`, `path`, `external`,
+ * `importsFile`, `importedBy`, `minImports`, `maxImports`, `minSize`, `maxSize`,
+ * `sort`, `limit`
  *
  * String values support a `"!"` prefix for negation (e.g. `"category:!test"`).
  * The `tag`/`tags` key may appear multiple times; all values are collected and
@@ -42,13 +44,41 @@ export function parseQuery(queryString: string): NodeQuery {
         break;
       case "tag":
       case "tags":
-        query.tags = [...(query.tags ?? []), value];
+        if (value.includes("+")) {
+          query.allTags = [...(query.allTags ?? []), ...value.split("+")];
+        } else {
+          query.tags = [...(query.tags ?? []), value];
+        }
         break;
       case "path":
         query.path = value;
         break;
       case "external":
         query.isExternal = value.toLowerCase() === "true";
+        break;
+      case "importsfile":
+        query.importsFile = value;
+        break;
+      case "importedby":
+        query.importedBy = value;
+        break;
+      case "minimports":
+        query.minImports = parseInt(value, 10);
+        break;
+      case "maximports":
+        query.maxImports = parseInt(value, 10);
+        break;
+      case "minsize":
+        query.minSize = parseInt(value, 10);
+        break;
+      case "maxsize":
+        query.maxSize = parseInt(value, 10);
+        break;
+      case "sort":
+        query.sort = value as "size" | "imports" | "commitCount90d";
+        break;
+      case "limit":
+        query.limit = parseInt(value, 10);
         break;
     }
   }

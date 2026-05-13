@@ -11,7 +11,11 @@ function matchesPath(nodePath: string, queryPath: string): boolean {
   return nodePath.includes(queryPath);
 }
 
-export function matchNode(node: FileNode, query: NodeQuery): boolean {
+export function matchNode(
+  node: FileNode,
+  query: NodeQuery,
+  reverseIndex?: Map<string, string[]>,
+): boolean {
   if (query.category && !matchesStr(node.category, query.category)) return false;
   if (query.type && !matchesStr(node.type, query.type)) return false;
   if (query.path && !matchesPath(node.path, query.path)) return false;
@@ -28,6 +32,21 @@ export function matchNode(node: FileNode, query: NodeQuery): boolean {
     if (negative.some((t) => node.tags.some((st) => st.name === t))) return false;
   }
 
+  if (query.allTags?.length) {
+    if (!query.allTags.every((t) => node.tags.some((st) => st.name === t))) return false;
+  }
+  if (query.importsFile) {
+    if (!node.imports.some((imp) => imp.toPath?.includes(query.importsFile!))) return false;
+  }
+  if (query.importedBy !== undefined) {
+    const importers = reverseIndex?.get(node.path) ?? [];
+    if (!importers.some((p) => p.includes(query.importedBy!))) return false;
+  }
+  if (query.minImports !== undefined && node.imports.length < query.minImports) return false;
+  if (query.maxImports !== undefined && node.imports.length > query.maxImports) return false;
+  if (query.minSize !== undefined && node.size < query.minSize) return false;
+  if (query.maxSize !== undefined && node.size > query.maxSize) return false;
+
   return true;
 }
 
@@ -41,13 +60,36 @@ export function matchNode(node: FileNode, query: NodeQuery): boolean {
  * @returns A new {@link SerializedGraph} containing only the matching subgraph.
  */
 export function filterGraph(graph: SerializedGraph, query: NodeQuery): SerializedGraph {
-  const filteredNodes = graph.nodes.filter((node) => matchNode(node, query));
+  const reverseIndex = new Map<string, string[]>();
+  if (query.importedBy !== undefined) {
+    for (const n of graph.nodes) {
+      for (const imp of n.imports) {
+        if (imp.toPath) {
+          const arr = reverseIndex.get(imp.toPath) ?? [];
+          arr.push(n.path);
+          reverseIndex.set(imp.toPath, arr);
+        }
+      }
+    }
+  }
+
+  const filteredNodes = graph.nodes.filter((node) => matchNode(node, query, reverseIndex));
   const nodePaths = new Set(filteredNodes.map((n) => n.path));
 
   const resultNodes = filteredNodes.map((node) => ({
     ...node,
     imports: node.imports.filter((imp) => !imp.toPath || nodePaths.has(imp.toPath)),
   }));
+
+  if (query.sort) {
+    resultNodes.sort((a, b) => {
+      if (query.sort === "size") return b.size - a.size;
+      if (query.sort === "imports") return b.imports.length - a.imports.length;
+      if (query.sort === "commitCount90d") return (b.commitCount90d ?? 0) - (a.commitCount90d ?? 0);
+      return 0;
+    });
+  }
+  if (query.limit !== undefined) resultNodes.splice(query.limit);
 
   return {
     nodes: resultNodes,

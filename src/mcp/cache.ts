@@ -1,3 +1,4 @@
+import type { MokoshConfig } from "../config";
 import { createImportMap, type Graph } from "../index";
 
 /**
@@ -12,16 +13,16 @@ import { createImportMap, type Graph } from "../index";
  */
 export class SessionState {
   private readonly graphs = new Map<string, Graph>();
-  private readonly configuredRoots = new Set<string>();
+  private readonly configs = new Map<string, MokoshConfig>();
 
   /** Returns true if `applyConfig` has already been called for `root` this session. */
   isConfigured(root: string): boolean {
-    return this.configuredRoots.has(root);
+    return this.configs.has(root);
   }
 
-  /** Records that config has been applied for `root` so it is not applied again. */
-  markConfigured(root: string): void {
-    this.configuredRoots.add(root);
+  /** Stores the loaded config for `root` (replaces markConfigured). */
+  storeConfig(root: string, config: MokoshConfig): void {
+    this.configs.set(root, config);
   }
 
   /**
@@ -32,7 +33,10 @@ export class SessionState {
    * comparison, keeping subsequent calls fast on large codebases.
    */
   async getOrBuild(root: string, entryPoints: string[]): Promise<Graph> {
-    const graph = await createImportMap(root, entryPoints, this.graphs.get(root) ?? null);
+    const config = this.configs.get(root);
+    const graph = await createImportMap(root, entryPoints, this.graphs.get(root) ?? null, {
+      gitStats: config?.gitStats ?? false,
+    });
     this.graphs.set(root, graph);
     return graph;
   }

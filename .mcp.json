@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "mokosh": {
+      "command": "node",
+      "args": ["/Users/karolmachulski/Projects/mokosh/dist/mcp.js"]
+    }
+  }
+}

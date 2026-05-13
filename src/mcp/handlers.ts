@@ -61,8 +61,9 @@ export type ToolArgs =
 export async function handleAnalyze(cache: SessionState, args: AnalyzeArgs) {
   const { root, entryPoints } = args;
   if (!cache.isConfigured(root)) {
-    applyConfig(loadMokoshConfig(root, { allowJs: false }));
-    cache.markConfigured(root);
+    const config = loadMokoshConfig(root, { allowJs: false });
+    applyConfig(config);
+    cache.storeConfig(root, config);
   }
   const resolvedEntries = entryPoints.map((ep) => path.resolve(root, ep));
   const graph = await cache.getOrBuild(root, resolvedEntries);
