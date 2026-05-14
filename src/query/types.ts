@@ -24,4 +24,5 @@ export interface NodeQuery {
   maxSize?: number;
   sort?: "size" | "imports" | "commitCount90d";
   limit?: number;
+  hasDocstring?: boolean;
 }

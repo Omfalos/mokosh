@@ -47,6 +47,9 @@ export function matchNode(
   if (query.maxImports !== undefined && node.imports.length > query.maxImports) return false;
   if (query.minSize !== undefined && node.size < query.minSize) return false;
   if (query.maxSize !== undefined && node.size > query.maxSize) return false;
+  if (query.hasDocstring !== undefined) {
+    if (!!node.description !== query.hasDocstring) return false;
+  }
 
   return true;
 }

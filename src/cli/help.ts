@@ -16,9 +16,85 @@ Options:
   --check-cycles              Check for circular dependencies; exits non-zero if found (CI gate)
   --silent                    Suppress progress output on stderr
   --query <query>             Filter output using a query (e.g., category:logic,tag:auth)
+  --query-help                Show all supported query filter keys and examples
   --root <dir>                Project root directory (default: current directory)
   --help                      Show help
 
 Notes:
   Add mokosh-cache/ to your .gitignore to avoid committing the cache directory.
+`;
+
+/** Reference for all supported --query filter keys, shown with --query-help. */
+export const QUERY_HELP_TEXT = `
+Query filter reference  (--query "key:value,key:value,...")
+All keys are case-insensitive. Multiple keys are AND'd together.
+
+FILTERING
+  category:<value>       Exact match on file category. Negate with !.
+                         Values: logic | ui | test | config | barrel | type-only | other
+                         Examples: category:logic   category:!test
+
+  type:<value>           Exact match on language. Negate with !.
+                         Values: typescript | javascript | css | scss | less | stylus |
+                                 coffeescript | livescript | lua | gherkin
+                         Example: type:typescript
+
+  tag:<value>            File has this tag (OR across multiple tag: entries).
+                         Negate with ! to exclude.  Use + to require all (AND).
+                         Examples: tag:auth          (has "auth")
+                                   tag:!generated    (does not have "generated")
+                                   tag:auth+core     (has both "auth" AND "core")
+
+  path:<substr>          File path contains substring. Negate with !.
+                         Examples: path:src/api   path:!__tests__
+
+  external:<bool>        true = node has at least one external (node_modules) import.
+                         Example: external:true
+
+  importsFile:<substr>   Node directly imports a file whose path contains the substring.
+                         Example: importsFile:src/utils/logger
+
+  importedBy:<substr>    Node is directly imported by a file whose path contains the substring.
+                         Example: importedBy:src/index
+
+  minImports:<N>         Out-degree (direct import count) >= N.
+  maxImports:<N>         Out-degree <= N.
+                         Examples: minImports:5   maxImports:2
+
+  minSize:<bytes>        File size >= N bytes.
+  maxSize:<bytes>        File size <= N bytes.
+                         Examples: minSize:1024   maxSize:4096
+
+  hasDocstring:<bool>    true = node has a JSDoc description on its first statement.
+                         false = undocumented files only.
+                         Example: hasDocstring:false
+
+SORTING & LIMITING  (applied after all filters)
+  sort:<field>           Sort results descending by one of:
+                           size           — file size in bytes
+                           imports        — number of direct imports
+                           commitCount90d — commits in the last 90 days (requires gitStats: true)
+                         Example: sort:imports
+
+  limit:<N>              Return at most N results.
+                         Example: limit:20
+
+COMMON PATTERNS
+  Token-efficient context (logic only):
+    --query "category:logic"
+
+  Undocumented logic files:
+    --query "category:logic,hasDocstring:false"
+
+  10 most-imported files in a subsystem:
+    --query "path:src/api,sort:imports,limit:10"
+
+  Files using a specific library:
+    --query "tag:react,category:logic"
+
+  Files that import a specific module:
+    --query "importsFile:src/auth/session"
+
+  Large TypeScript logic files:
+    --query "type:typescript,category:logic,sort:size,limit:5"
 `;

@@ -2,6 +2,10 @@ import { createImportMap, getAllProjectFiles, proposeAffectedTests } from "../..
 import type { CommandContext } from "./types";
 import { getTestFiles, resolveChangedFiles } from "./utils";
 
+/**
+ * @description Resolves git-changed files, lazily enriches the dependency graph with test
+ *   nodes if none are present, then prints every test file affected by those changes to stdout.
+ */
 export async function run(ctx: CommandContext): Promise<void> {
   let { graph } = ctx;
   const { rootDir, scanOptions, featureThreshold } = ctx;

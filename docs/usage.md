@@ -15,13 +15,19 @@ npx mokosh [options] <entry-point1> <entry-point2> ...
 | Flag | Description |
 | --- | --- |
 | `--cache [file]` | Path to a cache file. Defaults to `mokosh-cache/graph.json`. If it exists, Mokosh reads the graph from it. Otherwise, it generates the graph and saves it to the file. |
+| `--config <file>` | Path to a `mokosh.config.js` / `mokosh.config.json` file. Overrides auto-discovery. |
 | `--root <dir>` | Project root directory for path resolution. |
 | `--mermaid` | Output a Mermaid diagram string instead of the standard JSON format. |
 | `--propose-tags` | Identify changed files using Git and propose affected test tags. |
+| `--plain` | Output tags as plain text (one per line) instead of JSON. Use with `--propose-tags`. |
+| `--affected-tests` | Like `--propose-tags` but outputs affected test file paths instead of tags. |
 | `--detect-features` | Output files with high in-degree (feature hubs), sorted by number of importers descending. |
-| `--feature-threshold <N>` | Minimum number of importers for a file to be considered a feature hub (default: `5`). Applies to both `--detect-features` and `--propose-tags`. |
+| `--feature-threshold <N>` | Minimum number of importers for a file to be considered a feature hub (default: `5`). Applies to `--detect-features`, `--propose-tags`, and `--affected-tests`. |
 | `--find-unused` | Scan the project for files not reachable from the provided entry points. |
-| `--query <query>` | Filter the output graph using a query string (e.g., `category:logic,tag:auth`). |
+| `--exclude-tests` | Exclude test files from `--find-unused` output. |
+| `--check-cycles` | Check for circular dependencies; exits non-zero if any are found (CI gate). |
+| `--query <query>` | Filter the output graph using a query string (e.g., `category:logic,tag:auth`). See the [Query Language Guide](./query.md). |
+| `--silent` | Suppress progress output on stderr. |
 | `--help` | Show the help menu. |
 
 ### Supported Languages
@@ -92,6 +98,7 @@ const graph = await createImportMap(process.cwd(), config.entryPoints ?? ['src/i
 | `testPatterns` | `string[]` | Extra basename substrings that classify a file as `"test"` |
 | `testLibraries` | `string[]` | Extra import names that classify a file as `"test"` |
 | `barrelThreshold` | `number` | Export-ratio threshold for `"barrel"` detection (default `0.8`) |
+| `gitStats` | `boolean` | When `true`, enriches each cache-missed node with `commitCount90d` and `lastAuthor` via `git log`. Off by default. |
 
 ### Extensibility
 
@@ -115,9 +122,13 @@ registerParser('lua', (filePath, content) => {
 
 Mokosh goes beyond simple dependency tracking by extracting:
 
-- **Tags**: Extracted via five strategies — top-level declaration names, `@word` in string literals, `@tag <name>` in comments, Vitest `{ tags: [...] }` / Playwright `{ tag: '...' }` option bags, and graph-derived tags (test files gain tags from the basenames of their local imports). See the [Test Tag guide](./test-tags.md) for details.
+- **Tags**: Structured objects `{ name: string, kind: "function" | "class" | "variable" | "type" | "import" | "comment-marker" }`. Extracted via five strategies — top-level declaration names, `@word` in string literals, `@tag <name>` in comments, Vitest `{ tags: [...] }` / Playwright `{ tag: '...' }` option bags, and graph-derived tags (test files gain tags from the basenames of their local imports). See the [Test Tag guide](./test-tags.md) for details.
 - **Categories**: Automatically classifies files as `logic`, `ui`, `test`, `config`, `barrel`, or `type-only` based on heuristics (imports, exports, naming).
-- **Exports**: Tracks named exports to perform more granular impact analysis.
+- **Exports**: Named exports are now structured objects: `{ name, doc?, flags?, signature? }`. `doc` is the JSDoc description, `flags` captures lifecycle markers (`deprecated`, `internal`, `public`, `alpha`, `beta`), and `signature` is the human-readable type signature.
+- **File description**: The JSDoc comment on the first statement of a JS/TS file is stored as `description` on the node. Query with `hasDocstring:true/false`.
+- **Call Edges**: Beyond import edges, Mokosh records cross-file function/method calls as `callEdges: { from, to, toFile }[]` on each non-test node.
+- **Tested-By Index**: After the graph is built, logic and barrel nodes are enriched with `testedBy: string[]` — the relative paths of test files that directly import them.
+- **Git Stats**: When `gitStats: true` is set in config, each newly built (cache-missed) node is enriched with `commitCount90d` (number of commits in the last 90 days) and `lastAuthor` (email of the most recent committer).
 
 ### Lock File Support
 

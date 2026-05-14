@@ -188,7 +188,7 @@ export class GraphBuilder {
         size: stats.size,
       };
     }
-    const { imports, exports, tags, category, rawCallEdges } = parsed;
+    const { imports, exports, tags, category, rawCallEdges, description } = parsed;
 
     enrichLibraryTags(imports, tags);
 
@@ -217,6 +217,7 @@ export class GraphBuilder {
       tags,
       mtime: stats.mtimeMs,
       size: stats.size,
+      ...(description !== undefined ? { description } : {}),
       ...(callEdges.length > 0 ? { callEdges } : {}),
     };
 

@@ -59,12 +59,16 @@ export function parseCodeFile(filePath: string, content: string, fileType: FileT
     collectRawCallEdges(context, sourceFile);
   }
 
+  const firstStatement = sourceFile.statements[0];
+  const description = firstStatement ? extractJsDoc(firstStatement) : undefined;
+
   return {
     imports,
     exports: Array.from(exports.values()),
     tags: Array.from(tags),
     category,
     rawCallEdges: context.rawCallEdges ?? [],
+    ...(description !== undefined ? { description } : {}),
   };
 }
 

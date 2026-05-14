@@ -8,7 +8,7 @@ import { run as runGraphOutput } from "./commands/graph-output";
 import { run as runProposeTags } from "./commands/propose-tags";
 import { resolveConfig } from "./config";
 import { buildGraph, loadGraphFromCache, saveGraphToCache } from "./graph-loader";
-import { HELP_TEXT } from "./help";
+import { HELP_TEXT, QUERY_HELP_TEXT } from "./help";
 
 export async function run(): Promise<void> {
   const argv = process.argv.slice(2);
@@ -16,6 +16,11 @@ export async function run(): Promise<void> {
 
   if (parsed.help) {
     console.log(HELP_TEXT);
+    process.exit(0);
+  }
+
+  if (parsed.queryHelp) {
+    console.log(QUERY_HELP_TEXT);
     process.exit(0);
   }
 

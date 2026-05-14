@@ -1,6 +1,10 @@
 import { filterGraph, Graph, MermaidExporter, parseQuery } from "../../index";
 import type { CommandContext } from "./types";
 
+/**
+ * @description Serializes the dependency graph, optionally narrowing it with a query filter,
+ *   then prints it as a Mermaid diagram or a JSON object that includes detected cycles.
+ */
 export async function run(ctx: CommandContext): Promise<void> {
   const { graph, queryStr, mermaidOutput } = ctx;
   let serialized = graph.serialize();

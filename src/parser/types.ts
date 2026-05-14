@@ -26,4 +26,5 @@ export interface ParseResult {
   tags: StructuredTag[];
   category: NodeCategory;
   rawCallEdges?: RawCallEdge[];
+  description?: string;
 }

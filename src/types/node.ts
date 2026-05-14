@@ -41,6 +41,7 @@ export interface GraphNode {
 export interface FileNode extends GraphNode {
   mtime: number;
   size: number;
+  description?: string;
   testedBy?: string[];
   commitCount90d?: number;
   lastAuthor?: string;

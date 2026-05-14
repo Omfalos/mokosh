@@ -14,10 +14,15 @@ Designed for performance and RAG (Retrieval-Augmented Generation) workflows, Mok
 - **Visual Diagrams**: Export your dependency graph to Mermaid.js format.
 - **Lock File Integration**: Automatically extract dependency versions and tags from `package-lock.json`, `yarn.lock`, and `pnpm-lock.yaml`.
 - **Unused File Detection**: Identify files in your project that are not imported by any entry point.
+- **Cycle Detection**: Check for circular dependencies and use as a CI gate (`--check-cycles` exits non-zero if cycles are found).
 - **Caching**: Serialize and deserialize the graph to save computation time.
 - **Filtering & Token Saving**: Use `--query` to filter nodes and dependencies, significantly reducing the size of the output for AI models.
 - **Test Tag Proposal**: Automatically identify affected Playwright/Cucumber test tags based on `git diff`.
 - **Feature Hub Detection**: Identify architectural hub files (files that import many internal modules — orchestrators/aggregators) and surface them as `feature:<name>` tags. Prevents tag explosion when a widely-used utility changes.
+- **Enriched Exports**: Named exports carry their JSDoc description, type signature, and lifecycle flags (`deprecated`, `internal`, `public`, `alpha`, `beta`) — giving AI models precise symbol-level context.
+- **Call Edges**: Beyond imports, Mokosh traces cross-file function/method calls and stores them as `callEdges` on each node.
+- **Tested-By Index**: Every logic/barrel file records which test files import it (`testedBy`), enabling instant "what tests cover this module?" queries.
+- **Git Stats**: Optionally enrich each node with `commitCount90d` and `lastAuthor` (enabled via `gitStats: true` in config), enabling sorting by commit activity.
 
 ## Token Saving with Queries
 
@@ -26,6 +31,7 @@ When working with large codebases, providing the entire dependency graph to an A
 - **Filter by language**: `--query "type:typescript"`
 - **Filter by category**: `--query "category:ui"`
 - **Filter by tag**: `--query "tag:core"`
+- **Filter by documentation**: `--query "hasDocstring:false"` — find files missing a JSDoc description
 - **Combine filters**: `--query "category:logic,tag:api"`
 
 Example of a focused query:
@@ -98,14 +104,19 @@ npx mokosh --query "category:logic,tag:auth" src/index.ts
 ### Options
 
 - `--cache [file]`: Path to cache file. If no file is provided, it defaults to `mokosh-cache/graph.json` in the project root.
+- `--config <file>`: Path to a `mokosh.config.js` / `mokosh.config.json` file (overrides auto-discovery).
 - `--root <dir>`: Set the project root directory (default: current directory).
 - `--mermaid`: Output a Mermaid chart (`graph TD`) instead of JSON.
 - `--propose-tags`: Use `git diff` to identify changed files and propose relevant test tags by traversing the dependency graph.
+- `--plain`: Output tags as plain text (one per line) instead of JSON. Use with `--propose-tags`.
 - `--affected-tests`: Like `--propose-tags` but outputs test file paths instead of tags — pipe directly into a test runner: `vitest $(mokosh --affected-tests)`.
 - `--detect-features`: Output files with high in-degree (feature hubs), sorted by number of importers descending.
 - `--feature-threshold <N>`: Minimum importers for a file to be a feature hub (default: `5`). Applies to `--detect-features`, `--propose-tags`, and `--affected-tests`.
 - `--find-unused`: Scan the project for files that are not reachable from the specified entry points.
-- `--query <query>`: Filter the output graph using a query string (e.g., `category:logic,tag:auth,path:src/api`).
+- `--exclude-tests`: Exclude test files from `--find-unused` output.
+- `--check-cycles`: Check for circular dependencies; exits non-zero if any are found (CI gate).
+- `--query <query>`: Filter the output graph using a query string. Supported keys: `path`, `type`, `category`, `tag`, `external`, `importsFile`, `importedBy`, `minImports`, `maxImports`, `minSize`, `maxSize`, `hasDocstring`, `sort`, `limit`. Example: `category:logic,hasDocstring:false`.
+- `--silent`: Suppress progress output on stderr.
 - `--help`: Show usage information.
 
 ### Programmatic API

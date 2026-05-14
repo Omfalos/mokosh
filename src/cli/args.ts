@@ -15,6 +15,7 @@ export interface ParsedArgs {
   checkCycles: boolean;
   silent: boolean;
   query: string | undefined;
+  queryHelp: boolean;
   entryPoints: string[];
   help: boolean;
 }
@@ -66,6 +67,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     checkCycles: false,
     silent: false,
     query: undefined,
+    queryHelp: false,
     entryPoints: [],
     help: argv.length === 0 || argv.includes("--help"),
   };
@@ -128,6 +130,9 @@ export function parseArgs(argv: string[]): ParsedArgs {
         break;
       case "--silent":
         result.silent = true;
+        break;
+      case "--query-help":
+        result.queryHelp = true;
         break;
       default:
         if (arg && !arg.startsWith("--")) {

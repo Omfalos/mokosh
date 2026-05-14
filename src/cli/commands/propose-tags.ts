@@ -2,6 +2,10 @@ import { createImportMap, getAllProjectFiles, proposeTags } from "../../index";
 import type { CommandContext } from "./types";
 import { getTestFiles, resolveChangedFiles } from "./utils";
 
+/**
+ * @description Resolves git-changed files, builds a minimal test-file graph if the current
+ *   graph is empty, then prints inferred test tags as JSON or space-separated plain text.
+ */
 export async function run(ctx: CommandContext): Promise<void> {
   let { graph } = ctx;
   const { rootDir, scanOptions, featureThreshold, plain } = ctx;

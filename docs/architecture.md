@@ -17,13 +17,19 @@ The Parser's responsibility is to analyze a single file's content and extract it
   - Filename conventions (e.g., `*.test.js`, `*.spec.ts`).
   - Function and variable declarations.
   - `@tag` patterns in strings (commonly used in Playwright and Cucumber).
+- **Structured Tags**: Tags are no longer plain strings — they are `{ name: string, kind: TagKind }` objects. `kind` records the origin: `"function"`, `"class"`, `"variable"`, `"type"`, `"import"` (library tag), or `"comment-marker"`.
+- **Enriched Exports**: Each named export becomes an `ExportedSymbol { name, doc?, flags?, signature? }`. `doc` is the JSDoc description text, `flags` captures known lifecycle tags (`deprecated`, `internal`, `public`, `alpha`, `beta`), and `signature` is a serialised type signature produced by the TS printer.
+- **JSDoc Description**: The JSDoc comment on the **first statement** of a JS/TS file is stored as `description` on the `FileNode`. Enables `hasDocstring` queries.
+- **Call Edge Collection**: For non-test files, the parser records raw cross-file call expressions. After path resolution in the `GraphBuilder`, these become `CallEdge { from, to, toFile }` entries stored in `FileNode.callEdges`.
 
 ### 2. Graph Engine (`src/graph/`)
 The Graph Engine handles the construction and representation of the dependency network.
 
 - **GraphBuilder**: Starting from specified entry points, it recursively processes files. It uses a custom resolver to locate files on disk, handling relative paths, CommonJS extensions, and `tsconfig.json` path aliases.
 - **Incremental Processing**: `GraphBuilder` can take a previous `Graph` instance as input. It uses file modification time (`mtime`) and file `size` to detect changes. Unchanged files are reused from the cache, significantly speeding up subsequent runs.
+- **Automatic Test File Discovery**: After processing entry-point reachable files, the builder scans the project root for test files (by filename pattern) and processes any that weren't already visited. This ensures `testedBy` enrichment is complete even when test files are not reachable from library entry points.
 - **External Dependency Handling**: Identifies `node_modules` and absolute paths outside the project root as "external" dependencies. These are added to the graph's metadata but are not traversed recursively, keeping the focus on the project's own source code.
+- **Git Stats Enrichment**: When `gitStats: true` is set in the config, the builder calls `git log` for each cache-missed file to populate `commitCount90d` (commits in the last 90 days) and `lastAuthor` on the node. Only newly parsed files incur the git overhead.
 - **Cycle Detection**: Provides a `findCycles()` method to identify circular dependencies in the graph.
 - **Graph Class**: Encapsulates the dependency map. It provides:
   - **Serialization**: Converts the graph to a plain JSON-serializable object for caching.
@@ -39,10 +45,11 @@ This layer connects the dependency graph with external tools like Git to provide
 
 ### Graph Enrichment (`src/graph/enrichment.ts`)
 
-After the graph is built, two post-processing passes add derived tags to nodes:
+After the graph is built, three post-processing passes add derived data to nodes:
 
-- **`enrichLibraryTags`**: For every non-relative import, extracts the package name and appends it as a tag (e.g. importing `react` adds a `react` tag). This powers library-based filtering.
-- **`enrichTestNodeTags`**: For every `test`-category node, adds the basenames of its local imports as tags. This is the fifth tag strategy — graph-derived tags that connect test files to the modules they exercise.
+- **`enrichLibraryTags`**: For every non-relative import, extracts the package name and appends it as a structured `import`-kind tag (e.g. importing `react` adds `{ name: "react", kind: "import" }`). This powers library-based filtering.
+- **`enrichTestNodeTags`**: For every `test`-category node, adds the basenames of its local imports as `import`-kind tags. This is the fifth tag strategy — graph-derived tags that connect test files to the modules they exercise.
+- **`enrichTestedBy`**: For every `test`-category node, walks its import edges and adds the test node's path to the `testedBy` array of each `logic` or `barrel` target. This builds a reverse index so any node can answer "which test files cover me?" without re-traversal.
 
 ## Data Flow
 
