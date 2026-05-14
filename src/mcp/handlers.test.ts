@@ -1,6 +1,6 @@
 import { describe, expect, test, vi } from "vitest";
 import { Graph } from "../index";
-import type { SerializedGraph } from "../types";
+import type { SerializedGraph } from "../types/graph";
 import type { SessionState } from "./cache";
 import {
   handleAnalyze,

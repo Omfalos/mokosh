@@ -1,5 +1,5 @@
 import path from "node:path";
-import type { FileNode } from "../../types";
+import type { FileNode } from "../../types/node";
 
 /** Controls how aggressively `detectFeatures` promotes files to features. */
 export interface FeatureDetectionOptions {

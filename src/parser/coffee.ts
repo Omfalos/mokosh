@@ -1,5 +1,5 @@
 import coffee from "coffeescript";
-import type { ImportEdge } from "../types";
+import type { ImportEdge } from "../types/node";
 import { isStyleFile } from "./file-type";
 import type { ParseResult } from "./types";
 

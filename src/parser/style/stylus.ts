@@ -1,4 +1,4 @@
-import type { ImportEdge } from "../../types";
+import type { ImportEdge } from "../../types/node";
 
 /**
  * Extracts all import edges from a Stylus file, covering both `@require` and bare `import`/`require` forms.

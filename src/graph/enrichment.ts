@@ -1,5 +1,5 @@
 import path from "node:path";
-import type { FileNode, ImportEdge, StructuredTag } from "../types.js";
+import type { FileNode, ImportEdge, StructuredTag } from "../types/node";
 
 /**
  * @description Scans a file's import edges and appends a structured `import`-kind tag for every

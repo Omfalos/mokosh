@@ -1,17 +1,11 @@
 import path from "node:path";
 import ts from "typescript";
-import type {
-  ExportedSymbol,
-  FileType,
-  ImportEdge,
-  ImportType,
-  NodeCategory,
-  StructuredTag,
-} from "../types";
+import type { ExportedSymbol, ImportEdge, StructuredTag } from "../types/node";
+import type { FileType, ImportType, NodeCategory } from "../types/parse";
 import { getBarrelThreshold, getTestLibraries, getTestPatterns, isConfigFile } from "./classify";
 import { isStyleFile } from "./file-type";
 import { handleTagging } from "./tagging";
-import type { ParseContext, ParseResult } from "./types";
+import type { ParseContext, ParseResult, RawCallEdge } from "./types";
 
 /**
  * @description Parses a JavaScript or TypeScript file using the TypeScript Compiler API.
@@ -21,7 +15,7 @@ import type { ParseContext, ParseResult } from "./types";
  * @param filePath - Absolute path of the file; used as the node identifier in the graph.
  * @param content - Raw source content of the file.
  * @param fileType - Determines the TS script kind (`TSX` for TypeScript, `JSX` for JavaScript).
- * @returns Parsed result containing imports, exports, tags, category, and an optional file-level description.
+ * @returns Parsed result containing imports, exports, tags, and category.
  */
 export function parseCodeFile(filePath: string, content: string, fileType: FileType): ParseResult {
   const imports: ImportEdge[] = [];
@@ -41,6 +35,7 @@ export function parseCodeFile(filePath: string, content: string, fileType: FileT
     imports,
     exports,
     tags,
+    rawCallEdges: [],
     sourceFile,
     hasUI: false,
     hasTypesOnly: true,
@@ -55,11 +50,13 @@ export function parseCodeFile(filePath: string, content: string, fileType: FileT
 
   visit(sourceFile);
 
-  const description = sourceFile.statements[0] ? extractJsDoc(sourceFile.statements[0]) : undefined;
-
   const category = determineCategory(filePath, context);
   if (category === "test" || category === "barrel") {
     tags.add({ name: category, kind: "comment-marker" });
+  }
+
+  if (category !== "test") {
+    collectRawCallEdges(context, sourceFile);
   }
 
   return {
@@ -67,7 +64,7 @@ export function parseCodeFile(filePath: string, content: string, fileType: FileT
     exports: Array.from(exports.values()),
     tags: Array.from(tags),
     category,
-    ...(description !== undefined ? { description } : {}),
+    rawCallEdges: context.rawCallEdges ?? [],
   };
 }
 
@@ -466,4 +463,83 @@ function hasExportModifier(node: ts.Node): boolean {
     ts.canHaveModifiers(node) &&
     ts.getModifiers(node)?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) === true
   );
+}
+
+function collectRawCallEdges(ctx: ParseContext, sourceFile: ts.SourceFile): void {
+  const edges: RawCallEdge[] = ctx.rawCallEdges ?? [];
+  ctx.rawCallEdges = edges;
+
+  const importSymbolMap = new Map<string, string>();
+  for (const stmt of sourceFile.statements) {
+    if (!ts.isImportDeclaration(stmt) || !ts.isStringLiteral(stmt.moduleSpecifier)) continue;
+    const specifier = stmt.moduleSpecifier.text;
+    const clause = stmt.importClause;
+    if (!clause) continue;
+    if (clause.name) importSymbolMap.set(clause.name.text, specifier);
+    if (clause.namedBindings && ts.isNamedImports(clause.namedBindings)) {
+      for (const el of clause.namedBindings.elements) {
+        importSymbolMap.set(el.name.text, specifier);
+      }
+    }
+  }
+  if (importSymbolMap.size === 0) return;
+
+  for (const stmt of sourceFile.statements) {
+    const fnName = getTopLevelExportedFunctionName(stmt);
+    if (!fnName) continue;
+    const body = getFunctionBody(stmt);
+    if (!body) continue;
+    walkCallExpressions(body, fnName, importSymbolMap, edges);
+  }
+}
+
+function getTopLevelExportedFunctionName(stmt: ts.Statement): string | undefined {
+  if (!hasExportModifier(stmt)) return undefined;
+  if (ts.isFunctionDeclaration(stmt) && stmt.name) return stmt.name.text;
+  if (ts.isVariableStatement(stmt)) {
+    for (const decl of stmt.declarationList.declarations) {
+      if (
+        ts.isIdentifier(decl.name) &&
+        decl.initializer &&
+        (ts.isArrowFunction(decl.initializer) || ts.isFunctionExpression(decl.initializer))
+      ) {
+        return decl.name.text;
+      }
+    }
+  }
+  return undefined;
+}
+
+function getFunctionBody(stmt: ts.Statement): ts.Node | undefined {
+  if (ts.isFunctionDeclaration(stmt)) return stmt.body;
+  if (ts.isVariableStatement(stmt)) {
+    for (const decl of stmt.declarationList.declarations) {
+      if (
+        decl.initializer &&
+        (ts.isArrowFunction(decl.initializer) || ts.isFunctionExpression(decl.initializer))
+      ) {
+        return decl.initializer;
+      }
+    }
+  }
+  return undefined;
+}
+
+function walkCallExpressions(
+  node: ts.Node,
+  fnName: string,
+  importSymbolMap: Map<string, string>,
+  result: RawCallEdge[],
+): void {
+  if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
+    const callee = node.expression.text;
+    const specifier = importSymbolMap.get(callee);
+    if (
+      specifier &&
+      !result.some((e) => e.from === fnName && e.to === callee && e.toSpecifier === specifier)
+    ) {
+      result.push({ from: fnName, to: callee, toSpecifier: specifier });
+    }
+  }
+  ts.forEachChild(node, (child) => walkCallExpressions(child, fnName, importSymbolMap, result));
 }

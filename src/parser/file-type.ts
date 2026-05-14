@@ -1,5 +1,5 @@
 import path from "node:path";
-import type { FileType } from "../types";
+import type { FileType } from "../types/parse";
 
 export function getFileType(filePath: string): FileType {
   const ext = path.extname(filePath).toLowerCase();

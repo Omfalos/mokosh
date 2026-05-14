@@ -1,9 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
 import { getGitFileStats } from "../git.js";
+import { getTestPatterns } from "../parser/classify.js";
 import { type LockFileData, loadLockFile } from "../parser/lockfile.js";
 import { getFileType, parseFile } from "../parser.js";
-import type { DependencyGraph, FileNode, ImportEdge } from "../types.js";
+import type { DependencyGraph } from "../types/graph";
+import type { CallEdge, FileNode, ImportEdge } from "../types/node";
 import { enrichLibraryTags, enrichTestedBy, enrichTestNodeTags } from "./enrichment.js";
 import { Graph } from "./model.js";
 import { DefaultResolver, type PathResolver } from "./resolver.js";
@@ -74,6 +76,10 @@ export class GraphBuilder {
       await this.processFile(entryPath);
     }
 
+    // Test files are never reachable from library entry points (imports flow source→test,
+    // not the other way around). Scan for them explicitly so enrichTestedBy has data.
+    await this.processTestFiles();
+
     if (this.progressCallback && this.visited.size >= 100) {
       process.stderr.write(`\nDone. Total processed: ${this.visited.size} nodes.\n`);
     }
@@ -81,6 +87,37 @@ export class GraphBuilder {
     enrichTestNodeTags(this.graph.nodes);
     enrichTestedBy(this.graph.nodes);
     return new Graph(this.graph.nodes);
+  }
+
+  private async processTestFiles(): Promise<void> {
+    const patterns = getTestPatterns();
+    const ignoreDirs = new Set([
+      "node_modules",
+      ".git",
+      "dist",
+      "build",
+      ".next",
+      ".cache",
+      "mokosh-cache",
+      "coverage",
+    ]);
+    const walk = async (dir: string): Promise<void> => {
+      let entries: fs.Dirent[];
+      try {
+        entries = fs.readdirSync(dir, { withFileTypes: true });
+      } catch {
+        return;
+      }
+      for (const entry of entries) {
+        const fullPath = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          if (!ignoreDirs.has(entry.name)) await walk(fullPath);
+        } else if (entry.isFile() && patterns.some((p) => entry.name.includes(p))) {
+          await this.processFile(fullPath);
+        }
+      }
+    };
+    await walk(this.rootDir);
   }
 
   /**
@@ -151,9 +188,25 @@ export class GraphBuilder {
         size: stats.size,
       };
     }
-    const { imports, exports, tags, category, description } = parsed;
+    const { imports, exports, tags, category, rawCallEdges } = parsed;
 
     enrichLibraryTags(imports, tags);
+
+    const callEdges: CallEdge[] = [];
+    for (const rce of rawCallEdges ?? []) {
+      try {
+        const resolved = this.resolver.resolve(filePath, rce.toSpecifier);
+        if (resolved && !resolved.isExternal) {
+          callEdges.push({
+            from: rce.from,
+            to: rce.to,
+            toFile: path.relative(this.rootDir, resolved.path),
+          });
+        }
+      } catch {
+        // unresolvable specifier — silent
+      }
+    }
 
     const node: FileNode = {
       path: relativePath,
@@ -164,7 +217,7 @@ export class GraphBuilder {
       tags,
       mtime: stats.mtimeMs,
       size: stats.size,
-      ...(description !== undefined ? { description } : {}),
+      ...(callEdges.length > 0 ? { callEdges } : {}),
     };
 
     if (this.enableGitStats) {

@@ -1,6 +1,6 @@
 import { detectFeatures, type FeatureDetectionOptions, type FeatureInfo } from "../graph/features";
 import type { Graph } from "../graph/model";
-import type { ExportedSymbol, FileNode, ImportEdge } from "../types";
+import type { ExportedSymbol, FileNode, ImportEdge } from "../types/node";
 import { DefaultTestNodeIdentifier, type TestNodeIdentifier } from "./identifier";
 
 export interface ProposeTagsOptions {

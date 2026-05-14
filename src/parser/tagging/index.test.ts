@@ -1,6 +1,6 @@
 import ts from "typescript";
 import { describe, expect, test } from "vitest";
-import type { StructuredTag } from "../../types";
+import type { StructuredTag } from "../../types/node";
 import type { ParseContext } from "../types";
 import { handleTagging } from "./index";
 

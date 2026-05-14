@@ -7,7 +7,7 @@ import { parseLua } from "./parser/lua";
 import { getParserForType, registerParser } from "./parser/registry";
 import { parseStyleFile } from "./parser/style";
 import type { ParseResult } from "./parser/types";
-import type { ImportEdge } from "./types";
+import type { ImportEdge } from "./types/node";
 
 // Register default parsers
 registerParser("javascript", (path, content) => parseCodeFile(path, content, "javascript"));

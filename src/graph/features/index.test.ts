@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import type { FileNode } from "../../types";
+import type { FileNode } from "../../types/node";
 import { detectFeatures } from "./index";
 
 function makeNodeWithImports(

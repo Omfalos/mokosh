@@ -1,6 +1,6 @@
 import type postcss from "postcss";
 import { parse as scssParse } from "postcss-scss";
-import type { ImportEdge } from "../../types";
+import type { ImportEdge } from "../../types/node";
 
 /**
  * Returns true when a SCSS/Sass import specifier resolves outside the local file tree.

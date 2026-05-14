@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import type { SerializedGraph } from "../src/types";
+import type { SerializedGraph } from "../src/types/graph";
 import { filterGraph, parseQuery } from "./query";
 
 describe("QueryEngine", () => {

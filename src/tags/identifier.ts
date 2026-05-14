@@ -1,4 +1,4 @@
-import type { StructuredTag } from "../types";
+import type { StructuredTag } from "../types/node";
 
 export interface TestNodeIdentifier {
   isTestNode(node: { category: string; tags: StructuredTag[] }): boolean;

@@ -1,4 +1,4 @@
-import type { FileType } from "../types";
+import type { FileType } from "../types/parse";
 import type { ParseResult } from "./types";
 
 export type ParserFunction = (

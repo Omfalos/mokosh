@@ -1,4 +1,5 @@
-import type { FileNode, SerializedGraph, TraversalOptions, TraversalVisitor } from "../types.js";
+import type { SerializedGraph, TraversalOptions, TraversalVisitor } from "../types/graph";
+import type { FileNode } from "../types/node";
 import { GraphAnalyzer } from "./analyzer";
 
 /**

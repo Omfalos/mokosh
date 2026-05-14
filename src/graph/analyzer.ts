@@ -1,4 +1,4 @@
-import type { FileNode } from "../types";
+import type { FileNode } from "../types/node";
 
 /**
  * Utility for analyzing the dependency graph for cycles and unused files.

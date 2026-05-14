@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import type { FileNode, ImportEdge, StructuredTag } from "../types";
+import type { FileNode, ImportEdge, StructuredTag } from "../types/node";
 import { enrichLibraryTags, enrichTestNodeTags } from "./enrichment";
 
 function makeImport(rawSpecifier: string, isExternal = false, toPath?: string): ImportEdge {

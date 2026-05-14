@@ -1,5 +1,5 @@
 import ts from "typescript";
-import type { TagKind } from "../../types";
+import type { TagKind } from "../../types/parse";
 import type { ParseContext } from "../types";
 
 const TEST_CALL_NAMES = new Set(["test", "describe", "it"]);

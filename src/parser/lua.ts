@@ -1,6 +1,6 @@
 import type { Chunk, Node } from "luaparse";
 import luaparse from "luaparse";
-import type { ImportEdge } from "../types";
+import type { ImportEdge } from "../types/node";
 import { isStyleFile } from "./file-type";
 import type { ParseResult } from "./types";
 import { stripQuotes } from "./utils";

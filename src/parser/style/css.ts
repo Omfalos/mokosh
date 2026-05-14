@@ -1,5 +1,5 @@
 import postcss from "postcss";
-import type { ImportEdge } from "../../types";
+import type { ImportEdge } from "../../types/node";
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const lessParser = require("postcss-less") as {

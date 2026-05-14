@@ -1,4 +1,5 @@
-import type { FileNode, SerializedGraph } from "../types";
+import type { SerializedGraph } from "../types/graph";
+import type { FileNode } from "../types/node";
 import type { NodeQuery } from "./types";
 
 function matchesStr(nodeValue: string, queryValue: string): boolean {

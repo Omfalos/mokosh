@@ -1,5 +1,6 @@
 import type postcss from "postcss";
-import type { ImportEdge, NodeCategory } from "../../types";
+import type { ImportEdge } from "../../types/node";
+import type { NodeCategory } from "../../types/parse";
 
 // TODO(SOLID-I): only `imports.length` is read; parameter could be narrowed to `{ length: number }`
 /**
