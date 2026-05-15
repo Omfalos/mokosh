@@ -5,21 +5,12 @@ import type { ParseContext } from "../types";
 const TEST_CALL_NAMES = new Set(["test", "describe", "it"]);
 
 /**
- * Collects tags from a single AST node into `ctx.tags` using four strategies:
- *
- * 1. **Top-level declaration names** — top-level `function foo` or `const foo` contributes `"foo"`
- *    as a tag. Nested declarations (inside callbacks, test blocks, etc.) are ignored to avoid noise.
- *
- * 2. **String-literal `@` markers** — any `@word` inside a string literal (e.g. the title of a
- *    `test('login @smoke', ...)` call) is extracted and added without the leading `@`.
- *
- * 3. **Comment `@tag` annotations** — `@tag <name>` anywhere in the source text (JSDoc, inline
- *    comments) registers `<name>` as a tag. Checked only once per source file to avoid rescanning.
- *
- * 4. **Vitest / Playwright option-bag tags** — the second argument of `test`/`describe`/`it` may
- *    be an object literal with a `tags` array (Vitest: `{ tags: ['foo'] }`) or a `tag` string/array
- *    (Playwright: `{ tag: '@smoke' }` / `{ tag: ['@smoke', '@regression'] }`). Leading `@` is
- *    stripped so both conventions produce the same tag value.
+ * @description Collects tags from a single AST node into `ctx.tags` using four strategies:
+ *   declaration names, string-literal `@` markers, comment `@tag` annotations, and
+ *   Vitest/Playwright option-bag arrays. Each strategy applies its own type guard so only
+ *   relevant nodes produce output.
+ * @param node - The AST node currently being visited.
+ * @param ctx - Mutable parse context accumulating tags for the current source file.
  */
 export function handleTagging(node: ts.Node, ctx: ParseContext): void {
   collectDeclarationNameTags(node, ctx);
@@ -29,8 +20,11 @@ export function handleTagging(node: ts.Node, ctx: ParseContext): void {
 }
 
 /**
- * Strategy 1: top-level `function foo` / `const foo` → tag `"foo"`.
- * Nested declarations (inside callbacks, test blocks, etc.) are excluded to avoid noise.
+ * @description Adds the name of any top-level function or variable declaration to `ctx.tags`,
+ *   tagging it as `"function"` or `"variable"` based on its initializer.
+ *   Declarations nested inside callbacks or test blocks are skipped to avoid noise.
+ * @param node - The AST node being visited.
+ * @param ctx - Mutable parse context that receives the new tag.
  */
 function collectDeclarationNameTags(node: ts.Node, ctx: ParseContext): void {
   if (
@@ -54,9 +48,10 @@ function collectDeclarationNameTags(node: ts.Node, ctx: ParseContext): void {
 }
 
 /**
- * Returns true if `node` is a direct child of the source file.
- * - `FunctionDeclaration`: parent is `SourceFile`
- * - `VariableDeclaration`: parent chain is `VariableDeclarationList → VariableStatement → SourceFile`
+ * @description Determines whether a function or variable declaration sits directly under the
+ *   source file root, distinguishing top-level exports from declarations nested in callbacks or blocks.
+ * @param node - A function or variable declaration node to test.
+ * @returns True if the node is a direct child of the `SourceFile`.
  */
 function isTopLevel(node: ts.FunctionDeclaration | ts.VariableDeclaration): boolean {
   if (ts.isFunctionDeclaration(node)) return ts.isSourceFile(node.parent);
@@ -64,7 +59,12 @@ function isTopLevel(node: ts.FunctionDeclaration | ts.VariableDeclaration): bool
   return !!stmt && ts.isSourceFile(stmt.parent);
 }
 
-/** Strategy 2: `@word` patterns inside any string literal → tag `"word"`. */
+/**
+ * @description Scans a string literal for `@word` patterns and records each matched word
+ *   as a `comment-marker` tag, enabling tag extraction from test-title strings like `'login @smoke'`.
+ * @param node - The AST node to inspect; only string literals produce output.
+ * @param ctx - Mutable parse context that receives extracted tags.
+ */
 function collectStringLiteralAtTags(node: ts.Node, ctx: ParseContext): void {
   if (!ts.isStringLiteral(node)) return;
   const matches = node.text.match(/@[\w-]+/g);
@@ -74,8 +74,10 @@ function collectStringLiteralAtTags(node: ts.Node, ctx: ParseContext): void {
 }
 
 /**
- * Strategy 3: `@tag <name>` in comments anywhere in the source file.
- * Only runs at the `SourceFile` node so the full text is scanned exactly once.
+ * @description Scans the full source text for `@tag <name>` annotations and records each `<name>`
+ *   as a `comment-marker` tag. Only runs when `node` is the `SourceFile` so the text is scanned exactly once per file.
+ * @param node - The current AST node; processing is skipped unless it is a `SourceFile`.
+ * @param ctx - Mutable parse context that receives extracted tags.
  */
 function collectCommentAnnotationTags(node: ts.Node, ctx: ParseContext): void {
   if (!ts.isSourceFile(node)) return;
@@ -89,10 +91,11 @@ function collectCommentAnnotationTags(node: ts.Node, ctx: ParseContext): void {
 }
 
 /**
- * Strategy 4: Vitest option-bag `{ tags: ['foo', 'bar'] }` in `test`/`describe`/`it` calls.
- *
- * Both direct calls (`test(...)`) and chained/namespaced calls (`it.each(...)`,
- * `describe.skip(...)`) are recognised via a property-access check.
+ * @description Inspects call expressions that match test-framework functions and extracts tags
+ *   from any object-literal argument. Handles both direct calls (`test(...)`) and chained forms
+ *   like `it.each(...)` or `describe.skip(...)`.
+ * @param node - The AST node to inspect; only call expressions are processed.
+ * @param ctx - Mutable parse context that receives extracted tags.
  */
 function collectVitestOptionBagTags(node: ts.Node, ctx: ParseContext): void {
   if (!ts.isCallExpression(node)) return;
@@ -105,6 +108,13 @@ function collectVitestOptionBagTags(node: ts.Node, ctx: ParseContext): void {
   }
 }
 
+/**
+ * @description Returns true if the callee expression resolves to a test-framework function
+ *   (`test`, `describe`, or `it`), recognising both bare identifiers and property-access
+ *   forms such as `it.skip` or `describe.concurrent`.
+ * @param callee - The callee expression of a call node to classify.
+ * @returns True when the expression refers to a known test-framework entry point.
+ */
 function isTestCallExpression(callee: ts.Expression): boolean {
   if (ts.isIdentifier(callee)) return TEST_CALL_NAMES.has(callee.text);
   if (ts.isPropertyAccessExpression(callee)) {
@@ -117,23 +127,27 @@ function isTestCallExpression(callee: ts.Expression): boolean {
   return false;
 }
 
+/**
+ * @description Reads the `tags` (Vitest array) or `tag` (Playwright string or array) property
+ *   from an object literal and records each value as a `comment-marker` tag, stripping any
+ *   leading `@` so both frameworks produce the same normalised tag name.
+ * @param obj - The object literal expression from a test call's option argument.
+ * @param ctx - Mutable parse context that receives extracted tags.
+ */
 function collectTagsFromObjectLiteral(obj: ts.ObjectLiteralExpression, ctx: ParseContext): void {
   for (const prop of obj.properties) {
-    if (
-      !ts.isPropertyAssignment(prop) ||
-      !ts.isIdentifier(prop.name) ||
-      (prop.name.text !== "tags" && prop.name.text !== "tag")
-    )
-      continue;
-    if (prop.name.text === "tag" && ts.isStringLiteral(prop.initializer)) {
-      // Playwright: tag: '@smoke'
-      ctx.tags.add({ name: prop.initializer.text.replace(/^@/, ""), kind: "comment-marker" });
-    } else if (ts.isArrayLiteralExpression(prop.initializer)) {
-      // Vitest: tags: ['foo']  /  Playwright: tag: ['@smoke']
-      for (const el of prop.initializer.elements) {
-        if (ts.isStringLiteral(el))
-          ctx.tags.add({ name: el.text.replace(/^@/, ""), kind: "comment-marker" });
-      }
+    if (!ts.isPropertyAssignment(prop) || !ts.isIdentifier(prop.name)) continue;
+    if (prop.name.text !== "tags" && prop.name.text !== "tag") continue;
+
+    const { initializer } = prop;
+    const values: ts.StringLiteral[] = ts.isArrayLiteralExpression(initializer)
+      ? initializer.elements.filter(ts.isStringLiteral)
+      : prop.name.text === "tag" && ts.isStringLiteral(initializer)
+        ? [initializer]
+        : [];
+
+    for (const el of values) {
+      ctx.tags.add({ name: el.text.replace(/^@/, ""), kind: "comment-marker" });
     }
   }
 }

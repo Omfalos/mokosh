@@ -1,13 +1,39 @@
 import fs from "node:fs";
 import path from "node:path";
 
+/**
+ * @description Contract for resolving an import specifier to an absolute file path
+ *   given the file that contains the import.
+ */
 export interface PathResolver {
+  /**
+   * @description Resolves an import specifier to an absolute path and whether it is
+   *   outside the project root.
+   * @param currentFile - Absolute path of the file containing the import statement.
+   * @param specifier - The raw import specifier string (e.g. `"./utils"` or `"lodash"`).
+   * @returns Resolved path and external flag, or `null` if resolution fails.
+   */
   resolve(currentFile: string, specifier: string): { path: string; isExternal: boolean } | null;
 }
 
+/**
+ * @description Default import resolver that handles relative paths, absolute paths,
+ *   tsconfig path aliases, Lua dot-separated modules, and external node_modules.
+ */
 export class DefaultResolver implements PathResolver {
+  /**
+   * @param rootDir - Absolute path to the project root, used as the boundary for
+   *   deciding whether a resolved path is internal or external.
+   */
   constructor(private rootDir: string) {}
 
+  /**
+   * @description Resolves a specifier by trying path aliases first, then relative/absolute
+   *   local paths, then Lua dot-notation, and finally treating the specifier as an external module.
+   * @param currentFile - Absolute path of the file containing the import.
+   * @param specifier - The raw import specifier to resolve.
+   * @returns Resolved path and external flag, or `null` if no local file can be found.
+   */
   public resolve(
     currentFile: string,
     specifier: string,
@@ -39,6 +65,13 @@ export class DefaultResolver implements PathResolver {
     return { path: specifier, isExternal: true };
   }
 
+  /**
+   * @description Resolves a relative or absolute specifier to a concrete file path by
+   *   trying multiple extensions and index-file fallbacks, including ESM `.js`→`.ts` rewriting.
+   * @param currentFile - Absolute path of the importing file, used to compute the base directory.
+   * @param specifier - A relative (`./foo`) or absolute (`/foo`) import specifier.
+   * @returns Resolved path and external flag, or `null` if no matching file is found within the project.
+   */
   private resolveLocalPath(
     currentFile: string,
     specifier: string,
@@ -85,6 +118,14 @@ export class DefaultResolver implements PathResolver {
     return isExternal ? { path: fullPath, isExternal: true } : null;
   }
 
+  /**
+   * @description Checks whether `fullPath + ext` resolves to an existing file or an
+   *   `index` file inside `fullPath` as a directory.
+   * @param fullPath - The candidate path without extension.
+   * @param ext - Extension to append, including the dot (e.g. `".ts"`), or empty string to try as-is.
+   * @param isExternal - Whether the path falls outside the project root.
+   * @returns Resolved path and external flag, or `null` if neither variant exists.
+   */
   private tryExtensions(
     fullPath: string,
     ext: string,
@@ -105,6 +146,12 @@ export class DefaultResolver implements PathResolver {
     return null;
   }
 
+  /**
+   * @description Safely checks whether a path refers to a regular file without throwing
+   *   on missing entries or permission errors.
+   * @param p - Absolute path to test.
+   * @returns `true` if the path exists and is a regular file.
+   */
   private isFile(p: string): boolean {
     try {
       const stats = fs.statSync(p, { throwIfNoEntry: false });
@@ -114,6 +161,13 @@ export class DefaultResolver implements PathResolver {
     }
   }
 
+  /**
+   * @description Reads `tsconfig.json` from the project root and attempts to match the
+   *   specifier against configured `compilerOptions.paths` aliases, trying each substitution
+   *   with multiple extensions.
+   * @param specifier - The import specifier to match against path aliases.
+   * @returns Resolved path and external flag if an alias matches, or `null` otherwise.
+   */
   private resolvePathAlias(specifier: string): { path: string; isExternal: boolean } | null {
     const tsconfigPath = path.join(this.rootDir, "tsconfig.json");
     if (!fs.existsSync(tsconfigPath)) return null;
@@ -138,6 +192,13 @@ export class DefaultResolver implements PathResolver {
 
   private aliasRegexCache = new Map<string, RegExp>();
 
+  /**
+   * @description Converts a tsconfig path alias (e.g. `"@app/*"`) to a regex and tests it
+   *   against the specifier, caching compiled regexes for repeated lookups.
+   * @param alias - A tsconfig `paths` key, potentially containing a `*` wildcard.
+   * @param specifier - The import specifier to test.
+   * @returns The regex match array (including wildcard capture) if matched, or `null`.
+   */
   private matchAliasPattern(alias: string, specifier: string): RegExpMatchArray | null {
     let regex = this.aliasRegexCache.get(alias);
     if (!regex) {
@@ -148,6 +209,13 @@ export class DefaultResolver implements PathResolver {
     return specifier.match(regex);
   }
 
+  /**
+   * @description Iterates over all substitution templates for a matched alias, replacing
+   *   the `*` placeholder with the captured wildcard segment, then probing for an existing file.
+   * @param substitutions - The array of path templates from tsconfig `paths` (e.g. `["src/app/*"]`).
+   * @param wildcardMatch - The portion of the specifier that matched the `*` in the alias pattern.
+   * @returns The first substitution that resolves to an existing file, or `null` if none match.
+   */
   private tryAliasSubstitutions(
     substitutions: string[],
     wildcardMatch: string,

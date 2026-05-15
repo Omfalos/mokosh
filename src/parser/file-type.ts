@@ -1,6 +1,12 @@
 import path from "node:path";
 import type { FileType } from "../types/parse";
 
+/**
+ * @description Maps a file path's extension to its canonical `FileType` identifier,
+ *   returning `"unknown"` for unrecognised or unsupported extensions.
+ * @param filePath - Absolute or relative path to the source file.
+ * @returns The `FileType` string corresponding to the file's language.
+ */
 export function getFileType(filePath: string): FileType {
   const ext = path.extname(filePath).toLowerCase();
   switch (ext) {
@@ -42,6 +48,12 @@ export function getFileType(filePath: string): FileType {
   }
 }
 
+/**
+ * @description Checks whether an import specifier refers to a stylesheet by examining
+ *   its extension, covering CSS, SCSS/Sass, Less, and Stylus.
+ * @param specifier - The raw import specifier string from source code.
+ * @returns `true` if the specifier's extension is a known stylesheet format.
+ */
 export function isStyleFile(specifier: string): boolean {
   const ext = path.extname(specifier).toLowerCase();
   return [".css", ".scss", ".sass", ".less", ".styl"].includes(ext);

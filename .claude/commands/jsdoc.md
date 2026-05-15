@@ -26,7 +26,7 @@ Use this exact format:
  * @description What this does and why — explain intent and behaviour, not just
  *   what the code obviously does. One to three sentences.
  * @param name - What this argument represents and any meaningful constraint.
- * @returns What is returned and when it may differ (e.g. null on miss).
+ * @returns What is returned and when it may differ (e.g. null on miss). add return type if possible
  */
 ```
 

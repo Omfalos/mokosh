@@ -1,6 +1,12 @@
 import type { Graph } from "./model";
 
 export const MermaidExporter = {
+  /**
+   * @description Serializes the dependency graph into a Mermaid `graph TD` diagram,
+   *   rendering import edges as arrows and style imports with a labelled edge variant.
+   * @param graph - The dependency graph whose nodes and edges to serialize.
+   * @returns A Mermaid diagram string starting with `graph TD`.
+   */
   toMermaid(graph: Graph): string {
     const lines: string[] = ["graph TD"];
     const visitedEdges = new Set<string>();

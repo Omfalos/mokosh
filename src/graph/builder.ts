@@ -146,18 +146,12 @@ export class GraphBuilder {
   }
 
   /**
-   * @description Returns the `FileNode` for a file, either from the incremental cache or by parsing it fresh.
-   *
-   * Cache hit condition: the previous graph has a node at the same relative path **and** both
-   * `mtime` and `size` match the current file stats. Both checks are needed because some tools
-   * (e.g. file watchers) can restore a previous version with the same mtime but different content.
-   *
-   * On parse failure the file is kept in the graph as a stub (`category: "other"`, empty
-   * imports/exports) so that the surrounding graph remains usable and the failure is surfaced
-   * as a warning rather than crashing the build.
+   * @description Returns the `FileNode` for a file, either from the incremental cache or by
+   *   parsing it fresh. Cache hit requires both `mtime` and `size` to match — size guards
+   *   against tools that restore a previous file version with an identical timestamp.
    * @param filePath - Absolute path of the file.
-   * @param relativePath - Path of the file relative to `rootDir`, used as the node key.
-   * @param stats - File system stats, used for cache validation and stored on the node.
+   * @param relativePath - Path relative to `rootDir`, used as the node key.
+   * @param stats - File system stats for cache validation and node metadata.
    * @returns The parsed or cached `FileNode`.
    */
   private async getNode(
@@ -166,32 +160,72 @@ export class GraphBuilder {
     stats: fs.Stats,
   ): Promise<FileNode> {
     const cachedNode = this.previousGraph?.nodes.get(relativePath);
-
     if (cachedNode && cachedNode.mtime === stats.mtimeMs && cachedNode.size === stats.size) {
       return { ...cachedNode };
     }
 
+    const parsed = await this.tryParse(filePath, relativePath);
+    if (!parsed) return this.makeStubNode(filePath, relativePath, stats);
+
+    enrichLibraryTags(parsed.imports, parsed.tags);
+    const callEdges = this.resolveCallEdges(filePath, parsed.rawCallEdges);
+    const node = this.buildNode(filePath, relativePath, stats, parsed, callEdges);
+    this.attachGitStats(node, relativePath);
+    return node;
+  }
+
+  /**
+   * @description Reads and parses a file, returning `null` on failure and emitting a warning
+   *   to stderr so the surrounding graph build can continue with a stub.
+   * @param filePath - Absolute path of the file to parse.
+   * @param relativePath - Relative path used only in the warning message.
+   * @returns The parse result, or `null` if parsing threw.
+   */
+  private async tryParse(
+    filePath: string,
+    relativePath: string,
+  ): Promise<Awaited<ReturnType<typeof parseFile>> | null> {
     const content = fs.readFileSync(filePath, "utf-8");
-    let parsed: Awaited<ReturnType<typeof parseFile>>;
     try {
-      parsed = await parseFile(filePath, content);
+      return await parseFile(filePath, content);
     } catch (err) {
       process.stderr.write(`\nWarning: failed to parse ${relativePath}: ${err}\n`);
-      return {
-        path: relativePath,
-        type: getFileType(filePath),
-        category: "other",
-        imports: [],
-        exports: [],
-        tags: [],
-        mtime: stats.mtimeMs,
-        size: stats.size,
-      };
+      return null;
     }
-    const { imports, exports, tags, category, rawCallEdges, description } = parsed;
+  }
 
-    enrichLibraryTags(imports, tags);
+  /**
+   * @description Builds a minimal stub `FileNode` for a file that could not be parsed,
+   *   keeping the graph structurally intact while surfacing the failure via category `"other"`.
+   * @param filePath - Absolute path, used to determine the file type.
+   * @param relativePath - Used as the node's path key.
+   * @param stats - Provides `mtime` and `size` for future cache comparisons.
+   * @returns A `FileNode` with empty imports, exports, and tags.
+   */
+  private makeStubNode(filePath: string, relativePath: string, stats: fs.Stats): FileNode {
+    return {
+      path: relativePath,
+      type: getFileType(filePath),
+      category: "other",
+      imports: [],
+      exports: [],
+      tags: [],
+      mtime: stats.mtimeMs,
+      size: stats.size,
+    };
+  }
 
+  /**
+   * @description Resolves raw call-edge specifiers to project-relative file paths,
+   *   silently dropping any specifier the resolver cannot map.
+   * @param filePath - Absolute path of the file that owns the call edges.
+   * @param rawCallEdges - Unresolved call edges from the parser output.
+   * @returns Resolved `CallEdge` array containing only internal (non-external) edges.
+   */
+  private resolveCallEdges(
+    filePath: string,
+    rawCallEdges: Awaited<ReturnType<typeof parseFile>>["rawCallEdges"],
+  ): CallEdge[] {
     const callEdges: CallEdge[] = [];
     for (const rce of rawCallEdges ?? []) {
       try {
@@ -207,8 +241,27 @@ export class GraphBuilder {
         // unresolvable specifier — silent
       }
     }
+    return callEdges;
+  }
 
-    const node: FileNode = {
+  /**
+   * @description Assembles the final `FileNode` from parsed data and resolved call edges.
+   * @param filePath - Absolute path, used to determine the file type.
+   * @param relativePath - Used as the node's path key.
+   * @param stats - Provides `mtime` and `size`.
+   * @param parsed - Structured output from the parser.
+   * @param callEdges - Already-resolved call edges to attach when non-empty.
+   * @returns A fully populated `FileNode` ready to be inserted into the graph.
+   */
+  private buildNode(
+    filePath: string,
+    relativePath: string,
+    stats: fs.Stats,
+    parsed: Awaited<ReturnType<typeof parseFile>>,
+    callEdges: CallEdge[],
+  ): FileNode {
+    const { imports, exports, tags, category, description } = parsed;
+    return {
       path: relativePath,
       type: getFileType(filePath),
       category,
@@ -220,18 +273,23 @@ export class GraphBuilder {
       ...(description !== undefined ? { description } : {}),
       ...(callEdges.length > 0 ? { callEdges } : {}),
     };
+  }
 
-    if (this.enableGitStats) {
-      try {
-        const git = getGitFileStats(this.rootDir, relativePath);
-        node.commitCount90d = git.commitCount90d;
-        if (git.lastAuthor !== undefined) node.lastAuthor = git.lastAuthor;
-      } catch {
-        // git not available or file not tracked — silent
-      }
+  /**
+   * @description Enriches a node with git activity metadata when `enableGitStats` is on,
+   *   silently skipping files not tracked by git or when git is unavailable.
+   * @param node - The node to mutate in place.
+   * @param relativePath - Project-relative path passed to the git helper.
+   */
+  private attachGitStats(node: FileNode, relativePath: string): void {
+    if (!this.enableGitStats) return;
+    try {
+      const git = getGitFileStats(this.rootDir, relativePath);
+      node.commitCount90d = git.commitCount90d;
+      if (git.lastAuthor !== undefined) node.lastAuthor = git.lastAuthor;
+    } catch {
+      // git not available or file not tracked — silent
     }
-
-    return node;
   }
 
   /**

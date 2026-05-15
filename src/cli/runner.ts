@@ -10,6 +10,10 @@ import { resolveConfig } from "./config";
 import { buildGraph, loadGraphFromCache, saveGraphToCache } from "./graph-loader";
 import { HELP_TEXT, QUERY_HELP_TEXT } from "./help";
 
+/**
+ * @description Parses CLI arguments, loads configuration, builds or restores the
+ *   dependency graph, then dispatches to the appropriate sub-command handler.
+ */
 export async function run(): Promise<void> {
   const argv = process.argv.slice(2);
   const parsed = parseArgs(argv);
