@@ -1,6 +1,8 @@
 # Mokosh 🌊
 
-Mokosh is a lightweight, AST-powered dependency graph generator for modern web and script projects. It extracts import maps from JavaScript, TypeScript, CSS, SCSS, Less, Stylus, CoffeeScript, LiveScript, Lua, and Gherkin files to help AI models and developers understand code relationships efficiently.
+> **Not yet published to npm.** This package is under active development. Install directly from the repository for now.
+
+Mokosh is a lightweight, AST-powered dependency graph generator for modern web and script projects. It extracts import maps from JavaScript, TypeScript, Python, CSS, SCSS, Less, Stylus, CoffeeScript, LiveScript, Lua, and Gherkin files to help AI models and developers understand code relationships efficiently.
 
 Designed for performance and RAG (Retrieval-Augmented Generation) workflows, Mokosh enables you to visualize your project structure, traverse dependencies, and even propose test tags based on code changes.
 
@@ -8,6 +10,7 @@ Designed for performance and RAG (Retrieval-Augmented Generation) workflows, Mok
 
 - **Multi-Language Support**: Robust extraction from:
     - **JavaScript/TypeScript**: static `import`, dynamic `import()`, `require()`, and re-exports.
+    - **Python**: all import forms (`import X`, `from X import Y`, relative `.`/`..` imports, star imports) via `@lezer/python` AST. Test files (`test_*.py`, `*_test.py`) and test frameworks (`pytest`, `unittest`) auto-detected.
     - **CSS/SCSS/Less/Stylus**: tracks `@import` relationships.
     - **CoffeeScript/LiveScript/Lua/Gherkin**: AST-based parsing for dependencies and tags.
 - **Graph Traversal**: Programmatically explore dependencies from any entry point with depth control.
@@ -47,6 +50,7 @@ Mokosh automatically detects file types and uses the appropriate parser. You can
 | --- | --- | --- |
 | JavaScript | `.js`, `.jsx` | `// @tag core` |
 | TypeScript | `.ts`, `.tsx` | `// @tag models` |
+| Python | `.py` | `# @tag auth` |
 | CSS/SCSS/Less | `.css`, `.scss`, `.less` | N/A |
 | Stylus | `.styl` | N/A |
 | CoffeeScript | `.coffee` | `# @tag script` |
@@ -56,9 +60,19 @@ Mokosh automatically detects file types and uses the appropriate parser. You can
 
 ## Installation
 
-```bash
-npm install mokosh
-```
+> **This package is not yet published to npm.** To use it, clone the repository and build locally:
+>
+> ```bash
+> git clone https://github.com/Omfalos/mokosh.git
+> cd mokosh
+> npm install
+> npm run build
+> ```
+>
+> Once published, installation will be:
+> ```bash
+> npm install mokosh
+> ```
 
 ## Quick Start
 
@@ -149,3 +163,5 @@ For detailed information on each process, check the following guides:
 - [Graph Traversal](./docs/traversal.md)
 - [Test Tag Proposal](./docs/test-tags.md)
 - [Lock File Analysis](./docs/lock-files.md)
+- [ADR-001: AST Libraries for Style Parsers](./docs/adr-001-styles-parsing.md)
+- [ADR-002: Python Parsing with @lezer/python](./docs/adr-002-python-parsing.md)

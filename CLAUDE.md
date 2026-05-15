@@ -4,6 +4,8 @@
 
 A dependency-graph analysis tool. Parses source files, builds a directed import graph, and exposes it via CLI and MCP server. Two published outputs: a CLI binary and an MCP server.
 
+> **Not yet published to npm.** Build locally with `npm install && npm run build`.
+
 ## Entry points
 
 | Entry | Purpose |
@@ -39,11 +41,13 @@ src/
     features/       feature hub detection
     resolver.ts     import path resolution
   parser/
-    code.ts         TypeScript/JavaScript via tsc
-    coffee.ts       CoffeeScript
-    gherkin.ts      Gherkin/Cucumber
-    ls.ts           LiveScript
-    lua.ts          Lua
+    lang/
+      typescript.ts TypeScript/JavaScript via tsc
+      python.ts     Python via @lezer/python (pure-JS LR parser — see docs/adr-002-python-parsing.md)
+      coffee.ts     CoffeeScript
+      gherkin.ts    Gherkin/Cucumber
+      ls.ts         LiveScript
+      lua.ts        Lua
     style/          CSS/SCSS/Stylus
     classify.ts     file category classification (logic/barrel/type-only/test)
     file-type.ts    extension → language mapping

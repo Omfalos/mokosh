@@ -34,10 +34,18 @@ npx mokosh [options] <entry-point1> <entry-point2> ...
 
 Mokosh supports a wide range of languages out of the box:
 
-- **Logic**: JavaScript (.js, .mjs, .cjs), TypeScript (.ts, .tsx), CoffeeScript (.coffee), LiveScript (.ls), Lua (.lua), Gherkin (.feature).
+- **Logic**: JavaScript (.js, .mjs, .cjs), TypeScript (.ts, .tsx), Python (.py), CoffeeScript (.coffee), LiveScript (.ls), Lua (.lua), Gherkin (.feature).
 - **Styles**: CSS (.css), SCSS (.scss), Less (.less), Stylus (.styl).
 
-Each language is parsed using its respective AST or highly optimized regex (for styles) to ensure accurate dependency extraction.
+Each language is parsed using its respective AST library to ensure accurate dependency extraction. Python uses [`@lezer/python`](../docs/adr-002-python-parsing.md) — a pure-JavaScript LR parser with no native compilation required.
+
+**Python-specific notes:**
+- All import forms are supported: `import X`, `from X import Y`, relative imports (`from . import X`, `from ..utils import Y`), star imports, aliased imports, and parenthesised multi-line imports.
+- Test files are classified by Python conventions: filenames matching `test_*.py` or `*_test.py`, imports of `pytest`/`unittest`/`nose`/`hypothesis`, or a `# @tag test` comment.
+- `conftest.py` and `setup.py` are classified as `config`.
+- Top-level `def` and `class` definitions are recorded as exports.
+- Use `# @tag <name>` in comments to attach custom tags.
+- Bare module imports (`import mymodule`) are probed against the project root before being marked external — so local `.py` files and packages (with `__init__.py`) are correctly linked as internal edges.
 
 ### Configuration File
 

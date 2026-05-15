@@ -12,6 +12,7 @@ The Parser's responsibility is to analyze a single file's content and extract it
   - `ExportDeclaration` (Re-exports like `export ... from '...'`)
   - `CallExpression` for dynamic `import()`
   - `CallExpression` for CommonJS `require()`
+- **Python Files**: Uses `@lezer/python` (the CodeMirror 6 pure-JavaScript LR parser) to walk the AST. All Python import forms are represented as `ImportStatement` nodes — bare `import X`, `from X import Y`, relative `.`/`..` imports, star imports, aliased imports, and parenthesised multi-line imports. Top-level `def`/`class` definitions are exported. Test files are detected by filename convention (`test_*.py`, `*_test.py`), test-framework imports (`pytest`, `unittest`), and `# @tag test` markers. See [ADR-002](adr-002-python-parsing.md) for the full rationale and options considered.
 - **Style Files**: Uses purpose-built AST libraries (`postcss`, `sass`, `stylus`) rather than regex. See [ADR-001](adr-001-styles-parsing.md) for the rationale.
 - **Metadata Extraction**: Identifies potential test tags by:
   - Filename conventions (e.g., `*.test.js`, `*.spec.ts`).

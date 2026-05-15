@@ -61,7 +61,13 @@ export class DefaultResolver implements PathResolver {
       }
     }
 
-    // 4. Non-relative, non-absolute import (likely a node_module or built-in)
+    // 4. Python bare module names: try local .py files before marking external
+    if (currentFile.endsWith(".py")) {
+      const local = this.resolvePythonBareImport(specifier);
+      if (local) return local;
+    }
+
+    // 5. Non-relative, non-absolute import (likely a node_module or built-in)
     return { path: specifier, isExternal: true };
   }
 
@@ -96,6 +102,7 @@ export class DefaultResolver implements PathResolver {
       ".coffee",
       ".ls",
       ".lua",
+      ".py",
       ".feature",
     ];
 
@@ -137,10 +144,18 @@ export class DefaultResolver implements PathResolver {
       return { path: p, isExternal };
     }
 
-    // Try index file in directory
+    // Try index file in directory (JS/TS convention: index.ts)
     const indexP = path.join(fullPath, `index${ext}`);
     if (this.isFile(indexP)) {
       return { path: indexP, isExternal };
+    }
+
+    // Python convention: __init__.py for packages
+    if (ext === ".py") {
+      const initP = path.join(fullPath, "__init__.py");
+      if (this.isFile(initP)) {
+        return { path: initP, isExternal };
+      }
     }
 
     return null;
@@ -231,6 +246,30 @@ export class DefaultResolver implements PathResolver {
         if (resolved) return resolved;
       }
     }
+    return null;
+  }
+
+  /**
+   * @description Tries to resolve a bare Python module name (e.g. `mymodule` or `mypackage.sub`)
+   *   to a local `.py` file or package `__init__.py` inside the project root.
+   *   Searches the project root; dots in the specifier are treated as path separators.
+   *   Returns `null` if no local file is found — the caller then falls through to external.
+   */
+  private resolvePythonBareImport(specifier: string): { path: string; isExternal: boolean } | null {
+    const pyPath = specifier.replace(/\./g, path.sep);
+
+    // Try as a .py file or package (__init__.py) relative to the project root.
+    for (const base of [this.rootDir]) {
+      const pyFile = path.join(base, pyPath + ".py");
+      if (this.isFile(pyFile)) {
+        return { path: pyFile, isExternal: false };
+      }
+      const initFile = path.join(base, pyPath, "__init__.py");
+      if (this.isFile(initFile)) {
+        return { path: initFile, isExternal: false };
+      }
+    }
+
     return null;
   }
 }

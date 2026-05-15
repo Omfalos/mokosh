@@ -3,6 +3,7 @@ import { parseCoffeeScript } from "./parser/lang/coffee";
 import { parseGherkin } from "./parser/lang/gherkin";
 import { parseLiveScript } from "./parser/lang/ls";
 import { parseLua } from "./parser/lang/lua";
+import { parsePython } from "./parser/lang/python";
 import { parseCodeFile } from "./parser/lang/typescript";
 import { getParserForType, registerParser } from "./parser/registry";
 import { parseStyleFile } from "./parser/style";
@@ -19,6 +20,7 @@ registerParser("stylus", parseStyleFile);
 registerParser("coffeescript", parseCoffeeScript);
 registerParser("livescript", parseLiveScript);
 registerParser("lua", parseLua);
+registerParser("python", parsePython);
 registerParser("gherkin", parseGherkin);
 
 export {

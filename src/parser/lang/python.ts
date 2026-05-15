@@ -1,0 +1,191 @@
+import path from "node:path";
+import type { SyntaxNode } from "@lezer/common";
+import { parser } from "@lezer/python";
+import type { ExportedSymbol, ImportEdge } from "../../types/node";
+import type { ParseResult } from "../types";
+
+const TEST_LIBS = new Set(["pytest", "unittest", "nose", "hypothesis"]);
+
+/**
+ * @description Parses a Python source file using the Lezer parser to extract import edges,
+ *   top-level definitions as exports, `# @tag` comment markers, and file category.
+ */
+export function parsePython(filePath: string, content: string): ParseResult {
+  const imports: ImportEdge[] = [];
+  const exports: ExportedSymbol[] = [];
+  const tags = new Set<string>();
+  const baseName = path.basename(filePath).toLowerCase();
+
+  const tree = parser.parse(content);
+  const cursor = tree.cursor();
+
+  do {
+    switch (cursor.name) {
+      case "Comment": {
+        const m = content.slice(cursor.from, cursor.to).match(/#\s*@tag\s+([a-zA-Z0-9_-]+)/);
+        if (m?.[1]) tags.add(m[1]);
+        break;
+      }
+      case "ImportStatement": {
+        for (const edge of extractImportEdges(cursor.node, content, filePath)) {
+          imports.push(edge);
+        }
+        break;
+      }
+      case "FunctionDefinition":
+      case "ClassDefinition": {
+        // Only top-level — parent must be Script or a DecoratedStatement directly under Script
+        const p = cursor.node.parent;
+        const isTopLevel =
+          p?.name === "Script" || (p?.name === "DecoratedStatement" && p.parent?.name === "Script");
+        if (isTopLevel) {
+          const nameNode = cursor.node.getChild("VariableName");
+          if (nameNode) exports.push({ name: content.slice(nameNode.from, nameNode.to) });
+        }
+        break;
+      }
+    }
+  } while (cursor.next());
+
+  const category = resolveCategory(baseName, imports, tags);
+  if (category === "test") tags.add("test");
+
+  return {
+    imports,
+    exports,
+    tags: Array.from(tags).map((name) => ({ name, kind: "comment-marker" as const })),
+    category,
+  };
+}
+
+// ─── import edge extraction ───────────────────────────────────────────────────
+
+function extractImportEdges(node: SyntaxNode, src: string, filePath: string): ImportEdge[] {
+  const first = node.firstChild;
+  if (!first) return [];
+  return first.name === "from"
+    ? extractFromImport(node, src, filePath)
+    : extractBareImport(node, src, filePath);
+}
+
+/**
+ * Handles `from <module> import <names>` in all forms:
+ *   absolute, relative (. / .. / ...), dotted module paths, star, aliases.
+ */
+function extractFromImport(node: SyntaxNode, src: string, filePath: string): ImportEdge[] {
+  const fromKw = node.firstChild!;
+
+  // Find the `import` keyword that splits module from names
+  let importKw: SyntaxNode | null = fromKw.nextSibling;
+  while (importKw && importKw.name !== "import") importKw = importKw.nextSibling;
+  if (!importKw) return [];
+
+  // Raw module text: everything between `from` end and `import` start.
+  // e.g. " .models", " os.path", " .. ", " ...core.utils"
+  const rawModule = src.slice(fromKw.to, importKw.from).trim();
+  const importedNames = collectImportedNames(importKw.nextSibling, src);
+  if (!importedNames.length) return [];
+
+  // Split leading dots from the rest of the module path
+  let dotCount = 0;
+  while (dotCount < rawModule.length && rawModule[dotCount] === ".") dotCount++;
+  const modulePart = rawModule.slice(dotCount); // e.g. "models", "core.utils", ""
+
+  if (dotCount === 0) {
+    // Absolute import: `from pathlib import Path`
+    // Keep dotted module name as-is; resolver converts dots → path separators.
+    return [makeEdge(filePath, rawModule, importedNames)];
+  }
+
+  // n=1 → "./"  (current package)
+  // n=2 → "../" (parent package)
+  // n=3 → "../../" (grandparent)
+  const prefix = dotCount === 1 ? "./" : "../".repeat(dotCount - 1);
+
+  if (!modulePart) {
+    // `from . import utils, models` — each name is its own sub-module.
+    // `from . import *`            — edge to the package init.
+    if (importedNames[0] === "*") {
+      return [makeEdge(filePath, prefix.slice(0, -1), ["*"])];
+    }
+    return importedNames.map((name) => makeEdge(filePath, prefix + name, [name]));
+  }
+
+  // `from .models import User` → "./models"
+  // `from .models.user import X` → "./models/user"
+  return [makeEdge(filePath, prefix + modulePart.replace(/\./g, "/"), importedNames)];
+}
+
+/**
+ * Handles `import <module>` statements, including dotted paths and aliases.
+ * `import os, sys` produces two edges; `import os.path as p` uses the original module name.
+ */
+function extractBareImport(node: SyntaxNode, src: string, filePath: string): ImportEdge[] {
+  const edges: ImportEdge[] = [];
+  let c: SyntaxNode | null = node.firstChild?.nextSibling ?? null; // skip "import" keyword
+
+  while (c) {
+    if (c.name === "VariableName") {
+      // Collect possibly dotted module name: os + . + path → "os.path"
+      let modName = src.slice(c.from, c.to);
+      while (c.nextSibling?.name === "." && c.nextSibling.nextSibling?.name === "VariableName") {
+        c = c.nextSibling.nextSibling!;
+        modName += "." + src.slice(c.from, c.to);
+      }
+      // Skip optional `as alias`
+      if (c.nextSibling?.name === "as") {
+        c = c.nextSibling.nextSibling ?? c.nextSibling;
+      }
+      edges.push(makeEdge(filePath, modName, ["*"]));
+    }
+    c = c.nextSibling;
+  }
+
+  return edges;
+}
+
+/**
+ * Walks the sibling chain after `import`, collecting symbol names and skipping `as` aliases.
+ */
+function collectImportedNames(start: SyntaxNode | null, src: string): string[] {
+  const names: string[] = [];
+  let c: SyntaxNode | null = start;
+  while (c) {
+    if (c.name === "*") {
+      names.push("*");
+    } else if (c.name === "VariableName") {
+      names.push(src.slice(c.from, c.to));
+      // Skip `as alias` if present
+      if (c.nextSibling?.name === "as") {
+        c = c.nextSibling.nextSibling ?? c.nextSibling;
+      }
+    }
+    c = c.nextSibling;
+  }
+  return names;
+}
+
+// ─── helpers ──────────────────────────────────────────────────────────────────
+
+function makeEdge(filePath: string, rawSpecifier: string, symbols: string[]): ImportEdge {
+  return {
+    fromPath: filePath,
+    toPath: "",
+    rawSpecifier,
+    isStyle: false,
+    type: "static",
+    symbols: symbols.length > 0 ? symbols : undefined,
+  };
+}
+
+function resolveCategory(
+  baseName: string,
+  imports: ImportEdge[],
+  tags: Set<string>,
+): "test" | "config" | "logic" {
+  if (baseName.startsWith("test_") || baseName.endsWith("_test.py")) return "test";
+  if (baseName === "conftest.py" || baseName === "setup.py") return "config";
+  if (tags.has("test")) return "test";
+  if (imports.some((imp) => TEST_LIBS.has(imp.rawSpecifier))) return "test";
+  return "logic";
+}
