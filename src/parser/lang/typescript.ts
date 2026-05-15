@@ -1,11 +1,11 @@
 import path from "node:path";
 import ts from "typescript";
-import type { ExportedSymbol, ImportEdge, StructuredTag } from "../types/node";
-import type { FileType, ImportType, NodeCategory } from "../types/parse";
-import { getBarrelThreshold, getTestLibraries, getTestPatterns, isConfigFile } from "./classify";
-import { isStyleFile } from "./file-type";
-import { handleTagging } from "./tagging";
-import type { ParseContext, ParseResult, RawCallEdge } from "./types";
+import type { ExportedSymbol, ImportEdge, StructuredTag } from "../../types/node";
+import type { FileType, ImportType, NodeCategory } from "../../types/parse";
+import { getBarrelThreshold, getTestLibraries, getTestPatterns, isConfigFile } from "../classify";
+import { isStyleFile } from "../file-type";
+import { handleTagging } from "../tagging";
+import type { ParseContext, ParseResult, RawCallEdge } from "../types";
 
 /**
  * @description Parses a JavaScript or TypeScript file using the TypeScript Compiler API.
@@ -205,6 +205,7 @@ function updateStatementCounts(node: ts.Node, ctx: ParseContext) {
  * @description Updates `hasUI` and `hasTypesOnly` flags on the context based on the current node kind.
  *
  * JSX nodes set `hasUI`; function/class/variable/enum nodes clear `hasTypesOnly`.
+ * Non-type-only `ExportDeclaration` nodes (re-exports of values) also clear `hasTypesOnly`.
  * Both flags feed into `determineCategory` after the full AST walk.
  * @param node - The current AST node.
  * @param ctx - The parse context whose flags are mutated.
@@ -224,7 +225,24 @@ function updateCategoryHints(node: ts.Node, ctx: ParseContext) {
     ts.isEnumDeclaration(node)
   ) {
     ctx.hasTypesOnly = false;
+    return;
   }
+  if (ts.isExportDeclaration(node) && !isTypeOnlyExportDecl(node)) {
+    ctx.hasTypesOnly = false;
+  }
+}
+
+/**
+ * @description Returns true if an export declaration exports only type-level bindings.
+ *
+ * Covers `export type { ... }` (declaration-level) and `export { type Foo, type Bar }`
+ * (element-level, TypeScript 4.5+). Star re-exports without `type` are treated as value
+ * exports because their symbol kind is not statically knowable.
+ */
+function isTypeOnlyExportDecl(node: ts.ExportDeclaration): boolean {
+  if (node.isTypeOnly) return true;
+  if (!node.exportClause || !ts.isNamedExports(node.exportClause)) return false;
+  return node.exportClause.elements.every((el) => el.isTypeOnly);
 }
 
 /**
@@ -447,12 +465,12 @@ function determineCategory(filePath: string, ctx: ParseContext): NodeCategory {
 
   if (ext === ".tsx" || ext === ".jsx" || ctx.hasUI) return "ui";
 
-  // 4. Barrel files (mostly exports)
+  // 4. Type-only files (interfaces, types, type-only re-exports)
+  if (ctx.hasTypesOnly && ctx.totalStatements > 0) return "type-only";
+
+  // 5. Barrel files (mostly value exports/re-exports)
   if (ctx.totalStatements > 0 && ctx.exportStatements / ctx.totalStatements > getBarrelThreshold())
     return "barrel";
-
-  // 5. Type-only files (interfaces, types)
-  if (ctx.hasTypesOnly && ctx.totalStatements > 0) return "type-only";
 
   return "logic";
 }

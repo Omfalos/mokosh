@@ -96,6 +96,50 @@ describe("parseImports", () => {
     expect(result.category).toBe("test");
   });
 
+  test("determineCategory - type-only inline declarations", async () => {
+    const content = `
+      export interface Foo { x: number }
+      export type Bar = string;
+    `;
+    const result = await parseFile("types.ts", content);
+    expect(result.category).toBe("type-only");
+  });
+
+  test("determineCategory - type-only re-export barrel", async () => {
+    const content = `
+      export type { Foo } from './foo';
+      export type { Bar } from './bar';
+    `;
+    const result = await parseFile("index.ts", content);
+    expect(result.category).toBe("type-only");
+  });
+
+  test("determineCategory - type-only element-level re-export", async () => {
+    const content = `
+      export { type Foo, type Bar } from './types';
+    `;
+    const result = await parseFile("index.ts", content);
+    expect(result.category).toBe("type-only");
+  });
+
+  test("determineCategory - value barrel is not type-only", async () => {
+    const content = `
+      export { foo } from './foo';
+      export { bar } from './bar';
+    `;
+    const result = await parseFile("index.ts", content);
+    expect(result.category).toBe("barrel");
+  });
+
+  test("determineCategory - mixed barrel (type + value) is barrel", async () => {
+    const content = `
+      export type { Foo } from './types';
+      export { bar } from './bar';
+    `;
+    const result = await parseFile("index.ts", content);
+    expect(result.category).toBe("barrel");
+  });
+
   test("parseImports - Less and Stylus @import", async () => {
     const content = `@import "./reset.less";
 import "./theme.styl";
