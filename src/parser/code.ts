@@ -469,6 +469,13 @@ function hasExportModifier(node: ts.Node): boolean {
   );
 }
 
+/**
+ * @description Builds a map of imported symbol names to their module specifiers, then walks
+ *   every top-level exported function body to collect caller→callee→specifier triples.
+ *   Populates `ctx.rawCallEdges` in place; skipped entirely for test files.
+ * @param ctx - The parse context whose `rawCallEdges` array is populated.
+ * @param sourceFile - The TypeScript source file AST used to enumerate statements.
+ */
 function collectRawCallEdges(ctx: ParseContext, sourceFile: ts.SourceFile): void {
   const edges: RawCallEdge[] = ctx.rawCallEdges ?? [];
   ctx.rawCallEdges = edges;
@@ -497,6 +504,12 @@ function collectRawCallEdges(ctx: ParseContext, sourceFile: ts.SourceFile): void
   }
 }
 
+/**
+ * @description Extracts the name of a top-level exported function from a statement.
+ *   Recognises both `export function foo` and `export const foo = () => ...` forms.
+ * @param stmt - The top-level statement to inspect.
+ * @returns The function name, or `undefined` if the statement is not an exported function.
+ */
 function getTopLevelExportedFunctionName(stmt: ts.Statement): string | undefined {
   if (!hasExportModifier(stmt)) return undefined;
   if (ts.isFunctionDeclaration(stmt) && stmt.name) return stmt.name.text;
@@ -514,6 +527,13 @@ function getTopLevelExportedFunctionName(stmt: ts.Statement): string | undefined
   return undefined;
 }
 
+/**
+ * @description Extracts the body node from a top-level function declaration or a variable-declared
+ *   arrow/function expression. Used to scope the call-expression walk to a single function.
+ * @param stmt - The top-level statement to inspect.
+ * @returns The body node, or `undefined` if the statement is neither a function declaration
+ *   nor a variable-declared function expression.
+ */
 function getFunctionBody(stmt: ts.Statement): ts.Node | undefined {
   if (ts.isFunctionDeclaration(stmt)) return stmt.body;
   if (ts.isVariableStatement(stmt)) {
@@ -529,6 +549,15 @@ function getFunctionBody(stmt: ts.Statement): ts.Node | undefined {
   return undefined;
 }
 
+/**
+ * @description Recursively walks an AST subtree and records every direct call to an imported
+ *   symbol as a `RawCallEdge`. Deduplicates so the same (from, to, specifier) triple is only
+ *   pushed once.
+ * @param node - The AST node to walk.
+ * @param fnName - The name of the enclosing exported function, used as the `from` field on edges.
+ * @param importSymbolMap - Maps local import names to their module specifiers.
+ * @param result - Accumulator array that receives discovered edges.
+ */
 function walkCallExpressions(
   node: ts.Node,
   fnName: string,

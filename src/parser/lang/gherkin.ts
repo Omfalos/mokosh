@@ -1,14 +1,17 @@
 import { AstBuilder, GherkinClassicTokenMatcher, Parser } from "@cucumber/gherkin";
 import { IdGenerator } from "@cucumber/messages";
-import { registerParser } from "./registry";
-import type { ParseResult } from "./types";
+import { registerParser } from "../registry";
+import type { ParseResult } from "../types";
 
 const uuidFn = IdGenerator.uuid();
 
 /**
- * Parses a Gherkin (.feature) file using the official AST builder.
- * Extracts tags from the Feature, Scenarios, and Examples.
- * Gherkin files are categorized as 'test' by default.
+ * @description Parses a Gherkin `.feature` file using the official Cucumber AST builder.
+ *   Walks the feature, scenario, example, and rule hierarchy to collect all `@tag` annotations.
+ *   Gherkin files are always categorized as `"test"`.
+ * @param _filePath - Path to the feature file; used only in error messages.
+ * @param content - Raw Gherkin source text.
+ * @returns A `ParseResult` with no imports, no exports, all collected tags, and category `"test"`.
  */
 export function parseGherkin(_filePath: string, content: string): ParseResult {
   const rawTags = new Set<string>();

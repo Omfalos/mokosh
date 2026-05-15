@@ -1,12 +1,17 @@
 import type { Chunk, Node } from "luaparse";
 import luaparse from "luaparse";
-import type { ImportEdge } from "../types/node";
-import { isStyleFile } from "./file-type";
-import type { ParseResult } from "./types";
-import { stripQuotes } from "./utils";
+import type { ImportEdge } from "../../types/node";
+import { isStyleFile } from "../file-type";
+import type { ParseResult } from "../types";
+import { stripQuotes } from "../utils";
 
 /**
- * Parses Lua files using luaparse for dependency extraction (require calls).
+ * @description Parses a Lua source file using luaparse to extract `require()` dependency edges
+ *   and `@tag` comment annotations. Falls back to an empty import list if the file contains
+ *   syntax errors.
+ * @param filePath - Path to the Lua file; used as the source on emitted edges and for test-file classification.
+ * @param content - Raw Lua source text.
+ * @returns Parsed imports, empty exports list, extracted tags, and resolved category.
  */
 export function parseLua(filePath: string, content: string): ParseResult {
   const imports: ImportEdge[] = [];
@@ -30,6 +35,12 @@ export function parseLua(filePath: string, content: string): ParseResult {
   try {
     const ast: Chunk = luaparse.parse(content);
 
+    /**
+     * @description Recursively walks a luaparse AST node, pushing a `require()` edge into
+     *   `imports` for every matching call expression found. Skips `loc` keys to avoid
+     *   processing location metadata objects.
+     * @param node - The AST node to walk.
+     */
     function traverse(node: Node) {
       if (!node || typeof node !== "object") return;
 

@@ -1,9 +1,9 @@
 // @ts-expect-error
 import ls from "livescript";
-import type { ImportEdge } from "../types/node";
-import { isStyleFile } from "./file-type";
-import type { ParseResult } from "./types";
-import { stripQuotes } from "./utils";
+import type { ImportEdge } from "../../types/node";
+import { isStyleFile } from "../file-type";
+import type { ParseResult } from "../types";
+import { stripQuotes } from "../utils";
 
 interface LiveScriptNode {
   constructor: { name: string };

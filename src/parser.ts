@@ -1,9 +1,9 @@
 import { parseCodeFile } from "./parser/code";
-import { parseCoffeeScript } from "./parser/coffee";
 import { getFileType } from "./parser/file-type";
-import { parseGherkin } from "./parser/gherkin";
-import { parseLiveScript } from "./parser/ls";
-import { parseLua } from "./parser/lua";
+import { parseCoffeeScript } from "./parser/lang/coffee";
+import { parseGherkin } from "./parser/lang/gherkin";
+import { parseLiveScript } from "./parser/lang/ls";
+import { parseLua } from "./parser/lang/lua";
 import { getParserForType, registerParser } from "./parser/registry";
 import { parseStyleFile } from "./parser/style";
 import type { ParseResult } from "./parser/types";

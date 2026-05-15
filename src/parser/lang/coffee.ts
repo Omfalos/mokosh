@@ -1,7 +1,7 @@
 import coffee from "coffeescript";
-import type { ImportEdge } from "../types/node";
-import { isStyleFile } from "./file-type";
-import type { ParseResult } from "./types";
+import type { ImportEdge } from "../../types/node";
+import { isStyleFile } from "../file-type";
+import type { ParseResult } from "../types";
 
 interface CoffeeNode {
   constructor: { name: string };
@@ -11,7 +11,12 @@ interface CoffeeNode {
   [key: string]: unknown;
 }
 
-/** Extracts `@tag <name>` annotations from raw file content. */
+/**
+ * @description Scans raw source text for `@tag <name>` comment annotations and collects
+ *   the tag names. Runs before category resolution so `@tag test` can influence classification.
+ * @param content - Raw source text to scan.
+ * @returns Set of tag name strings found in `@tag` annotations.
+ */
 function extractTags(content: string): Set<string> {
   const tags = new Set<string>();
   const tagRegex = /@tag\s+([a-zA-Z0-9_-]+)/g;
@@ -23,7 +28,13 @@ function extractTags(content: string): Set<string> {
   return tags;
 }
 
-/** Returns `"test"` if the path or tags indicate a test file, otherwise `"logic"`. */
+/**
+ * @description Determines whether a file is a test or production-logic file by checking
+ *   path naming conventions (`.test.`, `.spec.`) and explicit `@tag test` annotations.
+ * @param filePath - Path to the file being classified.
+ * @param tags - Tag names extracted from the file's content.
+ * @returns `"test"` if the file is a test file, `"logic"` otherwise.
+ */
 function resolveCategory(filePath: string, tags: Set<string>): "test" | "logic" {
   const lower = filePath.toLowerCase();
   if (lower.includes(".test.") || lower.includes(".spec.") || tags.has("test")) {
@@ -32,7 +43,12 @@ function resolveCategory(filePath: string, tags: Set<string>): "test" | "logic" 
   return "logic";
 }
 
-/** Builds an `ImportEdge` from a static `import` AST node. */
+/**
+ * @description Builds an `ImportEdge` from a CoffeeScript static `import` declaration AST node.
+ * @param filePath - Source file path stamped onto the edge.
+ * @param node - CoffeeScript AST node representing an `ImportDeclaration`.
+ * @returns An `ImportEdge` for the import, or `null` if the node carries no source value.
+ */
 function edgeFromImportDeclaration(filePath: string, node: CoffeeNode): ImportEdge | null {
   const specifier = node.source?.value;
   if (!specifier) return null;
@@ -45,7 +61,12 @@ function edgeFromImportDeclaration(filePath: string, node: CoffeeNode): ImportEd
   };
 }
 
-/** Builds an `ImportEdge` from a `require()` call AST node. */
+/**
+ * @description Builds an `ImportEdge` from a CoffeeScript `require()` call AST node.
+ * @param filePath - Source file path stamped onto the edge.
+ * @param node - CoffeeScript AST node representing a `Call`.
+ * @returns An `ImportEdge` for the require call, or `null` if the node is not a `require` call or has no specifier.
+ */
 function edgeFromRequireCall(filePath: string, node: CoffeeNode): ImportEdge | null {
   const isRequire = node.variable?.base?.value === "require";
   const specifier = node.args?.[0]?.base?.value;
@@ -59,7 +80,13 @@ function edgeFromRequireCall(filePath: string, node: CoffeeNode): ImportEdge | n
   };
 }
 
-/** Visits a single AST node and pushes any discovered import edge into `out`. */
+/**
+ * @description Inspects a single CoffeeScript AST node and appends any discovered import edge
+ *   to the accumulator array. Handles both `ImportDeclaration` and `Call` (require) node types.
+ * @param filePath - Source file path forwarded to each created edge.
+ * @param node - The AST node to inspect.
+ * @param out - Accumulator array that receives any discovered edge.
+ */
 function visitNode(filePath: string, node: CoffeeNode, out: ImportEdge[]): void {
   const className = node.constructor?.name;
   if (className === "ImportDeclaration") {
@@ -71,7 +98,13 @@ function visitNode(filePath: string, node: CoffeeNode, out: ImportEdge[]): void 
   }
 }
 
-/** Recursively walks the CoffeeScript AST, skipping `locationData` to avoid cycles. */
+/**
+ * @description Recursively walks the CoffeeScript AST and collects all import edges into `out`.
+ *   Skips `locationData` keys to prevent infinite cycles on circular metadata references.
+ * @param filePath - Source file path forwarded to each created edge.
+ * @param node - The AST node to walk.
+ * @param out - Accumulator array that receives all discovered edges.
+ */
 function traverse(filePath: string, node: CoffeeNode, out: ImportEdge[]): void {
   if (!node || typeof node !== "object") return;
   visitNode(filePath, node, out);
@@ -88,14 +121,12 @@ function traverse(filePath: string, node: CoffeeNode, out: ImportEdge[]): void {
 }
 
 /**
- * Parses a CoffeeScript file and extracts its imports, tags, and category.
- *
- * Uses the CoffeeScript compiler's `nodes()` API for full AST traversal,
- * capturing both ES `import` declarations and CommonJS `require()` calls.
- * Falls back to an empty import list if the file fails to parse.
- *
+ * @description Parses a CoffeeScript source file and extracts its import edges, comment-marker
+ *   tags, and file category. Uses the CoffeeScript compiler's `nodes()` API for full AST
+ *   traversal, capturing both ES `import` declarations and CommonJS `require()` calls.
+ *   Falls back to an empty import list if the file fails to parse.
  * @param filePath - Absolute or project-relative path to the `.coffee` file.
- * @param content  - Raw source text of the file.
+ * @param content - Raw source text of the file.
  * @returns Parsed imports, empty exports list, extracted tags, and resolved category.
  */
 export function parseCoffeeScript(filePath: string, content: string): ParseResult {
