@@ -50,6 +50,16 @@ export function matchNode(
   if (query.hasDocstring !== undefined) {
     if (!!node.description !== query.hasDocstring) return false;
   }
+  // Nodes with no coverage data are excluded from minCoverage (treated as 101%) and
+  // included in maxCoverage (treated as 0%) — matching the "uncovered by default" convention.
+  if (query.minCoverage !== undefined && (node.coveragePct ?? 101) < query.minCoverage)
+    return false;
+  if (query.maxCoverage !== undefined && (node.coveragePct ?? 0) > query.maxCoverage) return false;
+  // Nodes with no coupling data are excluded from minExportUsage and included in maxExportUsage.
+  if (query.minExportUsage !== undefined && (node.avgExportUsage ?? -1) < query.minExportUsage)
+    return false;
+  if (query.maxExportUsage !== undefined && (node.avgExportUsage ?? 0) > query.maxExportUsage)
+    return false;
 
   return true;
 }
@@ -90,6 +100,7 @@ export function filterGraph(graph: SerializedGraph, query: NodeQuery): Serialize
       if (query.sort === "size") return b.size - a.size;
       if (query.sort === "imports") return b.imports.length - a.imports.length;
       if (query.sort === "commitCount90d") return (b.commitCount90d ?? 0) - (a.commitCount90d ?? 0);
+      if (query.sort === "exportUsage") return (b.avgExportUsage ?? 0) - (a.avgExportUsage ?? 0);
       return 0;
     });
   }

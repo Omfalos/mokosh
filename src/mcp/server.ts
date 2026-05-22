@@ -4,16 +4,24 @@ import { SessionState } from "./cache";
 import {
   type AnalyzeArgs,
   type DetectFeaturesArgs,
+  type FindUncoveredArgs,
   type FindUnusedArgs,
   type GetAffectedArgs,
+  type GetCallersArgs,
   type GetDependenciesArgs,
   type GetDependentsArgs,
+  type GetWorkspaceAffectedArgs,
+  type GetWorkspacePackagesArgs,
   handleAnalyze,
   handleDetectFeatures,
+  handleFindUncovered,
   handleFindUnused,
   handleGetAffected,
+  handleGetCallers,
   handleGetDependencies,
   handleGetDependents,
+  handleGetWorkspaceAffected,
+  handleGetWorkspacePackages,
   handleProposeAffectedTests,
   handleProposeTags,
   handleQuery,
@@ -68,12 +76,18 @@ export function createMcpServer(): Server {
       get_dependencies: (args) => handleGetDependencies(cache, args as GetDependenciesArgs),
       get_dependents: (args) => handleGetDependents(cache, args as GetDependentsArgs),
       get_affected: (args) => handleGetAffected(cache, args as GetAffectedArgs),
+      get_callers: (args) => handleGetCallers(cache, args as GetCallersArgs),
       find_unused: (args) => handleFindUnused(cache, args as FindUnusedArgs),
+      find_uncovered: (args) => handleFindUncovered(cache, args as FindUncoveredArgs),
       propose_tags: (args) => handleProposeTags(cache, args as ProposeTagsArgs),
       propose_affected_tests: (args) =>
         handleProposeAffectedTests(cache, args as ProposeAffectedTestsArgs),
       detect_features: (args) => handleDetectFeatures(cache, args as DetectFeaturesArgs),
       query: (args) => handleQuery(cache, args as QueryArgs),
+      get_workspace_packages: (args) =>
+        handleGetWorkspacePackages(cache, args as GetWorkspacePackagesArgs),
+      get_workspace_affected: (args) =>
+        handleGetWorkspaceAffected(cache, args as GetWorkspaceAffectedArgs),
     };
 
     const handler = dispatch[name];

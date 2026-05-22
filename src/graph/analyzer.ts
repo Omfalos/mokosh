@@ -17,6 +17,34 @@ export class GraphAnalyzer {
   }
 
   /**
+   * @description Returns files whose highest single-edge export usage ratio meets or exceeds
+   *   `threshold`, sorted descending by `maxExportUsage`. Useful for identifying files
+   *   that consume a large fraction of one dependency's API surface.
+   * @param threshold - Minimum `maxExportUsage` value (0–1) for a file to be included.
+   * @returns Array of `{ path, maxExportUsage, tightestDep }` entries, sorted descending.
+   */
+  public findHighExportUsage(
+    threshold: number,
+  ): Array<{ path: string; maxExportUsage: number; tightestDep: string }> {
+    const results: Array<{ path: string; maxExportUsage: number; tightestDep: string }> = [];
+
+    for (const node of this.nodes.values()) {
+      if (node.maxExportUsage === undefined || node.maxExportUsage < threshold) continue;
+      const tightest = node.imports.reduce(
+        (best, imp) => ((imp.exportUsageRatio ?? 0) > (best?.exportUsageRatio ?? 0) ? imp : best),
+        null as (typeof node.imports)[number] | null,
+      );
+      results.push({
+        path: node.path,
+        maxExportUsage: node.maxExportUsage,
+        tightestDep: tightest?.toPath ?? "",
+      });
+    }
+
+    return results.sort((a, b) => b.maxExportUsage - a.maxExportUsage);
+  }
+
+  /**
    * Recursively finds all cycles in the graph using DFS and a recursion stack.
    * @returns An array of cycles, where each cycle is an array of node paths.
    */

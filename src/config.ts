@@ -26,6 +26,10 @@ export interface MokoshConfig {
   barrelThreshold?: number;
   /** When true, enriches each node with `commitCount90d` and `lastAuthor` via git log. Only fetched for new/modified files. */
   gitStats?: boolean;
+  /** Path to the Istanbul/v8 `coverage-summary.json` file, relative to the project root. When set, `coveragePct` is populated on each node after the graph is built. */
+  coverageReportPath?: string;
+  /** Default line-coverage threshold (0–100) used by `find_uncovered`. Defaults to `80` when not specified. */
+  coverageThreshold?: number;
 }
 
 const CONFIG_FILENAMES = ["mokosh.config.js", "mokosh.config.cjs", "mokosh.config.json"];

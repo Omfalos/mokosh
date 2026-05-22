@@ -1,5 +1,5 @@
 import type { SerializedGraph, TraversalOptions, TraversalVisitor } from "../types/graph";
-import type { FileNode } from "../types/node";
+import type { CallEdge, FileNode } from "../types/node";
 import { GraphAnalyzer } from "./analyzer";
 
 /**
@@ -7,6 +7,7 @@ import { GraphAnalyzer } from "./analyzer";
  */
 export class Graph {
   private _incomingEdgesCache: Map<string, string[]> | null = null;
+  private _callIncomingCache: Map<string, string[]> | null = null;
 
   constructor(public nodes: Map<string, FileNode>) {}
 
@@ -50,66 +51,121 @@ export class Graph {
   }
 
   /**
-   * Performs a Depth-First Search (DFS) on the dependency graph.
-   * Supports both outgoing and incoming (reverse) traversal.
-   *
-   * @param startPath The node path to begin traversal from.
-   * @param visitor Callback function executed for each node. Return false to stop traversing a branch.
-   * @param options Configuration for maxDepth and direction.
+   * @description Core DFS engine. Visits each reachable node once, calling visitor at each step.
+   *   The caller provides a getNeighbors function so the same loop works for any edge type.
+   * @param startPath - Project-relative path of the node to start from.
+   * @param visitor - Called for each visited node; return `false` to prune the branch.
+   * @param options - `maxDepth` and `direction` (direction is interpreted by the caller's getNeighbors).
+   * @param getNeighbors - Returns the next paths to visit from a given path.
    */
-  public traverse(startPath: string, visitor: TraversalVisitor, options: TraversalOptions = {}) {
+  private dfs(
+    startPath: string,
+    visitor: TraversalVisitor,
+    options: TraversalOptions,
+    getNeighbors: (path: string) => string[],
+  ) {
     const visited = new Set<string>();
     const maxDepth = options.maxDepth ?? Infinity;
-    const direction = options.direction ?? "outgoing";
-
-    // Reverse edges map is needed for "incoming" traversal
-    const incoming = direction === "incoming" ? this.getIncomingEdgesMap() : null;
 
     const walk = (currentPath: string, depth: number, parentPath: string | null) => {
-      // Termination conditions
       if (depth > maxDepth || visited.has(currentPath)) return;
-
       const node = this.nodes.get(currentPath);
       if (!node) return;
-
       visited.add(currentPath);
-
-      // Execute visitor; allow stopping branch traversal
-      const shouldContinue = visitor(node, depth, parentPath) !== false;
-      if (!shouldContinue) return;
-
-      if (direction === "outgoing") {
-        this.walkOutgoing(node, depth, walk);
-      } else if (incoming) {
-        this.walkIncoming(currentPath, depth, incoming, walk);
+      if (visitor(node, depth, parentPath) === false) return;
+      for (const neighbor of getNeighbors(currentPath)) {
+        walk(neighbor, depth + 1, currentPath);
       }
     };
 
     walk(startPath, 0, null);
   }
 
-  private walkOutgoing(
-    node: FileNode,
-    depth: number,
-    walk: (p: string, d: number, parent: string | null) => void,
-  ) {
-    for (const imp of node.imports) {
-      if (imp.toPath) {
-        walk(imp.toPath, depth + 1, node.path);
-      }
-    }
+  /**
+   * @description Performs a DFS on the import dependency graph.
+   *   Supports both outgoing and incoming (reverse) traversal.
+   * @param startPath - Project-relative path of the node to start from.
+   * @param visitor - Callback executed for each node; return `false` to stop traversing a branch.
+   * @param options - Configuration for `maxDepth` and `direction`.
+   */
+  public traverse(startPath: string, visitor: TraversalVisitor, options: TraversalOptions = {}) {
+    const direction = options.direction ?? "outgoing";
+    const incoming = direction === "incoming" ? this.getIncomingEdgesMap() : null;
+    this.dfs(startPath, visitor, options, (path) =>
+      direction === "outgoing"
+        ? ((this.nodes
+            .get(path)
+            ?.imports.map((i) => i.toPath)
+            .filter(Boolean) as string[]) ?? [])
+        : (incoming?.get(path) ?? []),
+    );
   }
 
-  private walkIncoming(
-    currentPath: string,
-    depth: number,
-    incoming: Map<string, string[]>,
-    walk: (p: string, d: number, parent: string | null) => void,
-  ) {
-    const parents = incoming.get(currentPath) || [];
-    for (const parent of parents) {
-      walk(parent, depth + 1, currentPath);
+  /**
+   * @description Builds and caches a reverse index of call edges: target file path → list of
+   *   source file paths whose exported functions call into it. Computed lazily on first access
+   *   and reused for the lifetime of this Graph instance.
+   */
+  private getCallIncomingCache(): Map<string, string[]> {
+    if (this._callIncomingCache) return this._callIncomingCache;
+    const cache = new Map<string, string[]>();
+    for (const node of this.nodes.values()) {
+      for (const edge of node.callEdges ?? []) {
+        const list = cache.get(edge.toFile) ?? [];
+        list.push(node.path);
+        cache.set(edge.toFile, list);
+      }
     }
+    this._callIncomingCache = cache;
+    return cache;
+  }
+
+  /**
+   * @description Performs a DFS over call edges (exported-function → imported-symbol).
+   *   Outgoing follows callEdges forward; incoming follows the reverse call index.
+   * @param startPath - Project-relative path of the node to start from.
+   * @param visitor - Callback executed for each node; return `false` to stop traversing a branch.
+   * @param options - Configuration for `maxDepth` and `direction`.
+   */
+  public traverseCalls(
+    startPath: string,
+    visitor: TraversalVisitor,
+    options: TraversalOptions = {},
+  ) {
+    const direction = options.direction ?? "outgoing";
+    const callIncoming = direction === "incoming" ? this.getCallIncomingCache() : null;
+    this.dfs(startPath, visitor, options, (path) =>
+      direction === "outgoing"
+        ? (this.nodes.get(path)?.callEdges?.map((e) => e.toFile) ?? [])
+        : (callIncoming?.get(path) ?? []),
+    );
+  }
+
+  /**
+   * @description Returns files whose exported functions call into the given file (one hop).
+   * @param filePath - Project-relative path of the target file.
+   * @returns Project-relative paths of all direct callers.
+   */
+  public getCallers(filePath: string): string[] {
+    const callers: string[] = [];
+    this.traverseCalls(
+      filePath,
+      (node) => {
+        if (node.path !== filePath) callers.push(node.path);
+        return true;
+      },
+      { direction: "incoming", maxDepth: 1 },
+    );
+    return callers;
+  }
+
+  /**
+   * @description Returns all call edges originating from a file.
+   * @param filePath - Project-relative path of the source file.
+   * @returns The file's call edges, or an empty array if none exist.
+   */
+  public getCallEdgesFor(filePath: string): CallEdge[] {
+    return this.nodes.get(filePath)?.callEdges ?? [];
   }
 
   /**

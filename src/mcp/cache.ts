@@ -1,5 +1,5 @@
 import type { MokoshConfig } from "../config";
-import { createImportMap, type Graph } from "../index";
+import { createImportMap, createWorkspaceGraph, type Graph, type WorkspaceGraph } from "../index";
 
 /**
  * Per-session state keyed by absolute project root path.
@@ -14,6 +14,7 @@ import { createImportMap, type Graph } from "../index";
 export class SessionState {
   private readonly graphs = new Map<string, Graph>();
   private readonly configs = new Map<string, MokoshConfig>();
+  private readonly workspaceGraphs = new Map<string, WorkspaceGraph>();
 
   /** Returns true if `applyConfig` has already been called for `root` this session. */
   isConfigured(root: string): boolean {
@@ -25,6 +26,11 @@ export class SessionState {
     this.configs.set(root, config);
   }
 
+  /** Returns the stored config for `root`, or undefined if not yet configured. */
+  getConfig(root: string): MokoshConfig | undefined {
+    return this.configs.get(root);
+  }
+
   /**
    * Returns the cached graph for `root`, or builds a new one from `entryPoints`.
    *
@@ -32,10 +38,15 @@ export class SessionState {
    * incremental rebuilding — unchanged files are reused based on mtime + size
    * comparison, keeping subsequent calls fast on large codebases.
    */
-  async getOrBuild(root: string, entryPoints: string[]): Promise<Graph> {
+  async getOrBuild(
+    root: string,
+    entryPoints: string[],
+    coverageMap: Map<string, number> = new Map(),
+  ): Promise<Graph> {
     const config = this.configs.get(root);
     const graph = await createImportMap(root, entryPoints, this.graphs.get(root) ?? null, {
       gitStats: config?.gitStats ?? false,
+      coverageMap,
     });
     this.graphs.set(root, graph);
     return graph;
@@ -51,5 +62,36 @@ export class SessionState {
     const graph = this.graphs.get(root);
     if (!graph) throw new Error('No graph cached for this root. Call "analyze" first.');
     return graph;
+  }
+
+  /**
+   * @description Builds (or returns the cached) workspace graph for a monorepo root.
+   *   Workspace graphs are never incrementally updated — a fresh build is triggered when
+   *   the cache is empty for this root.
+   */
+  async getOrBuildWorkspace(
+    root: string,
+    options: { packages?: string[]; silent?: boolean; gitStats?: boolean } = {},
+  ): Promise<WorkspaceGraph> {
+    const cached = this.workspaceGraphs.get(root);
+    if (cached) return cached;
+    const wg = await createWorkspaceGraph(root, options);
+    this.workspaceGraphs.set(root, wg);
+    return wg;
+  }
+
+  /**
+   * @description Returns the cached workspace graph for `root`.
+   * @throws {Error} if `analyze` has not been called for this monorepo root.
+   */
+  requireWorkspace(root: string): WorkspaceGraph {
+    const wg = this.workspaceGraphs.get(root);
+    if (!wg) throw new Error('No workspace graph cached for this root. Call "analyze" first.');
+    return wg;
+  }
+
+  /** Returns true when a workspace graph (not a single-package graph) is cached for `root`. */
+  hasWorkspace(root: string): boolean {
+    return this.workspaceGraphs.has(root);
   }
 }

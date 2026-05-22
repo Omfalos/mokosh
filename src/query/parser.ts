@@ -7,7 +7,7 @@ import type { NodeQuery } from "./types";
  *
  * Supported keys: `category`, `type`, `tag` / `tags`, `path`, `external`,
  * `importsFile`, `importedBy`, `minImports`, `maxImports`, `minSize`, `maxSize`,
- * `sort`, `limit`, `hasDocstring`
+ * `sort`, `limit`, `hasDocstring`, `minCoverage`, `maxCoverage`, `minExportUsage`, `maxExportUsage`
  *
  * String values support a `"!"` prefix for negation (e.g. `"category:!test"`).
  * The `tag`/`tags` key may appear multiple times; all values are collected and
@@ -75,13 +75,25 @@ export function parseQuery(queryString: string): NodeQuery {
         query.maxSize = parseInt(value, 10);
         break;
       case "sort":
-        query.sort = value as "size" | "imports" | "commitCount90d";
+        query.sort = value as "size" | "imports" | "commitCount90d" | "exportUsage";
         break;
       case "limit":
         query.limit = parseInt(value, 10);
         break;
       case "hasdocstring":
         query.hasDocstring = value.toLowerCase() !== "false";
+        break;
+      case "mincoverage":
+        query.minCoverage = parseInt(value, 10);
+        break;
+      case "maxcoverage":
+        query.maxCoverage = parseInt(value, 10);
+        break;
+      case "minexportusage":
+        query.minExportUsage = parseFloat(value);
+        break;
+      case "maxexportusage":
+        query.maxExportUsage = parseFloat(value);
         break;
     }
   }

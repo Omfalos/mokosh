@@ -76,6 +76,8 @@ Always available in this project — configured in `.mcp.json`. **Prefer MCP too
 
 Call order: `analyze` first (builds + caches graph), then any of: `get_dependencies`, `get_dependents`, `get_affected`, `propose_tags`, `propose_affected_tests`, `detect_features`, `query`, `find_unused`.
 
+`query` defaults to `slim: true` — compact nodes with `importsFiles` (flat path list), export names, and meaningful tags only. Pass `slim: false` only when full edge metadata is needed.
+
 ## Build
 
 ```bash

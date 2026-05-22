@@ -6,7 +6,13 @@ import { type LockFileData, loadLockFile } from "../parser/lockfile.js";
 import { getFileType, parseFile } from "../parser.js";
 import type { DependencyGraph } from "../types/graph";
 import type { CallEdge, FileNode, ImportEdge } from "../types/node";
-import { enrichLibraryTags, enrichTestedBy, enrichTestNodeTags } from "./enrichment.js";
+import {
+  enrichCoverage,
+  enrichExportUsage,
+  enrichLibraryTags,
+  enrichTestedBy,
+  enrichTestNodeTags,
+} from "./enrichment.js";
 import { Graph } from "./model.js";
 import { DefaultResolver, type PathResolver } from "./resolver.js";
 
@@ -43,6 +49,7 @@ export class GraphBuilder {
    * @param resolver - Strategy for turning raw import specifiers into absolute file paths. Defaults to {@link DefaultResolver}, which handles relative paths, tsconfig aliases, and node_modules.
    * @param progressCallback - Called every 100 files processed; useful for rendering a progress indicator in long-running CLI builds.
    * @param gitStats - When true, fetches `commitCount90d` and `lastAuthor` for each cache-missed file via git log.
+   * @param coverageMap - Pre-loaded coverage map (relative path → line %). When non-empty, populates `coveragePct` on each node after the graph is built.
    */
   constructor(
     private rootDir: string,
@@ -50,6 +57,7 @@ export class GraphBuilder {
     resolver?: PathResolver,
     progressCallback?: (count: number) => void,
     private readonly enableGitStats = false,
+    private readonly coverageMap: Map<string, number> = new Map(),
   ) {
     this.previousGraph = previousGraph;
     this.resolver = resolver || new DefaultResolver(rootDir);
@@ -86,6 +94,8 @@ export class GraphBuilder {
 
     enrichTestNodeTags(this.graph.nodes);
     enrichTestedBy(this.graph.nodes);
+    enrichExportUsage(this.graph.nodes);
+    if (this.coverageMap.size > 0) enrichCoverage(this.graph.nodes, this.coverageMap);
     return new Graph(this.graph.nodes);
   }
 
@@ -319,6 +329,10 @@ export class GraphBuilder {
 
       imp.toPath = resolved.isExternal ? resolved.path : path.relative(this.rootDir, resolved.path);
       imp.isExternal = resolved.isExternal;
+      if (resolved.isWorkspace) {
+        imp.isWorkspace = true;
+        imp.workspacePackage = resolved.workspacePackage;
+      }
 
       if (resolved.isExternal) {
         this.attachLockfileVersion(imp);

@@ -1,4 +1,5 @@
 export { applyConfig, loadMokoshConfig, type MokoshConfig } from "./config";
+export { loadCoverageMap } from "./coverage";
 export * from "./git";
 export * from "./graph";
 export * from "./parser";
@@ -8,7 +9,14 @@ export * from "./types";
 
 import fs from "node:fs";
 import path from "node:path";
-import { type Graph, GraphBuilder, MermaidExporter } from "./graph";
+import {
+  DefaultResolver,
+  detectMonorepo,
+  type Graph,
+  GraphBuilder,
+  MermaidExporter,
+  WorkspaceGraph,
+} from "./graph";
 
 export function toMermaid(graph: Graph): string {
   return MermaidExporter.toMermaid(graph);
@@ -18,7 +26,7 @@ export async function createImportMap(
   rootDir: string,
   entryPoints: string[],
   previousGraph: Graph | null = null,
-  options: { silent?: boolean; gitStats?: boolean } = {},
+  options: { silent?: boolean; gitStats?: boolean; coverageMap?: Map<string, number> } = {},
 ): Promise<Graph> {
   const progressCallback = options.silent
     ? undefined
@@ -31,8 +39,45 @@ export async function createImportMap(
     undefined,
     progressCallback,
     options.gitStats ?? false,
+    options.coverageMap ?? new Map(),
   );
   return await builder.build(entryPoints);
+}
+
+export async function createWorkspaceGraph(
+  rootDir: string,
+  options: { packages?: string[]; silent?: boolean; gitStats?: boolean } = {},
+): Promise<WorkspaceGraph> {
+  const abs = path.resolve(rootDir);
+  const layout = detectMonorepo(abs);
+
+  const pkgs = options.packages
+    ? layout.packages.filter(
+        (p) => options.packages!.includes(p.name) || options.packages!.includes(p.relativeRoot),
+      )
+    : layout.packages;
+
+  const workspaceMap = new Map(layout.packages.map((p) => [p.name, p.root]));
+  const wg = new WorkspaceGraph(abs, layout.type);
+
+  for (const pkg of pkgs) {
+    const progressCallback = options.silent
+      ? undefined
+      : (count: number) => {
+          process.stderr.write(`[${pkg.name}] Processed ${count} files...\r`);
+        };
+    const builder = new GraphBuilder(
+      abs,
+      null,
+      new DefaultResolver(abs, { workspaceMap, tsconfigSearchPaths: [pkg.root, abs] }),
+      progressCallback,
+      options.gitStats ?? false,
+    );
+    const graph = await builder.build(pkg.entryPoints);
+    wg.addPackage(pkg, graph);
+  }
+
+  return wg;
 }
 
 export const DEFAULT_IGNORE_DIRS: readonly string[] = [

@@ -13,6 +13,9 @@ export interface ParsedArgs {
   findUnused: boolean;
   excludeTests: boolean;
   checkCycles: boolean;
+  findUncovered: boolean;
+  callers: boolean;
+  file: string | undefined;
   silent: boolean;
   query: string | undefined;
   queryHelp: boolean;
@@ -65,6 +68,9 @@ export function parseArgs(argv: string[]): ParsedArgs {
     findUnused: false,
     excludeTests: false,
     checkCycles: false,
+    findUncovered: false,
+    callers: false,
+    file: undefined,
     silent: false,
     query: undefined,
     queryHelp: false,
@@ -127,6 +133,18 @@ export function parseArgs(argv: string[]): ParsedArgs {
         break;
       case "--check-cycles":
         result.checkCycles = true;
+        break;
+      case "--find-uncovered":
+        result.findUncovered = true;
+        break;
+      case "--callers":
+        result.callers = true;
+        break;
+      case "--file":
+        if (next) {
+          result.file = next;
+          i++;
+        }
         break;
       case "--silent":
         result.silent = true;

@@ -1,4 +1,6 @@
 import { describe, expect, test, vi } from "vitest";
+import type { WorkspacePackage } from "../graph/workspace";
+import { WorkspaceGraph } from "../graph/workspace-model";
 import { Graph } from "../index";
 import type { SerializedGraph } from "../types/graph";
 import type { SessionState } from "./cache";
@@ -9,6 +11,8 @@ import {
   handleGetAffected,
   handleGetDependencies,
   handleGetDependents,
+  handleGetWorkspaceAffected,
+  handleGetWorkspacePackages,
   handleProposeAffectedTests,
   handleProposeTags,
   handleQuery,
@@ -23,6 +27,9 @@ vi.mock("../index", async (importActual) => {
     getAllProjectFiles: vi
       .fn()
       .mockReturnValue(["src/a.ts", "src/b.ts", "src/a.test.ts", "src/orphan.ts"]),
+    detectMonorepo: vi
+      .fn()
+      .mockReturnValue({ type: "none", types: [], packages: [], packageMap: new Map(), root: "" }),
   };
 });
 
@@ -85,6 +92,7 @@ function makeCache(): SessionState {
   return {
     isConfigured: vi.fn().mockReturnValue(false),
     storeConfig: vi.fn(),
+    getConfig: vi.fn().mockReturnValue({}),
     getOrBuild: vi.fn().mockResolvedValue(graph),
     require: vi.fn().mockReturnValue(graph),
   } as unknown as SessionState;
@@ -257,5 +265,181 @@ describe("handleQuery", () => {
     });
 
     expect(result.content[0]?.text).toContain("graph TD");
+  });
+});
+
+// ─── workspace helpers ────────────────────────────────────────────────────────
+
+function makeWorkspaceFixture(): WorkspaceGraph {
+  const sharedUtils = {
+    path: "packages/shared/src/utils.ts",
+    type: "typescript" as const,
+    category: "logic" as const,
+    imports: [],
+    exports: [],
+    tags: [],
+    mtime: 0,
+    size: 0,
+  };
+  const sharedGraph = new Graph(new Map([["packages/shared/src/utils.ts", sharedUtils]]));
+
+  const appPage = {
+    path: "packages/app/src/page.ts",
+    type: "typescript" as const,
+    category: "logic" as const,
+    imports: [
+      {
+        fromPath: "packages/app/src/page.ts",
+        toPath: "packages/shared/src/utils.ts",
+        rawSpecifier: "@org/shared",
+        isStyle: false,
+        type: "static" as const,
+        isWorkspace: true,
+        workspacePackage: "@org/shared",
+      },
+    ],
+    exports: [],
+    tags: [],
+    mtime: 0,
+    size: 0,
+  };
+  const appGraph = new Graph(new Map([["packages/app/src/page.ts", appPage]]));
+
+  const wg = new WorkspaceGraph(ROOT, "pnpm");
+  wg.addPackage(
+    {
+      name: "@org/shared",
+      root: `${ROOT}/packages/shared`,
+      relativeRoot: "packages/shared",
+      entryPoints: [],
+    },
+    sharedGraph,
+  );
+  wg.addPackage(
+    {
+      name: "@org/app",
+      root: `${ROOT}/packages/app`,
+      relativeRoot: "packages/app",
+      entryPoints: [],
+    },
+    appGraph,
+  );
+  return wg;
+}
+
+function makeWorkspaceCache(wg: WorkspaceGraph): SessionState {
+  return {
+    isConfigured: vi.fn().mockReturnValue(true),
+    storeConfig: vi.fn(),
+    getConfig: vi.fn().mockReturnValue({}),
+    getOrBuild: vi.fn(),
+    require: vi.fn(),
+    getOrBuildWorkspace: vi.fn().mockResolvedValue(wg),
+    requireWorkspace: vi.fn().mockReturnValue(wg),
+    hasWorkspace: vi.fn().mockReturnValue(true),
+  } as unknown as SessionState;
+}
+
+describe("handleAnalyze (monorepo auto-detection)", () => {
+  test("routes to workspace build when entryPoints is empty and monorepo is detected", async () => {
+    const { detectMonorepo } = await import("../index.js");
+    vi.mocked(detectMonorepo).mockReturnValue({
+      type: "pnpm",
+      types: ["pnpm"],
+      root: ROOT,
+      packages: [
+        {
+          name: "@org/shared",
+          root: `${ROOT}/packages/shared`,
+          relativeRoot: "packages/shared",
+          entryPoints: [],
+        },
+      ],
+      packageMap: new Map(),
+    });
+
+    const wg = makeWorkspaceFixture();
+    const cache = makeWorkspaceCache(wg);
+
+    const data = parse(await handleAnalyze(cache, { root: ROOT, entryPoints: [] })) as {
+      monorepoType: string;
+      packageCount: number;
+    };
+
+    expect(data.monorepoType).toBe("pnpm");
+    expect(data.packageCount).toBe(2);
+
+    // Restore mock for other tests
+    vi.mocked(detectMonorepo).mockReturnValue({
+      type: "none",
+      types: [],
+      packages: [],
+      packageMap: new Map(),
+      root: ROOT,
+    });
+  });
+
+  test("falls through to single-package build when entryPoints are provided", async () => {
+    const cache = makeCache();
+    const data = parse(await handleAnalyze(cache, { root: ROOT, entryPoints: ["src/a.ts"] })) as {
+      nodeCount: number;
+    };
+    expect(data.nodeCount).toBe(3);
+  });
+});
+
+describe("handleGetWorkspacePackages", () => {
+  test("returns package list with node counts and dependencies", () => {
+    const wg = makeWorkspaceFixture();
+    const cache = makeWorkspaceCache(wg);
+
+    const data = parse(handleGetWorkspacePackages(cache, { root: ROOT })) as {
+      monorepoType: string;
+      packageCount: number;
+      packages: Array<{ name: string; nodeCount: number; dependsOn: string[] }>;
+    };
+
+    expect(data.monorepoType).toBe("pnpm");
+    expect(data.packageCount).toBe(2);
+
+    const shared = data.packages.find((p) => p.name === "@org/shared")!;
+    const app = data.packages.find((p) => p.name === "@org/app")!;
+
+    expect(shared.nodeCount).toBe(1);
+    expect(shared.dependsOn).toEqual([]);
+    expect(app.nodeCount).toBe(1);
+    expect(app.dependsOn).toContain("@org/shared");
+  });
+});
+
+describe("handleGetWorkspaceAffected", () => {
+  test("returns cross-package affected files", () => {
+    const wg = makeWorkspaceFixture();
+    const cache = makeWorkspaceCache(wg);
+
+    const data = parse(
+      handleGetWorkspaceAffected(cache, {
+        root: ROOT,
+        file: "packages/shared/src/utils.ts",
+      }),
+    ) as {
+      affected: Array<{ file: string; package: string }>;
+      count: number;
+    };
+
+    expect(data.count).toBeGreaterThan(0);
+    const appEntry = data.affected.find((a) => a.file === "packages/app/src/page.ts");
+    expect(appEntry?.package).toBe("@org/app");
+  });
+
+  test("returns empty affected for an unknown file", () => {
+    const wg = makeWorkspaceFixture();
+    const cache = makeWorkspaceCache(wg);
+
+    const data = parse(
+      handleGetWorkspaceAffected(cache, { root: ROOT, file: "nonexistent/file.ts" }),
+    ) as { count: number };
+
+    expect(data.count).toBe(0);
   });
 });

@@ -1,6 +1,15 @@
 import fs from "node:fs";
 import path from "node:path";
 
+export interface ResolvedImport {
+  path: string;
+  isExternal: boolean;
+  /** True when resolved to a sibling workspace package. */
+  isWorkspace?: boolean;
+  /** Package name when `isWorkspace` is true (e.g. `"@myorg/shared"`). */
+  workspacePackage?: string;
+}
+
 /**
  * @description Contract for resolving an import specifier to an absolute file path
  *   given the file that contains the import.
@@ -13,19 +22,44 @@ export interface PathResolver {
    * @param specifier - The raw import specifier string (e.g. `"./utils"` or `"lodash"`).
    * @returns Resolved path and external flag, or `null` if resolution fails.
    */
-  resolve(currentFile: string, specifier: string): { path: string; isExternal: boolean } | null;
+  resolve(currentFile: string, specifier: string): ResolvedImport | null;
+}
+
+export interface ResolverOptions {
+  /**
+   * Maps workspace package names to their absolute root directories.
+   * When set, matching specifiers are resolved as internal workspace imports
+   * rather than external npm packages.
+   */
+  workspaceMap?: Map<string, string>;
+  /**
+   * Ordered list of directories to search for `tsconfig.json` when resolving
+   * path aliases. Defaults to `[rootDir]`. For monorepo builds, pass
+   * `[packageRoot, monorepoRoot]` so per-package aliases take precedence.
+   */
+  tsconfigSearchPaths?: string[];
 }
 
 /**
  * @description Default import resolver that handles relative paths, absolute paths,
- *   tsconfig path aliases, Lua dot-separated modules, and external node_modules.
+ *   tsconfig path aliases, workspace packages, Lua dot-separated modules, and external node_modules.
  */
 export class DefaultResolver implements PathResolver {
+  private readonly workspaceMap: Map<string, string>;
+  private readonly tsconfigSearchPaths: string[];
+
   /**
    * @param rootDir - Absolute path to the project root, used as the boundary for
    *   deciding whether a resolved path is internal or external.
+   * @param options - Optional workspace map and tsconfig search paths for monorepo builds.
    */
-  constructor(private rootDir: string) {}
+  constructor(
+    private rootDir: string,
+    options: ResolverOptions = {},
+  ) {
+    this.workspaceMap = options.workspaceMap ?? new Map();
+    this.tsconfigSearchPaths = options.tsconfigSearchPaths ?? [rootDir];
+  }
 
   /**
    * @description Resolves a specifier by trying path aliases first, then relative/absolute
@@ -34,10 +68,7 @@ export class DefaultResolver implements PathResolver {
    * @param specifier - The raw import specifier to resolve.
    * @returns Resolved path and external flag, or `null` if no local file can be found.
    */
-  public resolve(
-    currentFile: string,
-    specifier: string,
-  ): { path: string; isExternal: boolean } | null {
+  public resolve(currentFile: string, specifier: string): ResolvedImport | null {
     // 1. Try Path Aliases (tsconfig.json paths)
     const aliased = this.resolvePathAlias(specifier);
     if (aliased) return aliased;
@@ -67,7 +98,11 @@ export class DefaultResolver implements PathResolver {
       if (local) return local;
     }
 
-    // 5. Non-relative, non-absolute import (likely a node_module or built-in)
+    // 5. Workspace package resolution — check before falling through to external
+    const workspace = this.resolveWorkspaceImport(specifier);
+    if (workspace) return workspace;
+
+    // 6. Non-relative, non-absolute import (likely a node_module or built-in)
     return { path: specifier, isExternal: true };
   }
 
@@ -78,10 +113,7 @@ export class DefaultResolver implements PathResolver {
    * @param specifier - A relative (`./foo`) or absolute (`/foo`) import specifier.
    * @returns Resolved path and external flag, or `null` if no matching file is found within the project.
    */
-  private resolveLocalPath(
-    currentFile: string,
-    specifier: string,
-  ): { path: string; isExternal: boolean } | null {
+  private resolveLocalPath(currentFile: string, specifier: string): ResolvedImport | null {
     const dir = path.dirname(currentFile);
     const fullPath = specifier.startsWith("/") ? specifier : path.resolve(dir, specifier);
     const isExternal = !fullPath.startsWith(this.rootDir);
@@ -133,11 +165,7 @@ export class DefaultResolver implements PathResolver {
    * @param isExternal - Whether the path falls outside the project root.
    * @returns Resolved path and external flag, or `null` if neither variant exists.
    */
-  private tryExtensions(
-    fullPath: string,
-    ext: string,
-    isExternal: boolean,
-  ): { path: string; isExternal: boolean } | null {
+  private tryExtensions(fullPath: string, ext: string, isExternal: boolean): ResolvedImport | null {
     // Try file directly
     const p = fullPath + ext;
     if (this.isFile(p)) {
@@ -183,24 +211,26 @@ export class DefaultResolver implements PathResolver {
    * @param specifier - The import specifier to match against path aliases.
    * @returns Resolved path and external flag if an alias matches, or `null` otherwise.
    */
-  private resolvePathAlias(specifier: string): { path: string; isExternal: boolean } | null {
-    const tsconfigPath = path.join(this.rootDir, "tsconfig.json");
-    if (!fs.existsSync(tsconfigPath)) return null;
+  private resolvePathAlias(specifier: string): ResolvedImport | null {
+    for (const searchDir of this.tsconfigSearchPaths) {
+      const tsconfigPath = path.join(searchDir, "tsconfig.json");
+      if (!fs.existsSync(tsconfigPath)) continue;
 
-    try {
-      const tsconfig = JSON.parse(fs.readFileSync(tsconfigPath, "utf-8"));
-      const paths = tsconfig.compilerOptions?.paths;
-      if (!paths) return null;
+      try {
+        const tsconfig = JSON.parse(fs.readFileSync(tsconfigPath, "utf-8"));
+        const paths = tsconfig.compilerOptions?.paths;
+        if (!paths) continue;
 
-      for (const alias in paths) {
-        const match = this.matchAliasPattern(alias, specifier);
-        if (match) {
-          const resolved = this.tryAliasSubstitutions(paths[alias], match[1] || "");
-          if (resolved) return resolved;
+        for (const alias in paths) {
+          const match = this.matchAliasPattern(alias, specifier);
+          if (match) {
+            const resolved = this.tryAliasSubstitutions(paths[alias], match[1] || "", searchDir);
+            if (resolved) return resolved;
+          }
         }
+      } catch {
+        // Ignore parse errors
       }
-    } catch {
-      // Ignore parse errors
     }
     return null;
   }
@@ -234,12 +264,13 @@ export class DefaultResolver implements PathResolver {
   private tryAliasSubstitutions(
     substitutions: string[],
     wildcardMatch: string,
-  ): { path: string; isExternal: boolean } | null {
+    baseDir: string = this.rootDir,
+  ): ResolvedImport | null {
     const extensions = ["", ".ts", ".tsx", ".js", ".jsx", ".coffee", ".ls", ".lua", ".feature"];
 
     for (const sub of substitutions) {
       const resolvedSub = sub.replace("*", wildcardMatch);
-      const fullPath = path.resolve(this.rootDir, resolvedSub);
+      const fullPath = path.resolve(baseDir, resolvedSub);
 
       for (const ext of extensions) {
         const resolved = this.tryExtensions(fullPath, ext, false);
@@ -255,7 +286,59 @@ export class DefaultResolver implements PathResolver {
    *   Searches the project root; dots in the specifier are treated as path separators.
    *   Returns `null` if no local file is found — the caller then falls through to external.
    */
-  private resolvePythonBareImport(specifier: string): { path: string; isExternal: boolean } | null {
+  /**
+   * @description Resolves a specifier against the workspace package map. Handles exact
+   *   package name matches and deep imports (`@myorg/shared/utils`). Resolved paths are
+   *   marked `isExternal: false` and `isWorkspace: true` so the builder treats them as
+   *   internal cross-package edges rather than npm dependencies.
+   */
+  private resolveWorkspaceImport(specifier: string): ResolvedImport | null {
+    if (this.workspaceMap.size === 0) return null;
+
+    for (const [pkgName, pkgRoot] of this.workspaceMap) {
+      if (specifier !== pkgName && !specifier.startsWith(`${pkgName}/`)) continue;
+
+      const subPath = specifier.slice(pkgName.length); // "" or "/deep/path"
+      const base: ResolvedImport = {
+        path: "",
+        isExternal: false,
+        isWorkspace: true,
+        workspacePackage: pkgName,
+      };
+
+      if (!subPath) {
+        // Resolve to package entry — try common conventions
+        for (const candidate of [
+          "src/index.ts",
+          "src/index.tsx",
+          "index.ts",
+          "index.tsx",
+          "index.js",
+        ]) {
+          const abs = path.join(pkgRoot, candidate);
+          try {
+            if (fs.statSync(abs, { throwIfNoEntry: false })?.isFile()) {
+              return { ...base, path: abs };
+            }
+          } catch {
+            /* skip */
+          }
+        }
+        // Fallback: package root itself (builder will handle gracefully)
+        return { ...base, path: pkgRoot };
+      }
+
+      // Deep import: resolve subPath relative to pkgRoot
+      const deepResolved = this.resolveLocalPath(path.join(pkgRoot, "_dummy"), subPath.slice(1));
+      if (deepResolved) return { ...base, path: deepResolved.path };
+
+      return null;
+    }
+
+    return null;
+  }
+
+  private resolvePythonBareImport(specifier: string): ResolvedImport | null {
     const pyPath = specifier.replace(/\./g, path.sep);
 
     // Try as a .py file or package (__init__.py) relative to the project root.

@@ -147,3 +147,74 @@ describe("Python bare module imports", () => {
     expect(result).toMatchObject({ isExternal: true });
   });
 });
+
+// ─── Workspace package resolution ────────────────────────────────────────────
+
+describe("workspace package resolution", () => {
+  let root: string;
+  let sharedRoot: string;
+
+  beforeAll(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), "mokosh-ws-resolver-"));
+    sharedRoot = path.join(root, "packages/shared");
+    fs.mkdirSync(path.join(sharedRoot, "src"), { recursive: true });
+    fs.writeFileSync(path.join(sharedRoot, "src/index.ts"), "");
+    fs.writeFileSync(path.join(sharedRoot, "src/utils.ts"), "");
+    fs.mkdirSync(path.join(root, "packages/app/src"), { recursive: true });
+    fs.writeFileSync(path.join(root, "packages/app/src/page.ts"), "");
+  });
+  afterAll(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  function makeResolver() {
+    const workspaceMap = new Map([["@org/shared", sharedRoot]]);
+    return new DefaultResolver(root, { workspaceMap });
+  }
+
+  test("exact package name resolves to src/index.ts", () => {
+    const result = makeResolver().resolve(
+      path.join(root, "packages/app/src/page.ts"),
+      "@org/shared",
+    );
+    expect(result).toMatchObject({
+      path: path.join(sharedRoot, "src/index.ts"),
+      isExternal: false,
+      isWorkspace: true,
+      workspacePackage: "@org/shared",
+    });
+  });
+
+  test("deep import resolves within the workspace package", () => {
+    const result = makeResolver().resolve(
+      path.join(root, "packages/app/src/page.ts"),
+      "@org/shared/src/utils",
+    );
+    expect(result).toMatchObject({
+      path: path.join(sharedRoot, "src/utils.ts"),
+      isExternal: false,
+      isWorkspace: true,
+      workspacePackage: "@org/shared",
+    });
+  });
+
+  test("unknown scoped package falls through to external", () => {
+    const result = makeResolver().resolve(
+      path.join(root, "packages/app/src/page.ts"),
+      "@other/pkg",
+    );
+    expect(result).toMatchObject({ isExternal: true });
+    expect(result?.isWorkspace).toBeUndefined();
+  });
+
+  test("regular relative imports are unaffected by workspace map", () => {
+    const result = makeResolver().resolve(path.join(root, "packages/app/src/page.ts"), "./sibling");
+    // no sibling file exists, should return null
+    expect(result).toBeNull();
+  });
+
+  test("workspace resolution is skipped when no workspace map provided", () => {
+    const resolver = new DefaultResolver(root);
+    const result = resolver.resolve(path.join(root, "packages/app/src/page.ts"), "@org/shared");
+    expect(result).toMatchObject({ isExternal: true });
+    expect(result?.isWorkspace).toBeUndefined();
+  });
+});

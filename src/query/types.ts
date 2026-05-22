@@ -22,7 +22,15 @@ export interface NodeQuery {
   maxImports?: number;
   minSize?: number;
   maxSize?: number;
-  sort?: "size" | "imports" | "commitCount90d";
+  sort?: "size" | "imports" | "commitCount90d" | "exportUsage";
   limit?: number;
   hasDocstring?: boolean;
+  /** Minimum line-coverage percentage; nodes below this value are excluded. Nodes with no coverage data are excluded. */
+  minCoverage?: number;
+  /** Maximum line-coverage percentage; nodes above this value are excluded. Nodes with no coverage data are treated as 0%. */
+  maxCoverage?: number;
+  /** Minimum avgExportUsage (0–1); nodes below this value are excluded. Nodes with no data are excluded. */
+  minExportUsage?: number;
+  /** Maximum avgExportUsage (0–1); nodes above this value are excluded. Nodes with no data are treated as 0. */
+  maxExportUsage?: number;
 }

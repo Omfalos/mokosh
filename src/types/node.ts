@@ -21,6 +21,12 @@ export interface ImportEdge {
   symbols?: string[] | undefined;
   isExternal?: boolean | undefined;
   version?: string | undefined;
+  /** True when this import resolves to a sibling workspace package rather than an external npm dep. */
+  isWorkspace?: boolean | undefined;
+  /** The workspace package name (e.g. `"@myorg/shared"`) when `isWorkspace` is true. */
+  workspacePackage?: string | undefined;
+  /** Fraction of the target's exports consumed by this import (0–1). Only present for internal non-side-effect imports where the target has at least one export. */
+  exportUsageRatio?: number;
 }
 
 export interface CallEdge {
@@ -46,4 +52,10 @@ export interface FileNode extends GraphNode {
   commitCount90d?: number;
   lastAuthor?: string;
   callEdges?: CallEdge[];
+  /** Line coverage percentage (0–100) from the last coverage report. Undefined when no report was loaded. */
+  coveragePct?: number;
+  /** Average exportUsageRatio across all outgoing internal import edges that have a computable ratio. */
+  avgExportUsage?: number;
+  /** Highest single-edge exportUsageRatio for this file — identifies the dependency whose API surface is most consumed. */
+  maxExportUsage?: number;
 }
