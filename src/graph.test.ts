@@ -14,7 +14,7 @@ describe("graph", () => {
 
     try {
       const graph = await createImportMap(root, ["main.js"]);
-      const mermaid = MermaidExporter.toMermaid(graph);
+      const mermaid = MermaidExporter.serialize(graph);
 
       expect(mermaid).toContain("graph TD");
       expect(mermaid).toContain('"main.js" -- styles --> "style.css"');

@@ -270,7 +270,7 @@ export class GraphBuilder {
     parsed: Awaited<ReturnType<typeof parseFile>>,
     callEdges: CallEdge[],
   ): FileNode {
-    const { imports, exports, tags, category, description } = parsed;
+    const { imports, exports, tags, category, description, complexity, cognitiveComplexity } = parsed;
     return {
       path: relativePath,
       type: getFileType(filePath),
@@ -282,6 +282,8 @@ export class GraphBuilder {
       size: stats.size,
       ...(description !== undefined ? { description } : {}),
       ...(callEdges.length > 0 ? { callEdges } : {}),
+      ...(complexity !== undefined ? { complexity } : {}),
+      ...(cognitiveComplexity !== undefined ? { cognitiveComplexity } : {}),
     };
   }
 

@@ -3,6 +3,7 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprot
 import { SessionState } from "./cache";
 import {
   type AnalyzeArgs,
+  type ClearCacheArgs,
   type DetectFeaturesArgs,
   type FindUncoveredArgs,
   type FindUnusedArgs,
@@ -13,6 +14,7 @@ import {
   type GetWorkspaceAffectedArgs,
   type GetWorkspacePackagesArgs,
   handleAnalyze,
+  handleClearCache,
   handleDetectFeatures,
   handleFindUncovered,
   handleFindUnused,
@@ -88,6 +90,7 @@ export function createMcpServer(): Server {
         handleGetWorkspacePackages(cache, args as GetWorkspacePackagesArgs),
       get_workspace_affected: (args) =>
         handleGetWorkspaceAffected(cache, args as GetWorkspaceAffectedArgs),
+      clear_cache: (args) => handleClearCache(cache, args as ClearCacheArgs),
     };
 
     const handler = dispatch[name];

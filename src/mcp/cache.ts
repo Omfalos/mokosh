@@ -94,4 +94,18 @@ export class SessionState {
   hasWorkspace(root: string): boolean {
     return this.workspaceGraphs.has(root);
   }
+
+  /**
+   * @description Drops the cached graph and workspace graph for `root`, forcing the next
+   *   `analyze` call to rebuild from disk. Config is preserved. Use after editing source
+   *   files mid-session to ensure subsequent queries reflect the updated state.
+   * @param root - Absolute path of the project root to invalidate.
+   * @returns `true` if a cached graph existed and was removed, `false` if nothing was cached.
+   */
+  invalidate(root: string): boolean {
+    const had = this.graphs.has(root) || this.workspaceGraphs.has(root);
+    this.graphs.delete(root);
+    this.workspaceGraphs.delete(root);
+    return had;
+  }
 }

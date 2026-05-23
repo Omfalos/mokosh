@@ -27,4 +27,8 @@ export interface ParseResult {
   category: NodeCategory;
   rawCallEdges?: RawCallEdge[];
   description?: string;
+  /** McCabe cyclomatic complexity of the file (base 1, undefined for non-TS/JS files). */
+  complexity?: number;
+  /** Cognitive complexity — nesting-aware difficulty score (undefined for non-TS/JS files). */
+  cognitiveComplexity?: number;
 }

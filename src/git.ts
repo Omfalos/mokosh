@@ -12,6 +12,11 @@ export interface GitProvider {
  * Default implementation of GitProvider that uses the Git CLI.
  */
 export class DefaultGitProvider implements GitProvider {
+  /**
+   * @description Returns a deduplicated list of all modified, staged, and untracked files by running three git commands.
+   *   Returns an empty array if not inside a git repository or if git is unavailable.
+   * @returns Relative file paths as reported by git, deduplicated across all three query types.
+   */
   public getChangedFiles(): string[] {
     try {
       const commands = [
@@ -40,19 +45,21 @@ export class DefaultGitProvider implements GitProvider {
   }
 }
 
-/**
- * Uses Git to find all modified, staged, and untracked files.
- * @deprecated Use DefaultGitProvider instead.
- */
-export function getGitDiffFiles(): string[] {
-  return new DefaultGitProvider().getChangedFiles();
-}
 
+/**
+ * @description Commit activity metadata for a single file, used to surface churn and ownership signals.
+ */
 export interface GitFileStats {
   commitCount90d: number;
   lastAuthor: string | undefined;
 }
 
+/**
+ * @description Queries git log to compute commit frequency and last author for a file over the past 90 days.
+ * @param rootDir - Absolute path to the repository root, passed to `git -C` so the command works from any cwd.
+ * @param relativePath - Path to the file relative to `rootDir`.
+ * @returns Commit count and the email of the most recent author, or `undefined` if the file has no history.
+ */
 export function getGitFileStats(rootDir: string, relativePath: string): GitFileStats {
   const output = execSync(
     `git -C "${rootDir}" log --follow --format="%ae" --since="90 days ago" -- "${relativePath}"`,

@@ -168,7 +168,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "detect_features",
     description:
-      "Identify feature hub files — non-test files imported by many others. Returns a list sorted by in-degree descending.",
+      "Identify feature hub files — non-test files that import many other internal modules (orchestrators / aggregators like src/parser.ts or src/cli/runner.ts). Returns a list sorted by import count descending.",
     inputSchema: {
       type: "object",
       properties: {
@@ -180,7 +180,7 @@ export const TOOL_DEFINITIONS = [
         },
         featureThreshold: {
           type: "number",
-          description: "Min importers to qualify as a feature hub (default: 5).",
+          description: "Min internal imports a file must have to qualify as a feature hub (default: 5).",
         },
       },
       required: ["root"],
@@ -242,6 +242,18 @@ export const TOOL_DEFINITIONS = [
         },
       },
       required: ["root", "file"],
+    },
+  },
+  {
+    name: "clear_cache",
+    description:
+      "Drop the cached dependency graph for a project root, forcing the next analyze() call to rebuild from disk. Call this after editing source files mid-session — otherwise get_affected, get_dependencies, and other query tools will reason from stale data.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        root: { type: "string", description: "Absolute path to the project root to invalidate." },
+      },
+      required: ["root"],
     },
   },
 ] as const;

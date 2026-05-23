@@ -2,7 +2,7 @@
 
 import { execSync } from "node:child_process";
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import { DefaultGitProvider, getGitDiffFiles } from "./git";
+import { DefaultGitProvider } from "./git";
 
 // Mock the execSync from node:child_process
 vi.mock("node:child_process", () => ({
@@ -131,14 +131,4 @@ describe("GitProvider", () => {
     });
   });
 
-  describe("getGitDiffFiles (deprecated utility)", () => {
-    test("should delegate to DefaultGitProvider", () => {
-      vi.mocked(execSync).mockReturnValue(
-        "file_from_util.ts" as unknown as ReturnType<typeof execSync>,
-      );
-
-      const files = getGitDiffFiles();
-      expect(files).toEqual(["file_from_util.ts"]);
-    });
-  });
 });

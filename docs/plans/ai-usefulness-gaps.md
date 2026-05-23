@@ -15,33 +15,6 @@ Analysis of mokosh's current usefulness for AI agents (Claude Code / MCP clients
 
 ## Gaps
 
-### P0 — Critical
-
-**`detect_features` description is inverted.**
-The tool description says *"non-test files imported by many others"* (high in-degree / widely-used utilities), but the implementation uses `minOutDegree` — it finds files that *import* many others (aggregators / orchestrators like `src/parser.ts`, `src/cli/runner.ts`). These are opposite concepts.
-
-The `featureThreshold` parameter description also says "Min importers" when it means "min imports."
-
-An AI reasoning about "what are the widely-depended-on utilities?" will misuse this tool and produce confidently wrong blast-radius estimates.
-
-**Fix:** Update description in `src/mcp/tools.ts` to say "files that import many other internal modules (orchestrators / aggregators)" and rename the returned field from `outDegree` to a self-describing name (e.g. `importCount`). Update the CLAUDE.md skill guide to match.
-
----
-
-### P1 — High
-
-**Monorepo tools not visible in MCP registry.**
-`get_workspace_packages` and `get_workspace_affected` are defined in `src/mcp/tools.ts` and `src/mcp/handlers.ts` but do not appear as callable tools in the session. Cross-package blast-radius is a strong use case. Verify wiring in `src/mcp/server.ts`.
-
-**Cache staleness during editing sessions.**
-The session graph is built once on `analyze`. When an AI edits files mid-session the graph silently goes stale — there is no incremental refresh or invalidation signal. An AI calling `get_affected` after editing a file will reason from outdated data.
-
-Options:
-- `refresh({ root, files: string[] })` tool for incremental node invalidation.
-- Or: expose a `clear_cache({ root })` tool and document the "re-analyze after edits" contract explicitly in tool descriptions.
-
----
-
 ### P2 — Medium
 
 **No symbol-level reverse lookup.**
@@ -73,8 +46,6 @@ Only `comment-marker` and `import` tags are kept (`src/mcp/handlers.ts:347–349
 
 | Priority | Gap | Files to change | Effort |
 |---|---|---|---|
-| P0 | Fix `detect_features` description (in/out-degree inversion) | `src/mcp/tools.ts`, `CLAUDE.md` | Low |
-| P1 | Verify monorepo tools wiring | `src/mcp/server.ts` | Low |
 | P1 | Cache invalidation / refresh tool | `src/mcp/tools.ts`, `src/mcp/handlers.ts`, `src/mcp/cache.ts` | Medium |
 | P2 | `withMeta` option on traversal tools | `src/mcp/tools.ts`, `src/mcp/handlers.ts` | Small |
 | P2 | Symbol-level lookup (`find_symbol`) | `src/mcp/tools.ts`, `src/mcp/handlers.ts`, `src/graph/model.ts` | Medium |

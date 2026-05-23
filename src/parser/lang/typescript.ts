@@ -3,6 +3,7 @@ import ts from "typescript";
 import type { ExportedSymbol, ImportEdge, StructuredTag } from "../../types/node";
 import type { FileType, ImportType, NodeCategory } from "../../types/parse";
 import { getBarrelThreshold, getTestLibraries, getTestPatterns, isConfigFile } from "../classify";
+import { computeComplexity } from "../complexity";
 import { isStyleFile } from "../file-type";
 import { handleTagging } from "../tagging";
 import type { ParseContext, ParseResult, RawCallEdge } from "../types";
@@ -61,6 +62,7 @@ export function parseCodeFile(filePath: string, content: string, fileType: FileT
 
   const firstStatement = sourceFile.statements[0];
   const description = firstStatement ? extractJsDoc(firstStatement) : undefined;
+  const { complexity, cognitiveComplexity } = computeComplexity(sourceFile);
 
   return {
     imports,
@@ -68,6 +70,8 @@ export function parseCodeFile(filePath: string, content: string, fileType: FileT
     tags: Array.from(tags),
     category,
     rawCallEdges: context.rawCallEdges ?? [],
+    complexity,
+    cognitiveComplexity,
     ...(description !== undefined ? { description } : {}),
   };
 }

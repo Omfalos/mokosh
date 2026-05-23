@@ -4,6 +4,7 @@ import type { CommandContext } from "./types";
 /**
  * @description Serializes the dependency graph, optionally narrowing it with a query filter,
  *   then prints it as a Mermaid diagram or a JSON object that includes detected cycles.
+ * @param ctx - Command context carrying the built graph, an optional query string, and the mermaid output flag.
  */
 export async function run(ctx: CommandContext): Promise<void> {
   const { graph, queryStr, mermaidOutput } = ctx;
@@ -16,7 +17,7 @@ export async function run(ctx: CommandContext): Promise<void> {
 
   if (mermaidOutput) {
     const filteredGraph = Graph.deserialize(serialized);
-    console.log(MermaidExporter.toMermaid(filteredGraph));
+    console.log(MermaidExporter.serialize(filteredGraph));
   } else {
     const cycles = graph.findCycles();
     if (cycles.length > 0) {

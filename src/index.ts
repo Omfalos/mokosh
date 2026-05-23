@@ -1,5 +1,7 @@
 export { applyConfig, loadMokoshConfig, type MokoshConfig } from "./config";
+export * from "./const";
 export { loadCoverageMap } from "./coverage";
+export * from "./exporters";
 export * from "./git";
 export * from "./graph";
 export * from "./parser";
@@ -9,19 +11,24 @@ export * from "./types";
 
 import fs from "node:fs";
 import path from "node:path";
+import { DEFAULT_EXTENSIONS, DEFAULT_IGNORE_DIRS, type ScanOptions } from "./const";
 import {
   DefaultResolver,
   detectMonorepo,
   type Graph,
   GraphBuilder,
-  MermaidExporter,
   WorkspaceGraph,
 } from "./graph";
 
-export function toMermaid(graph: Graph): string {
-  return MermaidExporter.toMermaid(graph);
-}
-
+/**
+ * @description Builds a dependency graph from the given entry points, optionally reusing a
+ *   previously built graph for incremental updates.
+ * @param rootDir - Absolute or relative path to the project root; resolved internally.
+ * @param entryPoints - File paths (relative to `rootDir`) that seed the graph walk.
+ * @param previousGraph - An earlier graph to diff against for incremental builds; pass `null` for a full build.
+ * @param options - `silent` suppresses progress output; `gitStats` attaches git churn data; `coverageMap` maps file paths to line-coverage percentages.
+ * @returns The fully-built Graph with all reachable nodes and import edges populated.
+ */
 export async function createImportMap(
   rootDir: string,
   entryPoints: string[],
@@ -44,6 +51,13 @@ export async function createImportMap(
   return await builder.build(entryPoints);
 }
 
+/**
+ * @description Auto-detects the monorepo layout under `rootDir` and builds a per-package
+ *   dependency graph, stitching them together into a single WorkspaceGraph.
+ * @param rootDir - Absolute path to the monorepo root.
+ * @param options - `packages` filters to a named subset of packages; `silent` suppresses progress; `gitStats` attaches git churn data per file.
+ * @returns A WorkspaceGraph where each package has its own Graph and cross-package edges are resolved.
+ */
 export async function createWorkspaceGraph(
   rootDir: string,
   options: { packages?: string[]; silent?: boolean; gitStats?: boolean } = {},
@@ -80,47 +94,14 @@ export async function createWorkspaceGraph(
   return wg;
 }
 
-export const DEFAULT_IGNORE_DIRS: readonly string[] = [
-  "node_modules",
-  ".git",
-  "dist",
-  "build",
-  ".next",
-  ".cache",
-  "mokosh-cache",
-  "coverage",
-];
 
-export const DEFAULT_EXTENSIONS: readonly string[] = [
-  ".ts",
-  ".tsx",
-  ".js",
-  ".jsx",
-  ".mjs",
-  ".cjs",
-  ".css",
-  ".scss",
-  ".sass",
-  ".less",
-  ".styl",
-  ".coffee",
-  ".ls",
-  ".lua",
-  ".py",
-  ".feature",
-];
-
-export interface ScanOptions {
-  /** Replaces the default ignore-dir list. Use `additionalIgnoreDirs` to extend instead. */
-  ignoreDirs?: string[];
-  /** Replaces the default extension list. Use `additionalExtensions` to extend instead. */
-  extensions?: string[];
-  /** Merged with `DEFAULT_IGNORE_DIRS` (additive). */
-  additionalIgnoreDirs?: string[];
-  /** Merged with `DEFAULT_EXTENSIONS` (additive). */
-  additionalExtensions?: string[];
-}
-
+/**
+ * @description Recursively walks `rootDir` and returns paths of every file whose extension
+ *   is in the allowed set, skipping ignored directories. Silently skips unreadable entries.
+ * @param rootDir - Root directory to scan; returned paths are relative to this.
+ * @param options - Override or extend the default ignore-dir and extension lists via ScanOptions.
+ * @returns Relative file paths for all matching source files found under `rootDir`.
+ */
 export function getAllProjectFiles(rootDir: string, options: ScanOptions = {}): string[] {
   const files: string[] = [];
   const ignoreDirs = new Set([
@@ -132,6 +113,10 @@ export function getAllProjectFiles(rootDir: string, options: ScanOptions = {}): 
     ...(options.additionalExtensions ?? []),
   ]);
 
+  /**
+   * @description Recursively visits `dir`, pushing matching file paths into the outer `files` array.
+   * @param dir - Absolute path of the directory to scan in this recursion step.
+   */
   function walk(dir: string) {
     try {
       const entries = fs.readdirSync(dir, { withFileTypes: true });

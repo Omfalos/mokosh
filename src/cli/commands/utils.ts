@@ -1,5 +1,5 @@
 import path from "node:path";
-import { getGitDiffFiles } from "../../index";
+import { DefaultGitProvider } from "../../index";
 
 const TEST_PATTERNS = [".test.", ".spec.", "-test.", "-spec."];
 
@@ -23,5 +23,5 @@ export function getTestFiles(allFiles: string[]): string[] {
  * @returns Paths of git-changed files relative to rootDir.
  */
 export function resolveChangedFiles(rootDir: string): string[] {
-  return getGitDiffFiles().map((f) => path.relative(rootDir, path.resolve(rootDir, f)));
+  return new DefaultGitProvider().getChangedFiles().map((f) => path.relative(rootDir, path.resolve(rootDir, f)));
 }

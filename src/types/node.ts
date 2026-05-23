@@ -58,4 +58,8 @@ export interface FileNode extends GraphNode {
   avgExportUsage?: number;
   /** Highest single-edge exportUsageRatio for this file — identifies the dependency whose API surface is most consumed. */
   maxExportUsage?: number;
+  /** McCabe cyclomatic complexity (base 1). Counts independent decision paths through the file. Only present for TypeScript/JavaScript files. */
+  complexity?: number;
+  /** Cognitive complexity — nesting-penalised difficulty score. Higher values indicate harder-to-read code. Only present for TypeScript/JavaScript files. */
+  cognitiveComplexity?: number;
 }

@@ -12,7 +12,9 @@ export class Graph {
   constructor(public nodes: Map<string, FileNode>) {}
 
   /**
-   * Serializes the graph into a plain object.
+   * @description Serializes the graph into a plain JSON-compatible object
+   *   that can be written to disk and later restored via `deserialize`.
+   * @returns A flat representation of all nodes in the graph.
    */
   public serialize(): SerializedGraph {
     return {
@@ -21,7 +23,10 @@ export class Graph {
   }
 
   /**
-   * Deserializes a graph from a plain object.
+   * @description Reconstructs a Graph from a serialized snapshot, rebuilding
+   *   the internal node map keyed by file path.
+   * @param serialized - The plain object produced by `serialize`.
+   * @returns A fully functional Graph instance.
    */
   public static deserialize(serialized: SerializedGraph): Graph {
     const nodes = new Map<string, FileNode>();
@@ -32,7 +37,9 @@ export class Graph {
   }
 
   /**
-   * Returns a map of incoming edges for each node.
+   * @description Lazily builds and caches a reverse index mapping each file path
+   *   to the list of files that import it. Used internally for incoming traversal.
+   * @returns Map from target file path to list of importer file paths.
    */
   private getIncomingEdgesMap(): Map<string, string[]> {
     if (this._incomingEdgesCache) return this._incomingEdgesCache;
@@ -169,7 +176,10 @@ export class Graph {
   }
 
   /**
-   * Returns the immediate dependencies of a node.
+   * @description Returns the FileNodes that a given file directly imports —
+   *   the first-hop outgoing neighbours in the import graph.
+   * @param path - Project-relative path of the node to look up.
+   * @returns Array of FileNodes imported by the given file; empty if the path is unknown.
    */
   public getNeighbors(path: string): FileNode[] {
     const node = this.nodes.get(path);
@@ -180,15 +190,19 @@ export class Graph {
   }
 
   /**
-   * Finds files that are not reachable from entry points.
-   * @param allFiles List of all project files.
+   * @description Identifies files that are not reachable from any entry point
+   *   by walking the full import graph forward from each node.
+   * @param allFiles - Complete list of project-relative file paths to test.
+   * @returns Subset of `allFiles` that nothing imports, directly or transitively.
    */
   public findUnusedFiles(allFiles: string[]): string[] {
     return new GraphAnalyzer(this.nodes).findUnusedFiles(allFiles);
   }
 
   /**
-   * Finds all circular dependencies in the graph.
+   * @description Detects all circular import chains in the graph using DFS
+   *   with a back-edge check. Each returned array is one cycle as an ordered path.
+   * @returns Array of cycles; each cycle is a list of file paths forming a loop.
    */
   public findCycles(): string[][] {
     return new GraphAnalyzer(this.nodes).findCycles();

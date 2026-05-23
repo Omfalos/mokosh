@@ -6,7 +6,7 @@ import {
   filterGraph,
   Graph,
   getAllProjectFiles,
-  getGitDiffFiles,
+  DefaultGitProvider,
   loadCoverageMap,
   loadMokoshConfig,
   MermaidExporter,
@@ -55,6 +55,8 @@ export type QueryArgs = {
   slim?: boolean;
 };
 
+export type ClearCacheArgs = { root: string };
+
 export type ToolArgs =
   | AnalyzeArgs
   | GetDependenciesArgs
@@ -66,18 +68,20 @@ export type ToolArgs =
   | ProposeTagsArgs
   | ProposeAffectedTestsArgs
   | DetectFeaturesArgs
-  | QueryArgs;
+  | QueryArgs
+  | ClearCacheArgs;
 
 // ---------------------------------------------------------------------------
 // Handlers
 // ---------------------------------------------------------------------------
 
 /**
- * Builds (or incrementally refreshes) the dependency graph and caches it for
- * the session. When `entryPoints` is empty, auto-detects whether `root` is a
- * monorepo and builds a per-package workspace graph if so.
- * Returns a lightweight summary — callers that need the full graph
- * should call `get_dependencies` or `query` afterwards.
+ * @description Builds (or incrementally refreshes) the dependency graph and caches it for
+ *   the session. When `entryPoints` is empty, auto-detects whether `root` is a monorepo
+ *   and builds a per-package workspace graph if so.
+ * @param cache - Session state used to store and retrieve the built graph.
+ * @param args - `root` is the project directory; `entryPoints` seeds the graph walk (empty triggers monorepo auto-detect).
+ * @returns A lightweight summary of node count, categories, and cycles — call `get_dependencies` or `query` for full graph data.
  */
 export async function handleAnalyze(cache: SessionState, args: AnalyzeArgs) {
   const { root, entryPoints } = args;
@@ -122,10 +126,11 @@ export async function handleAnalyze(cache: SessionState, args: AnalyzeArgs) {
 }
 
 /**
- * Outgoing traversal from `file` — returns all files that `file` imports,
- * up to `depth` hops (default 1 = immediate imports only).
- *
- * Requires a prior `analyze` call for the same `root`.
+ * @description Outgoing traversal from `file` — returns all files that `file` imports,
+ *   up to `depth` hops (default 1 = immediate imports only). Requires a prior `analyze` call.
+ * @param cache - Session state holding the cached graph for `root`.
+ * @param args - `root` selects the graph; `file` is the starting node; `depth` caps traversal depth.
+ * @returns TextResponse with `{ file, dependencies }` listing all reachable imported paths.
  */
 export function handleGetDependencies(cache: SessionState, args: GetDependenciesArgs) {
   const { root, file, depth = 1 } = args;
@@ -143,10 +148,11 @@ export function handleGetDependencies(cache: SessionState, args: GetDependencies
 }
 
 /**
- * Incoming one-hop traversal — returns files that directly import `file`.
- * For the full transitive upstream set use `get_affected` instead.
- *
- * Requires a prior `analyze` call for the same `root`.
+ * @description Incoming one-hop traversal — returns files that directly import `file`.
+ *   For the full transitive upstream set use `handleGetAffected` instead. Requires a prior `analyze` call.
+ * @param cache - Session state holding the cached graph for `root`.
+ * @param args - `root` selects the graph; `file` is the node whose direct importers to find.
+ * @returns TextResponse with `{ file, dependents }` listing files that import `file` directly.
  */
 export function handleGetDependents(cache: SessionState, args: GetDependentsArgs) {
   const { root, file } = args;
@@ -164,11 +170,11 @@ export function handleGetDependents(cache: SessionState, args: GetDependentsArgs
 }
 
 /**
- * Full incoming traversal from `file` upward through the graph — returns every
- * file whose behaviour could change if `file` changes (blast-radius analysis).
- * Pass `testsOnly: true` to restrict results to test/spec files only.
- *
- * Requires a prior `analyze` call for the same `root`.
+ * @description Full incoming traversal from `file` upward — returns every file whose behaviour
+ *   could change if `file` changes (blast-radius analysis). Requires a prior `analyze` call.
+ * @param cache - Session state holding the cached graph for `root`.
+ * @param args - `root` selects the graph; `file` is the changed node; `testsOnly` restricts results to test/spec files.
+ * @returns TextResponse with `{ file, affected, count }` listing all transitively impacted files.
  */
 export function handleGetAffected(cache: SessionState, args: GetAffectedArgs) {
   const { root, file, testsOnly = false } = args;
@@ -189,10 +195,11 @@ export function handleGetAffected(cache: SessionState, args: GetAffectedArgs) {
 
 /**
  * @description Incoming call-edge traversal — returns files whose exported functions call
- *   into `file`. More precise than `get_affected` because it follows actual runtime call
- *   edges rather than all import edges.
- * @param cache - Session state holding the cached graph.
- * @param args - Tool arguments; `withEdgeDetail` includes from/to function names per edge.
+ *   into `file`. More precise than `handleGetAffected` because it follows runtime call edges
+ *   rather than all import edges.
+ * @param cache - Session state holding the cached graph for `root`.
+ * @param args - `root`/`file` identify the target; `depth` caps hops; `withEdgeDetail` adds from/to function names per edge.
+ * @returns TextResponse with `{ file, callers, count }` where each caller optionally includes edge detail.
  */
 export function handleGetCallers(cache: SessionState, args: GetCallersArgs) {
   const { root, file, depth = 1, withEdgeDetail = false } = args;
@@ -219,9 +226,11 @@ export function handleGetCallers(cache: SessionState, args: GetCallersArgs) {
 }
 
 /**
- * Scans the entire project directory and compares against the graph reachable
- * from `entryPoints`. Returns files that exist on disk but are not imported by
- * any entry point — candidates for deletion or dead-code review.
+ * @description Scans the entire project directory and compares against the graph reachable
+ *   from `entryPoints`, returning files that exist on disk but are never imported — candidates for deletion.
+ * @param cache - Session state used to build or retrieve the graph.
+ * @param args - `root` is the project directory; `entryPoints` seeds the reachability walk.
+ * @returns TextResponse with `{ unusedFiles, count }` listing files unreachable from any entry point.
  */
 export async function handleFindUnused(cache: SessionState, args: FindUnusedArgs) {
   const { root, entryPoints } = args;
@@ -234,10 +243,11 @@ export async function handleFindUnused(cache: SessionState, args: FindUnusedArgs
 
 /**
  * @description Returns non-test files whose line coverage is below the configured threshold.
- *   The threshold is resolved in priority order: `args.coverageThreshold` → `config.coverageThreshold` → 80.
+ *   Threshold priority: `args.coverageThreshold` → `config.coverageThreshold` → 80.
  *   Requires a prior `analyze` call with `coverageReportPath` set in `mokosh.config`.
  * @param cache - Session state holding the cached graph and config.
- * @param args - Tool arguments; `coverageThreshold` overrides the config default.
+ * @param args - `root` selects the graph; `coverageThreshold` overrides the config default.
+ * @returns TextResponse with `{ threshold, uncovered, count }` where each entry includes file path and coverage percentage.
  */
 export function handleFindUncovered(cache: SessionState, args: FindUncoveredArgs) {
   const { root, coverageThreshold } = args;
@@ -252,19 +262,18 @@ export function handleFindUncovered(cache: SessionState, args: FindUncoveredArgs
 }
 
 /**
- * Performs a backward traversal from each changed file to find all test files
- * that transitively depend on it, then collects their tags. Feature hub files
- * (high in-degree) short-circuit traversal and emit a `feature:<name>` tag
- * instead, preventing tag explosion for widely-imported utilities.
- *
- * Pass `changedFiles` explicitly (relative to `root`) or omit to read from
- * `git diff --name-only`. Requires a prior `analyze` call for the same `root`.
+ * @description Backward-traverses from each changed file to collect tags from all transitively
+ *   dependent test files. Feature hub files short-circuit traversal and emit a `feature:<name>` tag
+ *   to prevent tag explosion. Requires a prior `analyze` call.
+ * @param cache - Session state holding the cached graph for `root`.
+ * @param args - `root` selects the graph; `changedFiles` overrides git diff detection; `featureThreshold` tunes hub sensitivity.
+ * @returns TextResponse with `{ changedFiles, proposedTags }` — tags suitable for CI test filtering.
  */
 export function handleProposeTags(cache: SessionState, args: ProposeTagsArgs) {
   const { root, changedFiles, featureThreshold } = args;
   const graph = cache.require(root);
   const files =
-    changedFiles ?? getGitDiffFiles().map((f) => path.relative(root, path.resolve(root, f)));
+    changedFiles ?? new DefaultGitProvider().getChangedFiles().map((f) => path.relative(root, path.resolve(root, f)));
   const tags = proposeTags(graph, files, {
     ...(featureThreshold !== undefined && { featureDetection: { minOutDegree: featureThreshold } }),
   });
@@ -272,23 +281,18 @@ export function handleProposeTags(cache: SessionState, args: ProposeTagsArgs) {
 }
 
 /**
- * Returns the file paths of test files transitively affected by the changed files.
- *
- * Uses the same symbol-aware graph traversal as `propose_tags` but collects
- * file paths instead of tag strings — making it suitable for piping directly
- * into a test runner: `vitest $(mokosh --affected-tests)`.
- *
- * Feature hubs act as traversal boundaries: tests beyond a hub are excluded
- * because running the hub's tests already covers that dependency chain.
- *
- * Pass `changedFiles` explicitly or omit to read from `git diff --name-only`.
- * Requires a prior `analyze` call for the same `root`.
+ * @description Returns paths of test files transitively affected by the changed files, suitable
+ *   for piping directly into a test runner. Feature hubs act as traversal boundaries to prevent
+ *   over-selection. Requires a prior `analyze` call.
+ * @param cache - Session state holding the cached graph for `root`.
+ * @param args - `root` selects the graph; `changedFiles` overrides git diff detection; `featureThreshold` tunes hub sensitivity.
+ * @returns TextResponse with `{ changedFiles, affectedTests, count }` listing test file paths to run.
  */
 export function handleProposeAffectedTests(cache: SessionState, args: ProposeAffectedTestsArgs) {
   const { root, changedFiles, featureThreshold } = args;
   const graph = cache.require(root);
   const files =
-    changedFiles ?? getGitDiffFiles().map((f) => path.relative(root, path.resolve(root, f)));
+    changedFiles ?? new DefaultGitProvider().getChangedFiles().map((f) => path.relative(root, path.resolve(root, f)));
   const affectedTests = proposeAffectedTests(graph, files, {
     ...(featureThreshold !== undefined && { featureDetection: { minOutDegree: featureThreshold } }),
   });
@@ -296,12 +300,11 @@ export function handleProposeAffectedTests(cache: SessionState, args: ProposeAff
 }
 
 /**
- * Identifies feature files — source files that import many other internal modules
- * (out-degree). Returns them sorted by out-degree descending so the most complex
- * aggregators appear first. Use `featureThreshold` to tune sensitivity.
- *
- * Builds a fresh graph from `entryPoints` when provided; otherwise reuses the
- * cached graph from a prior `analyze` call.
+ * @description Identifies feature hub files — source files with high out-degree (many imports) —
+ *   sorted by out-degree descending. Builds from `entryPoints` when provided, else reuses the cached graph.
+ * @param cache - Session state used to build or retrieve the graph.
+ * @param args - `root` is the project directory; `entryPoints` optionally seeds a fresh build; `featureThreshold` sets the minimum out-degree to qualify.
+ * @returns TextResponse with `{ features, count }` sorted by out-degree descending.
  */
 export async function handleDetectFeatures(cache: SessionState, args: DetectFeaturesArgs) {
   const { root, entryPoints, featureThreshold } = args;
@@ -320,11 +323,11 @@ export async function handleDetectFeatures(cache: SessionState, args: DetectFeat
 }
 
 /**
- * Filters the graph by category, tag, or path substring and returns matching
- * nodes as JSON. Pass `mermaid: true` to receive a `graph TD` Mermaid diagram
- * string instead. Slim mode (default) strips edge objects, mtime/size, and
- * internal tags while keeping a flat `importsFiles` path list — pass
- * `slim: false` only when full edge metadata is needed.
+ * @description Filters the graph by category, tag, or path substring and returns matching nodes.
+ *   Slim mode (default) strips edge metadata and internal tags for a compact response; pass `slim: false` for full edge data.
+ * @param cache - Session state used to build or retrieve the graph.
+ * @param args - `root`/`entryPoints` select the graph; `filter` is the query DSL string; `mermaid` switches output to a diagram; `slim` controls response verbosity.
+ * @returns TextResponse containing either a Mermaid diagram string or a JSON node list with cycle info.
  */
 export async function handleQuery(cache: SessionState, args: QueryArgs): Promise<TextResponse> {
   const { root, entryPoints, filter, mermaid = false, slim = true } = args;
@@ -336,7 +339,7 @@ export async function handleQuery(cache: SessionState, args: QueryArgs): Promise
     : cache.require(root);
   const filtered = filterGraph(graph.serialize(), parseQuery(filter));
   if (mermaid) {
-    return text(MermaidExporter.toMermaid(Graph.deserialize(filtered)));
+    return text(MermaidExporter.serialize(Graph.deserialize(filtered)));
   }
   if (slim) {
     const slimNodes = filtered.nodes.map((n) => ({
@@ -362,8 +365,11 @@ export async function handleQuery(cache: SessionState, args: QueryArgs): Promise
 }
 
 /**
- * @description Lists all workspace packages detected in a monorepo root.
- *   Requires a prior `analyze` call with no entry points (monorepo auto-detection).
+ * @description Lists all workspace packages detected in a monorepo root, including per-package
+ *   node counts and cross-package dependency edges. Requires a prior `analyze` call with no entry points.
+ * @param cache - Session state holding the cached WorkspaceGraph.
+ * @param args - `root` identifies the monorepo root to look up.
+ * @returns TextResponse with `{ monorepoType, packageCount, packages }` where each package includes its dependsOn list.
  */
 export function handleGetWorkspacePackages(
   cache: SessionState,
@@ -382,9 +388,11 @@ export function handleGetWorkspacePackages(
 }
 
 /**
- * @description Cross-package blast-radius analysis. Returns every file that could be
- *   affected if `file` changes, annotated with the package it belongs to.
- *   Requires a prior `analyze` call with no entry points (monorepo auto-detection).
+ * @description Cross-package blast-radius analysis — returns every file that could be affected
+ *   if `file` changes, annotated with the package it belongs to. Requires a prior `analyze` call with no entry points.
+ * @param cache - Session state holding the cached WorkspaceGraph.
+ * @param args - `root` identifies the monorepo; `file` is the changed file (relative to root).
+ * @returns TextResponse with `{ file, affected, count }` where each entry includes its package name.
  */
 export function handleGetWorkspaceAffected(
   cache: SessionState,
@@ -394,4 +402,17 @@ export function handleGetWorkspaceAffected(
   const wg = cache.requireWorkspace(root);
   const affected = wg.getAffectedAcrossPackages(file);
   return text({ file, affected, count: affected.length });
+}
+
+/**
+ * @description Drops the cached graph for `root` so the next `analyze` call rebuilds from disk.
+ *   Call this after editing source files mid-session to prevent stale query results. Config is preserved.
+ * @param cache - Session state from which the cached graph will be removed.
+ * @param args - `root` identifies which project's cache to invalidate.
+ * @returns TextResponse with `{ root, cleared, message }` indicating whether a cache entry was present and removed.
+ */
+export function handleClearCache(cache: SessionState, args: ClearCacheArgs): TextResponse {
+  const { root } = args;
+  const cleared = cache.invalidate(root);
+  return text({ root, cleared, message: cleared ? "Cache cleared. Call analyze to rebuild." : "No cache was present for this root." });
 }

@@ -48,11 +48,12 @@ function getText(result: ToolResult): string {
 }
 
 describe("mokosh MCP server", () => {
-  test("listTools returns all 13 tools", async () => {
+  test("listTools returns all 14 tools", async () => {
     const client = await makeClient();
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual([
       "analyze",
+      "clear_cache",
       "detect_features",
       "find_uncovered",
       "find_unused",
