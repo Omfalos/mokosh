@@ -7,14 +7,11 @@ import { detectStylusCategory, parseStylusImports } from "./stylus";
 
 // TODO(SOLID-O): adding a new style dialect (e.g. Sass indented) requires editing this function; consider a parser registry keyed by file type
 /**
- * Parses a style file of any supported dialect and returns a normalised `ParseResult`.
- *
- * Delegates to the dialect-specific parser based on the file extension, then wraps the
- * result in the standard shape with empty `exports` and `tags`.
- *
- * @param filePath - Absolute path to the style file; determines which parser is selected
- * @param content - Raw file contents to parse
- * @returns Import edges, empty exports/tags, and a category classification for the file
+ * @description Parses a style file of any supported dialect and returns a normalised `ParseResult`.
+ *   Delegates to the dialect-specific parser based on the file extension, then wraps the result in the standard shape with empty `exports` and `tags`.
+ * @param {string} filePath - Absolute path to the style file; determines which parser is selected
+ * @param {string} content - Raw file contents to parse
+ * @returns {ParseResult} Import edges, empty exports/tags, and a category classification for the file
  */
 export function parseStyleFile(filePath: string, content: string): ParseResult {
   const fileType = getFileType(filePath);

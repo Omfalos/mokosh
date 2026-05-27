@@ -35,19 +35,11 @@ export interface MokoshConfig {
 const CONFIG_FILENAMES = ["mokosh.config.js", "mokosh.config.cjs", "mokosh.config.json"];
 
 /**
- * Loads a mokosh config file.
- *
- * When `isExplicitPath` is true, `rootDirOrPath` is treated as an absolute
- * path to the config file itself (supports `--config` CLI override).
- * Otherwise it is treated as a directory and the standard filenames are probed.
- *
- * JS/CJS configs may export a plain `MokoshConfig` object **or** a function
- * `(defaults: MokoshConfig) => MokoshConfig`. Side effects (e.g. `registerParser` calls)
- * execute automatically when the file is required.
- *
- * Pass `{ allowJs: false }` to skip `.js`/`.cjs` files and read only JSON.
- * The MCP server uses this mode to prevent arbitrary code execution via a
- * caller-supplied `root` pointing to a directory with a malicious config file.
+ * @description Loads a mokosh config file, probing standard filenames in `rootDirOrPath` or reading an explicit path when `isExplicitPath` is true.
+ *   JS/CJS configs may export a plain object or a factory function; the MCP server passes `allowJs: false` to prevent arbitrary code execution.
+ * @param {string} rootDirOrPath - Directory to probe for standard config filenames, or absolute path to the config file when `isExplicitPath` is true.
+ * @param {{ allowJs?: boolean; isExplicitPath?: boolean }} options - `allowJs` (default `true`) controls whether `.js`/`.cjs` files are loaded; `isExplicitPath` treats the first arg as a direct file path.
+ * @returns {MokoshConfig} The parsed config, or an empty object when no config file is found.
  */
 export function loadMokoshConfig(
   rootDirOrPath: string,
@@ -77,8 +69,10 @@ function readJsonConfig(filePath: string): MokoshConfig {
 }
 
 /**
- * Requires a JS/CJS config file and normalises its export.
- * Unwraps `.default` for ESM-interop, and calls the export if it is a factory function.
+ * @description Requires a JS/CJS config file and normalises its export.
+ *   Unwraps `.default` for ESM-interop, and calls the export if it is a factory function.
+ * @param {string} filePath - Absolute path to the `.js` or `.cjs` config file
+ * @returns {MokoshConfig} The resolved config object
  */
 function readJsConfig(filePath: string): MokoshConfig {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -90,8 +84,9 @@ function readJsConfig(filePath: string): MokoshConfig {
 }
 
 /**
- * Applies a `MokoshConfig` to the global registries.
- * Call this after `loadMokoshConfig` and before `createImportMap`.
+ * @description Applies a `MokoshConfig` to the global registries that control classification and scanning.
+ *   Call this after `loadMokoshConfig` and before `createImportMap`.
+ * @param {MokoshConfig} config - The loaded config whose matchers, patterns, libraries, and thresholds are registered.
  */
 export function applyConfig(config: MokoshConfig): void {
   for (const pattern of config.configMatchers ?? []) {

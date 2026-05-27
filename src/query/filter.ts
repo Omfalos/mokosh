@@ -12,6 +12,16 @@ function matchesPath(nodePath: string, queryPath: string): boolean {
   return nodePath.includes(queryPath);
 }
 
+/**
+ * @description Tests whether a graph node satisfies all criteria in `query`.
+ *   String fields use exact match with an optional `!` prefix for negation.
+ *   `tags` uses OR logic across positive entries; negated tags act as mandatory exclusions.
+ *   Coverage fields treat nodes with no data as 101% for `minCoverage` and 0% for `maxCoverage`.
+ * @param {FileNode} node - The graph node to evaluate.
+ * @param {NodeQuery} query - Filter criteria; omitted fields are treated as wildcards.
+ * @param {Map<string, string[]>} reverseIndex - Optional reverse importer lookup, required when `query.importedBy` is set.
+ * @returns {boolean} `true` if the node passes every active filter criterion.
+ */
 export function matchNode(
   node: FileNode,
   query: NodeQuery,
@@ -65,13 +75,12 @@ export function matchNode(
 }
 
 /**
- * Filters a serialized graph to only the nodes that match all criteria in
- * `query`, and trims each node's import list to edges whose target is also
- * present in the result set.
- *
- * @param graph - The serialized graph to filter.
- * @param query - Filter criteria; omitted fields are treated as wildcards.
- * @returns A new {@link SerializedGraph} containing only the matching subgraph.
+ * @description Filters a serialized graph to only nodes matching all criteria in `query`,
+ *   then trims each node's import list to edges whose target is also in the result set.
+ *   Optionally sorts the result and applies a `limit`.
+ * @param {SerializedGraph} graph - The serialized graph to filter.
+ * @param {NodeQuery} query - Filter criteria; omitted fields are treated as wildcards.
+ * @returns {SerializedGraph} A new `SerializedGraph` containing only the matching subgraph.
  */
 export function filterGraph(graph: SerializedGraph, query: NodeQuery): SerializedGraph {
   const reverseIndex = new Map<string, string[]>();

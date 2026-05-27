@@ -7,7 +7,10 @@ export { exists } from "./fs-utils";
 
 /**
  * @description Reads `package.json` from `pkgRoot` and builds a `WorkspacePackage`.
- *   Returns `null` if no `package.json` exists or if `name` is missing.
+ *   Returns `null` if no `package.json` exists, cannot be parsed, or the `name` field is absent.
+ * @param {string} monorepoRoot - Absolute path to the monorepo root, used to compute `relativeRoot`.
+ * @param {string} pkgRoot - Absolute path to the package directory to read.
+ * @returns {WorkspacePackage | null} The built package descriptor, or `null` on failure.
  */
 export function buildPackage(monorepoRoot: string, pkgRoot: string): WorkspacePackage | null {
   const pkgJsonPath = path.join(pkgRoot, "package.json");
@@ -33,7 +36,11 @@ export function buildPackage(monorepoRoot: string, pkgRoot: string): WorkspacePa
 
 /**
  * @description Derives entry point absolute paths from a package's `package.json`.
- *   Tries `exports["."]`, `main`, and common conventions in that order.
+ *   Tries `exports["."]`, `main`, and common conventions (`src/index.ts`, etc.) in that order.
+ *   Returns the first existing file, or the first candidate as a fallback when nothing exists on disk.
+ * @param {string} pkgRoot - Absolute path to the package directory.
+ * @param {{ main?: string; exports?: unknown }} pkgJson - Parsed `package.json` object.
+ * @returns {string[]} A single-element array containing the resolved entry point absolute path.
  */
 export function resolveEntryPoints(
   pkgRoot: string,
@@ -71,7 +78,10 @@ export function resolveEntryPoints(
 
 /**
  * @description Resolves workspace glob patterns (e.g. `packages/*`) to `WorkspacePackage` entries.
- *   Supports `*` (single directory segment) and `**` (recursive). Non-glob patterns are literal paths.
+ *   Supports `*` (single directory segment) and `**` (recursive). Non-glob patterns are treated as literal paths.
+ * @param {string} root - Absolute monorepo root directory used as the base for all patterns.
+ * @param {string[]} patterns - Glob patterns from `package.json` `"workspaces"` or `pnpm-workspace.yaml`.
+ * @returns {WorkspacePackage[]} All resolved packages found under the matching directories.
  */
 export function resolveGlobPatterns(root: string, patterns: string[]): WorkspacePackage[] {
   const packages: WorkspacePackage[] = [];
@@ -120,6 +130,14 @@ export function resolveGlobPatterns(root: string, patterns: string[]): Workspace
   return packages;
 }
 
+/**
+ * @description Recursively walks `dir` looking for directories that contain a `package.json`,
+ *   building a `WorkspacePackage` for each. Skips `node_modules` and hidden directories.
+ * @param {string} monorepoRoot - Absolute path to the monorepo root, used to compute `relativeRoot`.
+ * @param {string} dir - The directory to walk in this recursion step.
+ * @param {Set<string>} seen - Set of already-visited absolute paths; updated in place to prevent duplicates.
+ * @param {WorkspacePackage[]} packages - Accumulator array that receives discovered packages.
+ */
 function walkRecursive(
   monorepoRoot: string,
   dir: string,

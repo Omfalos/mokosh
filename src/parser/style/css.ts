@@ -10,10 +10,9 @@ const lessParser = require("postcss-less") as {
 const SIDE_EFFECT_KEYWORDS = new Set(["reference", "inline"]);
 
 /**
- * Returns true when a CSS import specifier points to an external resource rather than a local file.
- *
- * @param specifier - The raw import path as written in the source (e.g. `~bootstrap`, `https://…`)
- * @returns `true` for tilde-prefixed node_modules, absolute URLs, protocol-relative URLs, and data URIs
+ * @description Returns true when a CSS import specifier points to an external resource rather than a local file.
+ * @param {string} specifier - The raw import path as written in the source (e.g. `~bootstrap`, `https://…`)
+ * @returns {boolean} `true` for tilde-prefixed node_modules, absolute URLs, protocol-relative URLs, and data URIs
  */
 function isExternalCss(specifier: string): boolean {
   return (
@@ -26,10 +25,9 @@ function isExternalCss(specifier: string): boolean {
 }
 
 /**
- * Returns true when a `url()` value refers to a file on disk rather than an external or fragment URL.
- *
- * @param specifier - The raw value extracted from a `url()` expression, before any trimming
- * @returns `true` for relative or absolute local paths; `false` for HTTP URLs, protocol-relative URLs, data URIs, and hash fragments
+ * @description Returns true when a `url()` value refers to a file on disk rather than an external or fragment URL.
+ * @param {string} specifier - The raw value extracted from a `url()` expression, before any trimming
+ * @returns {boolean} `true` for relative or absolute local paths; `false` for HTTP URLs, protocol-relative URLs, data URIs, and hash fragments
  */
 function isLocalUrl(specifier: string): boolean {
   const trimmed = specifier.trim();
@@ -44,13 +42,11 @@ function isLocalUrl(specifier: string): boolean {
 }
 
 /**
- * Parses the params string of a PostCSS `@import` at-rule into a single import edge.
- *
- * Handles three syntaxes: Less modifier form `(keyword) "path"`, `url("path")`, and bare `"path"`.
- *
- * @param params - The raw text after `@import`, exactly as PostCSS exposes it (no leading `@import`)
- * @param filePath - Absolute path of the file being parsed, used as the `fromPath` of the edge
- * @returns An `ImportEdge` when the params contain a recognisable import path, or `null` for empty or malformed params
+ * @description Parses the params string of a PostCSS `@import` at-rule into a single import edge.
+ *   Handles three syntaxes: Less modifier form `(keyword) "path"`, `url("path")`, and bare `"path"`.
+ * @param {string} params - The raw text after `@import`, exactly as PostCSS exposes it (no leading `@import`)
+ * @param {string} filePath - Absolute path of the file being parsed, used as the `fromPath` of the edge
+ * @returns {ImportEdge | null} An `ImportEdge` when the params contain a recognisable import path, or `null` for empty or malformed params
  */
 function extractAtImportEdge(params: string, filePath: string): ImportEdge | null {
   // Less modifier: (keyword) "path" or (keyword) 'path'
@@ -86,11 +82,10 @@ function extractAtImportEdge(params: string, filePath: string): ImportEdge | nul
 }
 
 /**
- * Extracts all local `url()` references from a single CSS declaration value as import edges.
- *
- * @param value - The raw CSS property value string (e.g. `url("./bg.png") center`)
- * @param filePath - Absolute path of the file being parsed, used as `fromPath` on each edge
- * @returns One edge per local `url()` found; external URLs and data URIs are skipped
+ * @description Extracts all local `url()` references from a single CSS declaration value as import edges.
+ * @param {string} value - The raw CSS property value string (e.g. `url("./bg.png") center`)
+ * @param {string} filePath - Absolute path of the file being parsed, used as `fromPath` on each edge
+ * @returns {ImportEdge[]} One edge per local `url()` found; external URLs and data URIs are skipped
  */
 function extractUrlDeclarationEdges(value: string, filePath: string): ImportEdge[] {
   const edges: ImportEdge[] = [];
@@ -113,11 +108,10 @@ function extractUrlDeclarationEdges(value: string, filePath: string): ImportEdge
 }
 
 /**
- * Walks a parsed PostCSS tree and collects every import edge — both `@import` at-rules and `url()` references in declarations.
- *
- * @param root - The PostCSS root node produced by parsing a CSS or Less file
- * @param filePath - Absolute path of the source file; forwarded to edge constructors as `fromPath`
- * @returns All import edges found in the tree, in document order
+ * @description Walks a parsed PostCSS tree and collects every import edge — both `@import` at-rules and `url()` references in declarations.
+ * @param {postcss.Root} root - The PostCSS root node produced by parsing a CSS or Less file
+ * @param {string} filePath - Absolute path of the source file; forwarded to edge constructors as `fromPath`
+ * @returns {ImportEdge[]} All import edges found in the tree, in document order
  */
 function collectEdgesFromRoot(root: postcss.Root, filePath: string): ImportEdge[] {
   const imports: ImportEdge[] = [];
@@ -134,10 +128,9 @@ function collectEdgesFromRoot(root: postcss.Root, filePath: string): ImportEdge[
 }
 
 /**
- * Removes `//` line comments from CSS source so PostCSS can parse files that use non-standard comment syntax.
- *
- * @param content - Raw CSS file contents, potentially containing `//` comments
- * @returns The content with `//`-to-end-of-line sequences removed, leaving `://` (URLs) intact
+ * @description Removes `//` line comments from CSS source so PostCSS can parse files that use non-standard comment syntax.
+ * @param {string} content - Raw CSS file contents, potentially containing `//` comments
+ * @returns {string} The content with `//`-to-end-of-line sequences removed, leaving `://` (URLs) intact
  */
 function stripLineComments(content: string): string {
   // `//` is not valid CSS but is widely used; strip before passing to PostCSS.
@@ -146,13 +139,11 @@ function stripLineComments(content: string): string {
 }
 
 /**
- * Extracts `@import` edges from raw CSS/Less source using a regex when the PostCSS parser fails.
- *
- * Only captures `@import` at-rules; `url()` references in declarations are not extracted here.
- *
- * @param content - Raw file contents that could not be parsed by PostCSS
- * @param filePath - Absolute path of the file being parsed, used as `fromPath` on each edge
- * @returns All `@import` edges found by pattern matching, with no barrel/side-effect detection for url() forms
+ * @description Extracts `@import` edges from raw CSS/Less source using a regex when the PostCSS parser fails.
+ *   Only captures `@import` at-rules; `url()` references in declarations are not extracted here.
+ * @param {string} content - Raw file contents that could not be parsed by PostCSS
+ * @param {string} filePath - Absolute path of the file being parsed, used as `fromPath` on each edge
+ * @returns {ImportEdge[]} All `@import` edges found by pattern matching, with no barrel/side-effect detection for url() forms
  */
 function regexFallbackImports(content: string, filePath: string): ImportEdge[] {
   const imports: ImportEdge[] = [];
@@ -177,14 +168,11 @@ function regexFallbackImports(content: string, filePath: string): ImportEdge[] {
 }
 
 /**
- * Parses a CSS file and returns its import edges alongside the PostCSS AST.
- *
- * Strips non-standard `//` line comments before parsing so that common CSS-in-JS
- * and preprocessor conventions do not cause a parse error.
- *
- * @param content - Raw CSS file contents
- * @param filePath - Absolute path of the file; used as `fromPath` on each returned edge
- * @returns The collected import edges and the PostCSS root, which callers use for barrel detection
+ * @description Parses a CSS file and returns its import edges alongside the PostCSS AST.
+ *   Strips non-standard `//` line comments before parsing so that common CSS-in-JS and preprocessor conventions do not cause a parse error.
+ * @param {string} content - Raw CSS file contents
+ * @param {string} filePath - Absolute path of the file; used as `fromPath` on each returned edge
+ * @returns {{ imports: ImportEdge[]; root: postcss.Root }} The collected import edges and the PostCSS root, which callers use for barrel detection
  */
 export function parseCssContent(
   content: string,
@@ -196,14 +184,11 @@ export function parseCssContent(
 }
 
 /**
- * Parses a Less file and returns its import edges alongside the PostCSS AST.
- *
- * Falls back to regex-only extraction when `postcss-less` throws, so mixed or malformed
- * Less files still yield at least the `@import` edges (barrel detection will receive an empty root).
- *
- * @param content - Raw Less file contents
- * @param filePath - Absolute path of the file; used as `fromPath` on each returned edge
- * @returns The collected import edges and the PostCSS root (may be empty on parse failure)
+ * @description Parses a Less file and returns its import edges alongside the PostCSS AST.
+ *   Falls back to regex-only extraction when `postcss-less` throws, so mixed or malformed Less files still yield at least the `@import` edges.
+ * @param {string} content - Raw Less file contents
+ * @param {string} filePath - Absolute path of the file; used as `fromPath` on each returned edge
+ * @returns {{ imports: ImportEdge[]; root: postcss.Root }} The collected import edges and the PostCSS root (may be empty on parse failure)
  */
 export function parseLessContent(
   content: string,

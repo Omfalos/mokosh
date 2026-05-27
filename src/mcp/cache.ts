@@ -16,17 +16,29 @@ export class SessionState {
   private readonly configs = new Map<string, MokoshConfig>();
   private readonly workspaceGraphs = new Map<string, WorkspaceGraph>();
 
-  /** Returns true if `applyConfig` has already been called for `root` this session. */
+  /**
+   * @description Returns `true` if config has already been loaded and applied for `root` this session.
+   * @param {string} root - Absolute project root path.
+   * @returns {boolean} `true` if config was previously stored for this root.
+   */
   isConfigured(root: string): boolean {
     return this.configs.has(root);
   }
 
-  /** Stores the loaded config for `root` (replaces markConfigured). */
+  /**
+   * @description Stores the loaded config for `root` so subsequent tool calls can read it without re-loading.
+   * @param {string} root - Absolute project root path.
+   * @param {MokoshConfig} config - The parsed config to store.
+   */
   storeConfig(root: string, config: MokoshConfig): void {
     this.configs.set(root, config);
   }
 
-  /** Returns the stored config for `root`, or undefined if not yet configured. */
+  /**
+   * @description Returns the stored config for `root`, or `undefined` if not yet configured.
+   * @param {string} root - Absolute project root path.
+   * @returns {MokoshConfig | undefined} The previously stored config, or `undefined`.
+   */
   getConfig(root: string): MokoshConfig | undefined {
     return this.configs.get(root);
   }
@@ -90,7 +102,11 @@ export class SessionState {
     return wg;
   }
 
-  /** Returns true when a workspace graph (not a single-package graph) is cached for `root`. */
+  /**
+   * @description Returns `true` when a workspace graph (not a single-package graph) is cached for `root`.
+   * @param {string} root - Absolute monorepo root path to check.
+   * @returns {boolean} `true` if a workspace graph exists in the cache for this root.
+   */
   hasWorkspace(root: string): boolean {
     return this.workspaceGraphs.has(root);
   }

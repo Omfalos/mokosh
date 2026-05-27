@@ -15,7 +15,7 @@ Add human-readable JSDoc comments to every undocumented function, method, and ex
 - Skip: one-liner arrow functions assigned to a variable, trivial getters/setters, test helpers
 
 ### Skip if already documented
-If a function already has a `/** ... */` block immediately above it, leave it untouched.
+If a function already has all proper jsdoc with @param, @returns, @description in a `/** ... */` block immediately above it, leave it untouched.
 
 ### Style
 
@@ -25,15 +25,15 @@ Use this exact format:
 /**
  * @description What this does and why — explain intent and behaviour, not just
  *   what the code obviously does. One to three sentences.
- * @param name - What this argument represents and any meaningful constraint.
- * @returns What is returned and when it may differ (e.g. null on miss). add return type if possible
+ * @param {paramType} name - What this argument represents and any meaningful constraint.
+ * @returns {returnType} What is returned and when it may differ (e.g. null on miss). add return type if possible
  */
 ```
 
 Rules:
 - `@description` is always first and always present
-- One `@param` line per parameter, in declaration order
-- Omit `@returns` for `void` / `Promise<void>` functions
+- One `@param` line per parameter, in declaration order remeber about type annotations
+- Omit `@returns` for `void` / `Promise<void>` functions remember about return type
 - For `Promise<T>`, describe the resolved value, not the Promise wrapper
 - Descriptions must be genuinely human-readable — no "The foo parameter is the foo." Write what it *means*, not what it *is*
 - Keep descriptions concise: prefer one clear sentence over two vague ones

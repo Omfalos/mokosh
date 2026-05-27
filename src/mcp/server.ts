@@ -36,27 +36,11 @@ import { TOOL_DEFINITIONS } from "./tools";
 import { type TextResponse, validateRoot } from "./utils";
 
 /**
- * Creates and wires up the mokosh MCP server.
- *
- * Each call returns a fresh `Server` instance backed by its own `SessionState`,
- * so multiple instances (e.g. parallel test runs) are fully isolated from one
- * another. Session state persists across tool calls, meaning `analyze` only
- * needs to run once per project root.
- *
- * Every incoming tool call is validated at the dispatch layer: if the request
- * includes a `root` argument it must be an absolute path within the user's home
- * directory. Handlers therefore never receive an out-of-bounds root.
- *
- * @returns A configured MCP `Server` ready to be connected to a transport.
- *
- * @example
- * ```ts
- * import { createMcpServer } from './mcp/server';
- * import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
- *
- * const server = createMcpServer();
- * await server.connect(new StdioServerTransport());
- * ```
+ * @description Creates and wires up the mokosh MCP server. Each call returns a fresh `Server`
+ *   instance backed by its own `SessionState`, so multiple instances (e.g. parallel test runs)
+ *   are fully isolated. Every incoming `root` argument is validated to be within the user's home
+ *   directory before any handler runs.
+ * @returns {Server} A configured MCP `Server` ready to be connected to a transport.
  */
 export function createMcpServer(): Server {
   const cache = new SessionState();

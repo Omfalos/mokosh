@@ -1,11 +1,10 @@
 import type { ImportEdge } from "../../types/node";
 
 /**
- * Extracts all import edges from a Stylus file, covering both `@require` and bare `import`/`require` forms.
- *
- * @param content - Raw Stylus file contents
- * @param filePath - Absolute path of the file; used as `fromPath` on each returned edge
- * @returns All import edges found, with `@require` entries typed as `"require"` and bare forms as `"static"`
+ * @description Extracts all import edges from a Stylus file, covering both `@require` and bare `import`/`require` forms.
+ * @param {string} content - Raw Stylus file contents
+ * @param {string} filePath - Absolute path of the file; used as `fromPath` on each returned edge
+ * @returns {ImportEdge[]} All import edges found, with `@require` entries typed as `"require"` and bare forms as `"static"`
  */
 export function parseStylusImports(content: string, filePath: string): ImportEdge[] {
   const imports: ImportEdge[] = [];
@@ -48,13 +47,11 @@ export function parseStylusImports(content: string, filePath: string): ImportEdg
 
 // TODO(SOLID-I): only `imports.length` is read; parameter could be narrowed to `{ length: number }`
 /**
- * Classifies a Stylus file as a barrel (re-exports only) or a UI file (contains rules or styles).
- *
- * Attempts AST analysis via the optional `stylus` library; falls back to regex stripping when unavailable.
- *
- * @param content - Raw Stylus file contents, used for both AST parsing and the regex fallback
- * @param imports - The edges already extracted from the file; only the count is used to short-circuit empty files
- * @returns `"barrel"` when the file contains only imports, `"ui"` when it also defines rules or styles
+ * @description Classifies a Stylus file as a barrel (re-exports only) or a UI file (contains rules or styles).
+ *   Attempts AST analysis via the optional `stylus` library; falls back to regex stripping when unavailable.
+ * @param {string} content - Raw Stylus file contents, used for both AST parsing and the regex fallback
+ * @param {ImportEdge[]} imports - The edges already extracted from the file; only the count is used to short-circuit empty files
+ * @returns {"ui" | "barrel"} `"barrel"` when the file contains only imports, `"ui"` when it also defines rules or styles
  */
 export function detectStylusCategory(content: string, imports: ImportEdge[]): "ui" | "barrel" {
   if (imports.length === 0) return "ui";

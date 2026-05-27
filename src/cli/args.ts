@@ -24,11 +24,10 @@ export interface ParsedArgs {
 }
 
 /**
- * Extracts and resolves the `--root` argument from raw argv, falling back to
- * the current working directory when the flag is absent.
- *
- * @param argv - Raw process arguments (everything after `node <script>`)
- * @returns Absolute path to use as the project root
+ * @description Extracts and resolves the `--root` argument from raw argv, falling back to
+ *   the current working directory when the flag is absent.
+ * @param {string[]} argv - Raw process arguments (everything after `node <script>`).
+ * @returns {string} Absolute path to use as the project root.
  */
 function resolveRootDir(argv: string[]): string {
   for (let i = 0; i < argv.length; i++) {
@@ -40,16 +39,11 @@ function resolveRootDir(argv: string[]): string {
 }
 
 /**
- * Parses raw CLI arguments into a structured options object, with all paths
- * resolved to absolute values.
- *
- * `--root` is resolved in a first pass because the default cache path is
- * derived from it; every subsequent path argument is then resolved relative
- * to that root.
- *
- * @param argv - Raw process arguments (everything after `node <script>`)
- * @returns A fully populated {@link ParsedArgs} with boolean flags set and
- *   path arguments converted to absolute paths
+ * @description Parses raw CLI arguments into a structured options object with all paths
+ *   resolved to absolute values. `--root` is resolved first because the default cache path
+ *   derives from it; every subsequent path argument is resolved relative to that root.
+ * @param {string[]} argv - Raw process arguments (everything after `node <script>`).
+ * @returns {ParsedArgs} A fully populated `ParsedArgs` with boolean flags set and path arguments as absolute paths.
  */
 export function parseArgs(argv: string[]): ParsedArgs {
   const rootDir = resolveRootDir(argv);

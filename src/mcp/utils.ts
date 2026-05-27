@@ -10,14 +10,10 @@ export function text(data: unknown): TextResponse {
 }
 
 /**
- * Validates that `root` is an absolute path within the user's home directory and
- * points to an existing directory.
- *
- * Called once per request in the central dispatch layer (`server.ts`) before
- * any tool handler runs, so handlers never receive an out-of-bounds root.
- *
- * @throws {Error} with a generic message if any constraint is violated — messages
- *   are intentionally vague to avoid leaking filesystem structure to callers.
+ * @description Validates that `root` is an absolute path within the user's home directory and points to an existing directory.
+ *   Called once per request before any tool handler runs, so handlers never receive an out-of-bounds root.
+ * @param {string} root - The project root path supplied by the MCP caller.
+ * @throws {Error} with a generic message if any constraint is violated — messages are intentionally vague to avoid leaking filesystem structure.
  */
 export function validateRoot(root: string): void {
   if (!path.isAbsolute(root)) {

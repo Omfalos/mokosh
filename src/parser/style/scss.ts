@@ -3,10 +3,9 @@ import { parse as scssParse } from "postcss-scss";
 import type { ImportEdge } from "../../types/node";
 
 /**
- * Returns true when a SCSS/Sass import specifier resolves outside the local file tree.
- *
- * @param specifier - The raw import path as written in source (e.g. `sass:color`, `~bootstrap`, `./tokens`)
- * @returns `true` for built-in Sass namespaces, tilde node_modules shortcuts, HTTP/protocol-relative URLs, and bare package names
+ * @description Returns true when a SCSS/Sass import specifier resolves outside the local file tree.
+ * @param {string} specifier - The raw import path as written in source (e.g. `sass:color`, `~bootstrap`, `./tokens`)
+ * @returns {boolean} `true` for built-in Sass namespaces, tilde node_modules shortcuts, HTTP/protocol-relative URLs, and bare package names
  */
 function isScssExternal(specifier: string): boolean {
   // Built-in Sass namespaces (sass:color, sass:math, etc.)
@@ -27,10 +26,9 @@ function isScssExternal(specifier: string): boolean {
 }
 
 /**
- * Extracts the import path and optional namespace alias from a SCSS `@use` or `@forward` params string.
- *
- * @param params - The raw text after the at-rule keyword (e.g. `"./tokens" as t`)
- * @returns The resolved specifier and, when an `as` clause is present, the alias name
+ * @description Extracts the import path and optional namespace alias from a SCSS `@use` or `@forward` params string.
+ * @param {string} params - The raw text after the at-rule keyword (e.g. `"./tokens" as t`)
+ * @returns {{ specifier: string; alias?: string }} The resolved specifier and, when an `as` clause is present, the alias name
  */
 function parseScssParams(params: string): { specifier: string; alias?: string } {
   const specMatch = params.match(/^['"]([^'"]+)['"]/);
@@ -42,14 +40,11 @@ function parseScssParams(params: string): { specifier: string; alias?: string } 
 }
 
 /**
- * Parses a SCSS file and returns its import edges alongside the PostCSS AST.
- *
- * Recognises `@import`, `@use`, and `@forward` at-rules; marks `@forward` edges as `re-export`
- * and attaches namespace aliases when an `as` clause is present.
- *
- * @param content - Raw SCSS file contents
- * @param filePath - Absolute path of the file; used as `fromPath` on each returned edge
- * @returns The collected import edges and the PostCSS root, which callers use for barrel detection
+ * @description Parses a SCSS file and returns its import edges alongside the PostCSS AST.
+ *   Recognises `@import`, `@use`, and `@forward` at-rules; marks `@forward` edges as `re-export` and attaches namespace aliases when an `as` clause is present.
+ * @param {string} content - Raw SCSS file contents
+ * @param {string} filePath - Absolute path of the file; used as `fromPath` on each returned edge
+ * @returns {{ imports: ImportEdge[]; root: postcss.Root }} The collected import edges and the PostCSS root, which callers use for barrel detection
  */
 export function parseScssContent(
   content: string,

@@ -1,28 +1,11 @@
 import type { NodeQuery } from "./types";
 
 /**
- * Parses a query string into a {@link NodeQuery} object.
- *
- * Format: `"key1:value1,key2:value2"`
- *
- * Supported keys: `category`, `type`, `tag` / `tags`, `path`, `external`,
- * `importsFile`, `importedBy`, `minImports`, `maxImports`, `minSize`, `maxSize`,
- * `sort`, `limit`, `hasDocstring`, `minCoverage`, `maxCoverage`, `minExportUsage`, `maxExportUsage`
- *
- * String values support a `"!"` prefix for negation (e.g. `"category:!test"`).
- * The `tag`/`tags` key may appear multiple times; all values are collected and
- * matched with OR logic (negated entries act as exclusions).
- *
- * @param queryString - Comma-separated key:value pairs.
- * @returns A structured {@link NodeQuery} object.
- *
- * @example
- * parseQuery("category:logic,tag:auth,tag:payments")
- * // → { category: "logic", tags: ["auth", "payments"] }
- *
- * @example
- * parseQuery("category:!test,tag:auth")
- * // → { category: "!test", tags: ["auth"] }
+ * @description Parses a `"key:value,key:value"` query string into a structured `NodeQuery`.
+ *   String values support `"!"` prefix for negation. The `tag`/`tags` key may appear multiple
+ *   times; values are OR-matched (negated entries act as exclusions). `tag:a+b` maps to `allTags`.
+ * @param {string} queryString - Comma-separated `key:value` pairs, e.g. `"category:logic,tag:auth"`.
+ * @returns {NodeQuery} The structured query object ready for use with `filterGraph` or `matchNode`.
  */
 export function parseQuery(queryString: string): NodeQuery {
   const query: NodeQuery = {};

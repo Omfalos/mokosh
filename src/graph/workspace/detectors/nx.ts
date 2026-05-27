@@ -22,9 +22,14 @@ export const nxDetector: MonorepoDetector = {
 };
 
 /**
- * @description Recursively walks `dir` up to `depth` levels deep and returns absolute paths
+ * @description Recursively walks `dir` up to 4 levels deep and returns absolute paths
  *   of directories that contain a `project.json`. Skips `node_modules`, `.nx`, `dist`, and
  *   hidden directories. Each directory is returned at most once via `seen`.
+ * @param {string} rootDir - The monorepo root; unused in the recursion but kept for future use.
+ * @param {string} dir - The directory to walk in this recursion step.
+ * @param {Set<string>} seen - Set of already-returned absolute paths; updated in place.
+ * @param {number} depth - Current recursion depth; returns early when greater than 4.
+ * @returns {string[]} Absolute paths of all directories containing `project.json` under `dir`.
  */
 function walkForProjectJsonDirs(
   rootDir: string,
@@ -70,7 +75,10 @@ type NxProjectJson = {
  * @description Builds a `WorkspacePackage` from an Nx `project.json`.
  *   If a `package.json` is also present, its `name`, `main`, and `exports` fields take priority
  *   over `project.json` — supporting both integrated and package-based Nx repos.
- *   Returns `null` when no usable package name can be determined.
+ * @param {string} monorepoRoot - Absolute monorepo root, used to compute `relativeRoot`.
+ * @param {string} pkgRoot - Absolute path to the project directory.
+ * @param {string} projJsonPath - Absolute path to the `project.json` file to read.
+ * @returns {WorkspacePackage | null} The built package, or `null` when no usable name can be determined.
  */
 function buildNxPackage(
   monorepoRoot: string,
@@ -115,10 +123,15 @@ function buildNxPackage(
 }
 
 /**
- * @description Derives entry point paths for an Nx project.
- *   Priority: `targets.build.options.main` → `package.json` exports/main → `sourceRoot/index.ts`
+ * @description Derives entry point paths for an Nx project in priority order:
+ *   `targets.build.options.main` → `package.json` exports/main → `sourceRoot/index.ts`
  *   → common `src/index.ts` conventions. Returns the first existing file, or the first candidate
- *   as a fallback when none exist on disk yet.
+ *   as a fallback when nothing exists on disk.
+ * @param {string} pkgRoot - Absolute path to the project directory.
+ * @param {NxProjectJson} projJson - Parsed `project.json` contents.
+ * @param {string} [pkgMain] - The `main` field from `package.json`, if present.
+ * @param {unknown} [pkgExports] - The `exports` field from `package.json`, if present.
+ * @returns {string[]} A single-element array with the resolved entry point absolute path.
  */
 function resolveNxEntryPoints(
   pkgRoot: string,

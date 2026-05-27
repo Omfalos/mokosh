@@ -281,16 +281,12 @@ export class DefaultResolver implements PathResolver {
   }
 
   /**
-   * @description Tries to resolve a bare Python module name (e.g. `mymodule` or `mypackage.sub`)
-   *   to a local `.py` file or package `__init__.py` inside the project root.
-   *   Searches the project root; dots in the specifier are treated as path separators.
-   *   Returns `null` if no local file is found — the caller then falls through to external.
-   */
-  /**
    * @description Resolves a specifier against the workspace package map. Handles exact
    *   package name matches and deep imports (`@myorg/shared/utils`). Resolved paths are
    *   marked `isExternal: false` and `isWorkspace: true` so the builder treats them as
    *   internal cross-package edges rather than npm dependencies.
+   * @param {string} specifier - The raw import specifier to match against workspace package names.
+   * @returns {ResolvedImport | null} Resolved path with workspace flags, or `null` if no package matches.
    */
   private resolveWorkspaceImport(specifier: string): ResolvedImport | null {
     if (this.workspaceMap.size === 0) return null;
@@ -338,6 +334,14 @@ export class DefaultResolver implements PathResolver {
     return null;
   }
 
+  /**
+   * @description Tries to resolve a bare Python module name (e.g. `mymodule` or `mypackage.sub`)
+   *   to a local `.py` file or package `__init__.py` inside the project root.
+   *   Dots in the specifier are treated as path separators. Returns `null` if no local file is
+   *   found — the caller then falls through to marking the import as external.
+   * @param {string} specifier - The bare module name as it appears in the source (e.g. `"os.path"`).
+   * @returns {ResolvedImport | null} Resolved local file path, or `null` if no match is found.
+   */
   private resolvePythonBareImport(specifier: string): ResolvedImport | null {
     const pyPath = specifier.replace(/\./g, path.sep);
 

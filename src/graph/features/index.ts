@@ -26,10 +26,10 @@ export interface FeatureInfo {
 }
 
 /**
- * Counts how many internal imports each file has.
- *
- * @param nodes All file nodes in the dependency graph, keyed by file path.
- * @returns     Map from file path to its internal import count (out-degree).
+ * @description Counts how many internal imports each file has, producing the raw out-degree data
+ *   used by `buildFeatureMap` to filter feature candidates.
+ * @param {Map<string, FileNode>} nodes - All file nodes in the dependency graph, keyed by file path.
+ * @returns {Map<string, number>} Map from file path to its internal import count (out-degree).
  */
 function buildOutDegreeMap(nodes: Map<string, FileNode>): Map<string, number> {
   const outDegreeMap = new Map<string, number>();
@@ -43,12 +43,12 @@ function buildOutDegreeMap(nodes: Map<string, FileNode>): Map<string, number> {
 }
 
 /**
- * Filters an out-degree map down to the files that qualify as features.
- *
- * @param nodes        All file nodes in the dependency graph, keyed by file path.
- * @param outDegreeMap Pre-computed import counts for every file.
- * @param minOutDegree Minimum out-degree a file must reach to be included.
- * @returns            Map of qualifying feature files; empty if none qualify.
+ * @description Filters an out-degree map down to the non-test, non-barrel files whose import
+ *   count meets `minOutDegree`, then builds the `FeatureInfo` record for each.
+ * @param {Map<string, FileNode>} nodes - All file nodes in the dependency graph, keyed by file path.
+ * @param {Map<string, number>} outDegreeMap - Pre-computed internal import counts for every file.
+ * @param {number} minOutDegree - Minimum out-degree a file must reach to be included.
+ * @returns {Map<string, FeatureInfo>} Map of qualifying feature files; empty if none qualify.
  */
 function buildFeatureMap(
   nodes: Map<string, FileNode>,
@@ -69,18 +69,12 @@ function buildFeatureMap(
 }
 
 /**
- * Scans the dependency graph and promotes files with many imports to "features".
- *
- * **Algorithm (two passes)**
- * 1. Count how many internal imports each file has (its *out-degree*).
- * 2. Keep only non-test, non-barrel files whose out-degree meets `minOutDegree`.
- *
- * The result is a map from file path → {@link FeatureInfo}, ready for
- * tag generation or graph annotation.
- *
- * @param nodes   All file nodes in the dependency graph, keyed by file path.
- * @param options Tuning knobs — currently just `minOutDegree`.
- * @returns       Map of detected feature files; empty if none qualify.
+ * @description Scans the dependency graph and promotes non-test, non-barrel files with many
+ *   imports to "feature hubs". Uses a two-pass approach: first count out-degrees, then filter
+ *   and annotate. The result maps file path → `FeatureInfo` for tag generation or graph annotation.
+ * @param {Map<string, FileNode>} nodes - All file nodes in the dependency graph, keyed by file path.
+ * @param {FeatureDetectionOptions} [options] - Tuning knobs; currently just `minOutDegree` (default 5).
+ * @returns {Map<string, FeatureInfo>} Map of detected feature files; empty if none qualify.
  */
 export function detectFeatures(
   nodes: Map<string, FileNode>,

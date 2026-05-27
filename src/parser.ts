@@ -50,6 +50,12 @@ export async function parseFile(filePath: string, content: string): Promise<Pars
   return { imports: [], exports: [], tags: [], category: "other" };
 }
 
+/**
+ * @description Parses a file and returns only its import edges, discarding exports, tags, and category.
+ * @param {string} filePath - Path to the file being parsed; determines the parser to use.
+ * @param {string} content - Raw source content of the file.
+ * @returns {Promise<ImportEdge[]>} All import edges extracted from the file.
+ */
 export async function parseImports(filePath: string, content: string): Promise<ImportEdge[]> {
   const result = await parseFile(filePath, content);
   return result.imports;

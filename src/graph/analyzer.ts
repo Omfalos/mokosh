@@ -1,15 +1,18 @@
 import type { FileNode } from "../types/node";
 
 /**
- * Utility for analyzing the dependency graph for cycles and unused files.
+ * @description Utility for analyzing the dependency graph for cycles and unused files.
+ *   Operates on the raw node map rather than a `Graph` instance so it can be used
+ *   without the full traversal infrastructure.
  */
 export class GraphAnalyzer {
   constructor(private nodes: Map<string, FileNode>) {}
 
   /**
-   * Finds files that are not present in the dependency graph.
-   * @param allFiles List of all files in the project.
-   * @returns List of files that are not reachable from entry points.
+   * @description Returns files from `allFiles` that are absent from the graph — meaning nothing
+   *   imports them directly or transitively from any entry point, making them deletion candidates.
+   * @param {string[]} allFiles - Complete list of project-relative file paths to test against the graph.
+   * @returns {string[]} Subset of `allFiles` whose paths do not appear as graph nodes.
    */
   public findUnusedFiles(allFiles: string[]): string[] {
     const usedFiles = new Set(this.nodes.keys());
@@ -45,8 +48,9 @@ export class GraphAnalyzer {
   }
 
   /**
-   * Recursively finds all cycles in the graph using DFS and a recursion stack.
-   * @returns An array of cycles, where each cycle is an array of node paths.
+   * @description Detects all circular import chains using DFS with a recursion-stack back-edge check.
+   *   Each returned array is one cycle as an ordered list of file paths ending at the entry that closes the loop.
+   * @returns {string[][]} Array of cycles; each cycle is an ordered list of file paths forming a loop.
    */
   public findCycles(): string[][] {
     const cycles: string[][] = [];

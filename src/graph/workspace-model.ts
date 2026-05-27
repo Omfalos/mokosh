@@ -25,13 +25,19 @@ export class WorkspaceGraph {
     readonly type: string,
   ) {}
 
-  /** @description Registers a package and its pre-built graph into this workspace. */
+  /**
+   * @description Registers a package and its pre-built graph into this workspace.
+   * @param {WorkspacePackage} pkg - Package metadata including name, root, and entry points.
+   * @param {Graph} graph - The fully-built dependency graph for this package.
+   */
   addPackage(pkg: WorkspacePackage, graph: Graph): void {
     this.packages.set(pkg.name, { graph, pkg });
   }
 
   /**
    * @description Returns the workspace package whose `relativeRoot` is a path prefix of `relPath`.
+   * @param {string} relPath - A monorepo-root-relative file path to look up.
+   * @returns {WorkspacePackage | undefined} The owning package, or `undefined` if none matches.
    */
   getPackageForFile(relPath: string): WorkspacePackage | undefined {
     for (const { pkg } of this.packages.values()) {
@@ -45,6 +51,7 @@ export class WorkspaceGraph {
   /**
    * @description Returns a map of package-level dependencies derived from workspace import edges.
    *   Key: package name. Value: list of workspace package names it imports from.
+   * @returns {Map<string, string[]>} Map from package name to the list of workspace packages it depends on.
    */
   getPackageDependencies(): Map<string, string[]> {
     const deps = new Map<string, string[]>();
@@ -65,10 +72,10 @@ export class WorkspaceGraph {
   /**
    * @description Cross-package blast-radius analysis. Returns every file (with its package name)
    *   that could be affected if the given monorepo-root-relative path changes.
-   *
-   *   Step 1: traverse incoming edges within the owning package graph to find intra-package dependents.
-   *   Step 2: for each other package that has workspace edges pointing to the owner, surface the
-   *   files in that package that hold those edges (the cross-package entry points).
+   *   Step 1: traverses incoming edges within the owning package graph for intra-package dependents.
+   *   Step 2: surfaces files in other packages that hold workspace import edges pointing at the owner.
+   * @param {string} relPath - Monorepo-root-relative path of the changed file.
+   * @returns {Array<{ file: string; package: string }>} Each affected file paired with its package name.
    */
   getAffectedAcrossPackages(relPath: string): Array<{ file: string; package: string }> {
     const ownerPkg = this.getPackageForFile(relPath);
@@ -103,7 +110,11 @@ export class WorkspaceGraph {
     return result;
   }
 
-  /** @description Serializes the workspace graph to a plain JSON-safe object. `root` is omitted from package entries as it is not needed after build time. */
+  /**
+   * @description Serializes the workspace graph to a plain JSON-safe object.
+   *   `root` is omitted from package entries as it is not needed after build time.
+   * @returns {SerializedWorkspaceGraph} A JSON-serializable snapshot of the workspace graph.
+   */
   serialize(): SerializedWorkspaceGraph {
     return {
       monorepoRoot: this.monorepoRoot,
@@ -119,7 +130,12 @@ export class WorkspaceGraph {
     };
   }
 
-  /** @description Reconstructs a `WorkspaceGraph` from a serialized snapshot. The `root` field on each package is set to an empty string — it is not persisted and not needed for graph traversal. */
+  /**
+   * @description Reconstructs a `WorkspaceGraph` from a serialized snapshot.
+   *   The `root` field on each package is set to an empty string — it is not persisted and not needed for graph traversal.
+   * @param {SerializedWorkspaceGraph} data - The plain object produced by `serialize`.
+   * @returns {WorkspaceGraph} A fully functional `WorkspaceGraph` instance.
+   */
   static deserialize(data: SerializedWorkspaceGraph): WorkspaceGraph {
     const wg = new WorkspaceGraph(data.monorepoRoot, data.type);
     for (const { pkg, nodes } of data.packages) {

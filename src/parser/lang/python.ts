@@ -9,6 +9,9 @@ const TEST_LIBS = new Set(["pytest", "unittest", "nose", "hypothesis"]);
 /**
  * @description Parses a Python source file using the Lezer parser to extract import edges,
  *   top-level definitions as exports, `# @tag` comment markers, and file category.
+ * @param {string} filePath - Path to the `.py` file; used for test-file classification by basename convention.
+ * @param {string} content - Raw Python source text.
+ * @returns {ParseResult} Parsed imports, top-level exports, comment-marker tags, and resolved category.
  */
 export function parsePython(filePath: string, content: string): ParseResult {
   const imports: ImportEdge[] = [];
@@ -60,6 +63,14 @@ export function parsePython(filePath: string, content: string): ParseResult {
 
 // ─── import edge extraction ───────────────────────────────────────────────────
 
+/**
+ * @description Dispatches a single Lezer `ImportStatement` node to the appropriate extractor
+ *   based on whether it begins with `from` (from-import form) or not (bare import form).
+ * @param {SyntaxNode} node - The `ImportStatement` AST node to process.
+ * @param {string} src - Full source text, used to slice node ranges into strings.
+ * @param {string} filePath - Source file path stamped onto each emitted edge.
+ * @returns {ImportEdge[]} One or more import edges extracted from the statement.
+ */
 function extractImportEdges(node: SyntaxNode, src: string, filePath: string): ImportEdge[] {
   const first = node.firstChild;
   if (!first) return [];
@@ -178,6 +189,14 @@ function makeEdge(filePath: string, rawSpecifier: string, symbols: string[]): Im
   };
 }
 
+/**
+ * @description Classifies a Python file as `"test"`, `"config"`, or `"logic"` based on
+ *   its basename convention, imports from known test libraries, and explicit `@tag test` markers.
+ * @param {string} baseName - Lowercase basename of the file, e.g. `"test_auth.py"`.
+ * @param {ImportEdge[]} imports - Resolved import edges used to detect test-library usage.
+ * @param {Set<string>} tags - Tag names extracted from comments.
+ * @returns {"test" | "config" | "logic"} The resolved category for this file.
+ */
 function resolveCategory(
   baseName: string,
   imports: ImportEdge[],
