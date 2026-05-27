@@ -5,6 +5,7 @@ import { getTestFiles, resolveChangedFiles } from "./utils";
 /**
  * @description Resolves git-changed files, builds a minimal test-file graph if the current
  *   graph is empty, then prints inferred test tags as JSON or space-separated plain text.
+ * @param {CommandContext} ctx - Shared command context; `ctx.plain` switches output format to space-separated text.
  */
 export async function run(ctx: CommandContext): Promise<void> {
   let { graph } = ctx;

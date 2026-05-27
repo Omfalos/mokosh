@@ -4,6 +4,7 @@ import type { CommandContext } from "./types";
 /**
  * @description Builds the full dependency graph if it is empty, detects feature-hub nodes
  *   (files with high out-degree) sorted by importance, and prints them as JSON.
+ * @param {CommandContext} ctx - Shared command context; `ctx.featureThreshold` overrides the default min-out-degree.
  */
 export async function run(ctx: CommandContext): Promise<void> {
   let { graph } = ctx;

@@ -5,6 +5,7 @@ import { getTestFiles, resolveChangedFiles } from "./utils";
 /**
  * @description Resolves git-changed files, lazily enriches the dependency graph with test
  *   nodes if none are present, then prints every test file affected by those changes to stdout.
+ * @param {CommandContext} ctx - Shared command context; `ctx.featureThreshold` tunes feature-hub detection.
  */
 export async function run(ctx: CommandContext): Promise<void> {
   let { graph } = ctx;

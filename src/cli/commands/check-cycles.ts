@@ -3,6 +3,7 @@ import type { CommandContext } from "./types";
 /**
  * @description Scans the dependency graph for circular imports. Prints each cycle to stderr
  *   and exits with code 1 if any are found; otherwise confirms a clean graph to stdout.
+ * @param {CommandContext} ctx - Shared command context carrying the built graph.
  */
 export async function run(ctx: CommandContext): Promise<void> {
   const { graph } = ctx;

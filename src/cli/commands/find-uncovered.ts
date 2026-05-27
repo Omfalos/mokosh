@@ -5,7 +5,7 @@ import type { CommandContext } from "./types";
  *   The threshold is resolved in priority order: `--feature-threshold` CLI flag →
  *   `coverageThreshold` in `mokosh.config.*` → 80.
  *   Coverage data must have been loaded during the graph build via `coverageReportPath` in config.
- * @param ctx - Shared command context; `ctx.rawConfig.coverageThreshold` is the config-level default.
+ * @param {CommandContext} ctx - Shared command context; `ctx.rawConfig.coverageThreshold` is the config-level default.
  */
 export async function run(ctx: CommandContext): Promise<void> {
   const { graph, featureThreshold, rawConfig, plain } = ctx;

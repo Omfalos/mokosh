@@ -6,8 +6,8 @@ const TEST_PATTERNS = [".test.", ".spec.", "-test.", "-spec."];
 /**
  * @description Filters a file list to only those whose basename matches a known test-file
  *   naming pattern (.test., .spec., -test., -spec.).
- * @param allFiles - Full list of project file paths to filter.
- * @returns The subset of paths whose basename identifies them as test files.
+ * @param {string[]} allFiles - Full list of project file paths to filter.
+ * @returns {string[]} The subset of paths whose basename identifies them as test files.
  */
 export function getTestFiles(allFiles: string[]): string[] {
   return allFiles.filter((f) => {
@@ -19,8 +19,8 @@ export function getTestFiles(allFiles: string[]): string[] {
 /**
  * @description Fetches files from the current git diff and returns them as paths relative
  *   to rootDir, normalised to the same format used throughout the graph.
- * @param rootDir - Absolute path to the project root, used as the base for relative path computation.
- * @returns Paths of git-changed files relative to rootDir.
+ * @param {string} rootDir - Absolute path to the project root, used as the base for relative path computation.
+ * @returns {string[]} Paths of git-changed files relative to rootDir.
  */
 export function resolveChangedFiles(rootDir: string): string[] {
   return new DefaultGitProvider().getChangedFiles().map((f) => path.relative(rootDir, path.resolve(rootDir, f)));

@@ -1,4 +1,5 @@
 import path from "node:path";
+import { DEFAULT_CACHE_DIR, DEFAULT_CACHE_FILE, Flag } from "./const";
 
 export interface ParsedArgs {
   rootDir: string;
@@ -31,7 +32,7 @@ export interface ParsedArgs {
  */
 function resolveRootDir(argv: string[]): string {
   for (let i = 0; i < argv.length; i++) {
-    if (argv[i] === "--root" && argv[i + 1]) {
+    if (argv[i] === Flag.Root && argv[i + 1]) {
       return path.resolve(argv[i + 1]!);
     }
   }
@@ -47,7 +48,7 @@ function resolveRootDir(argv: string[]): string {
  */
 export function parseArgs(argv: string[]): ParsedArgs {
   const rootDir = resolveRootDir(argv);
-  const defaultCachePath = path.join(path.resolve(rootDir, "mokosh-cache"), "graph.json");
+  const defaultCachePath = path.join(path.resolve(rootDir, DEFAULT_CACHE_DIR), DEFAULT_CACHE_FILE);
 
   const result: ParsedArgs = {
     rootDir,
@@ -69,7 +70,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     query: undefined,
     queryHelp: false,
     entryPoints: [],
-    help: argv.length === 0 || argv.includes("--help"),
+    help: argv.length === 0 || argv.includes(Flag.Help),
   };
 
   for (let i = 0; i < argv.length; i++) {
@@ -77,73 +78,73 @@ export function parseArgs(argv: string[]): ParsedArgs {
     const next = argv[i + 1];
 
     switch (arg) {
-      case "--root":
+      case Flag.Root:
         i++;
         break;
-      case "--cache":
+      case Flag.Cache:
         if (next && !next.startsWith("--")) {
           result.cachePath = path.resolve(rootDir, next);
           i++;
         }
         break;
-      case "--config":
+      case Flag.Config:
         if (next) {
           result.configPath = path.resolve(rootDir, next);
           i++;
         }
         break;
-      case "--query":
+      case Flag.Query:
         if (next) {
           result.query = next;
           i++;
         }
         break;
-      case "--feature-threshold":
+      case Flag.FeatureThreshold:
         if (next) {
           result.featureThreshold = parseInt(next, 10);
           i++;
         }
         break;
-      case "--mermaid":
+      case Flag.Mermaid:
         result.mermaid = true;
         break;
-      case "--propose-tags":
+      case Flag.ProposeTags:
         result.proposeTags = true;
         break;
-      case "--plain":
+      case Flag.Plain:
         result.plain = true;
         break;
-      case "--affected-tests":
+      case Flag.AffectedTests:
         result.affectedTests = true;
         break;
-      case "--detect-features":
+      case Flag.DetectFeatures:
         result.detectFeatures = true;
         break;
-      case "--find-unused":
+      case Flag.FindUnused:
         result.findUnused = true;
         break;
-      case "--exclude-tests":
+      case Flag.ExcludeTests:
         result.excludeTests = true;
         break;
-      case "--check-cycles":
+      case Flag.CheckCycles:
         result.checkCycles = true;
         break;
-      case "--find-uncovered":
+      case Flag.FindUncovered:
         result.findUncovered = true;
         break;
-      case "--callers":
+      case Flag.Callers:
         result.callers = true;
         break;
-      case "--file":
+      case Flag.File:
         if (next) {
           result.file = next;
           i++;
         }
         break;
-      case "--silent":
+      case Flag.Silent:
         result.silent = true;
         break;
-      case "--query-help":
+      case Flag.QueryHelp:
         result.queryHelp = true;
         break;
       default:
