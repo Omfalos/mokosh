@@ -3,18 +3,23 @@ import type { CallEdge, FileNode } from "../types/node";
 import { GraphAnalyzer } from "./analyzer";
 
 /**
- * Represents the dependency graph of the project.
+ * @description Represents the dependency graph of the project.
+ *   Wraps the raw node map with traversal, cycle detection, serialization, and
+ *   reverse-index helpers. All node paths are project-relative strings.
  */
 export class Graph {
   private _incomingEdgesCache: Map<string, string[]> | null = null;
   private _callIncomingCache: Map<string, string[]> | null = null;
 
+  /**
+   * @param {Map<string, FileNode>} nodes - All parsed file nodes, keyed by project-relative path.
+   */
   constructor(public nodes: Map<string, FileNode>) {}
 
   /**
    * @description Serializes the graph into a plain JSON-compatible object
    *   that can be written to disk and later restored via `deserialize`.
-   * @returns A flat representation of all nodes in the graph.
+   * @returns {SerializedGraph} A flat representation of all nodes in the graph.
    */
   public serialize(): SerializedGraph {
     return {
@@ -25,8 +30,8 @@ export class Graph {
   /**
    * @description Reconstructs a Graph from a serialized snapshot, rebuilding
    *   the internal node map keyed by file path.
-   * @param serialized - The plain object produced by `serialize`.
-   * @returns A fully functional Graph instance.
+   * @param {SerializedGraph} serialized - The plain object produced by `serialize`.
+   * @returns {Graph} A fully functional Graph instance.
    */
   public static deserialize(serialized: SerializedGraph): Graph {
     const nodes = new Map<string, FileNode>();
@@ -39,7 +44,7 @@ export class Graph {
   /**
    * @description Lazily builds and caches a reverse index mapping each file path
    *   to the list of files that import it. Used internally for incoming traversal.
-   * @returns Map from target file path to list of importer file paths.
+   * @returns {Map<string, string[]>} Map from target file path to list of importer file paths.
    */
   private getIncomingEdgesMap(): Map<string, string[]> {
     if (this._incomingEdgesCache) return this._incomingEdgesCache;
@@ -112,6 +117,7 @@ export class Graph {
    * @description Builds and caches a reverse index of call edges: target file path → list of
    *   source file paths whose exported functions call into it. Computed lazily on first access
    *   and reused for the lifetime of this Graph instance.
+   * @returns {Map<string, string[]>} Map from target file path to list of source file paths that call into it.
    */
   private getCallIncomingCache(): Map<string, string[]> {
     if (this._callIncomingCache) return this._callIncomingCache;

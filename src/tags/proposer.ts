@@ -3,6 +3,7 @@ import type { Graph } from "../graph/model";
 import type { ExportedSymbol, FileNode, ImportEdge } from "../types/node";
 import { DefaultTestNodeIdentifier, type TestNodeIdentifier } from "./identifier";
 
+/** @description Options for `proposeTags` and `proposeAffectedTests`, allowing callers to override the test-node identifier and feature-detection behaviour. */
 export interface ProposeTagsOptions {
   identifier?: TestNodeIdentifier;
   featureDetection?: FeatureDetectionOptions | false;
@@ -13,9 +14,9 @@ export interface ProposeTagsOptions {
  *
  * The feature map is computed once here so traversal can do O(1) hub lookups
  * rather than re-running detection on every visited node.
- * @param graph - The full project dependency graph, needed to run feature detection.
- * @param options - Optional identifier and feature-detection overrides.
- * @returns Concrete identifier and pre-computed feature map ready for traversal.
+ * @param {Graph} graph - The full project dependency graph, needed to run feature detection.
+ * @param {ProposeTagsOptions} [options] - Optional identifier and feature-detection overrides.
+ * @returns {{ identifier: TestNodeIdentifier; featureMap: Map<string, FeatureInfo> }} Concrete identifier and pre-computed feature map ready for traversal.
  */
 function resolveOptions(
   graph: Graph,
@@ -37,11 +38,11 @@ function resolveOptions(
  * - If the node is a feature hub (and not the start node), `onFeatureHub` is
  *   called and that branch is pruned — preventing traversal explosions.
  * - Otherwise `onNode` is called so callers can decide what to collect.
- * @param graph - The full project dependency graph.
- * @param changedFiles - Relative paths of files that were modified.
- * @param featureMap - Pre-computed map of path → feature hub info.
- * @param onFeatureHub - Called when a feature hub is encountered; return signals pruning.
- * @param onNode - Called for every non-hub reachable node that passes the symbol check.
+ * @param {Graph} graph - The full project dependency graph.
+ * @param {string[]} changedFiles - Relative paths of files that were modified.
+ * @param {Map<string, FeatureInfo>} featureMap - Pre-computed map of path → feature hub info.
+ * @param {(feature: FeatureInfo) => void} onFeatureHub - Called when a feature hub is encountered; return signals pruning.
+ * @param {(node: FileNode) => void} onNode - Called for every non-hub reachable node that passes the symbol check.
  */
 function traverseAffected(
   graph: Graph,
@@ -86,10 +87,10 @@ function traverseAffected(
  * that can reach the changed file contribute their tags. Feature hubs act as
  * boundaries: the hub's tag is emitted and traversal stops there, preventing
  * combinatorial blowup in large graphs.
- * @param graph - The full project dependency graph.
- * @param changedFiles - Relative paths of files that were modified (e.g. from git diff).
- * @param options - Optional: custom test identifier and feature-detection settings.
- * @returns Deduplicated list of tag strings to pass to `vitest --grep`.
+ * @param {Graph} graph - The full project dependency graph.
+ * @param {string[]} changedFiles - Relative paths of files that were modified (e.g. from git diff).
+ * @param {ProposeTagsOptions} [options] - Optional: custom test identifier and feature-detection settings.
+ * @returns {string[]} Deduplicated list of tag strings to pass to `vitest --grep`.
  */
 export function proposeTags(
   graph: Graph,
@@ -131,10 +132,10 @@ export function proposeTags(
  *
  * The output is a plain list of relative paths suitable for piping directly
  * into Vitest: `vitest $(mokosh --affected-tests)`.
- * @param graph - The full project dependency graph.
- * @param changedFiles - Relative paths of files that were modified (e.g. from git diff).
- * @param options - Optional: custom test identifier and feature-detection settings.
- * @returns Deduplicated list of relative test file paths.
+ * @param {Graph} graph - The full project dependency graph.
+ * @param {string[]} changedFiles - Relative paths of files that were modified (e.g. from git diff).
+ * @param {ProposeTagsOptions} [options] - Optional: custom test identifier and feature-detection settings.
+ * @returns {string[]} Deduplicated list of relative test file paths.
  */
 export function proposeAffectedTests(
   graph: Graph,
@@ -170,8 +171,8 @@ class TagProposalContext {
   private affectedSymbols = new Map<string, Set<string>>();
 
   /**
-   * @param startPath - Relative path of the changed file; seeded with all its exports as affected.
-   * @param exports - Exported symbols of the changed file, used to initialise the affected set.
+   * @param {string} startPath - Relative path of the changed file; seeded with all its exports as affected.
+   * @param {ExportedSymbol[]} exports - Exported symbols of the changed file, used to initialise the affected set.
    */
   constructor(startPath: string, exports: ExportedSymbol[]) {
     this.affectedSymbols.set(startPath, new Set(["*", "default", ...exports.map((e) => e.name)]));
@@ -183,9 +184,9 @@ class TagProposalContext {
    *
    * Both roles live in one method to avoid a second pass over the import edges — the check
    * and the update read the same edge, so splitting them would duplicate work.
-   * @param visitedNode - The node currently being evaluated; its imports are inspected.
-   * @param childPath - The path it was reached from; used to look up the current affected symbols.
-   * @returns `true` if at least one imported symbol is affected and traversal should continue; `false` to prune.
+   * @param {{ path: string; imports: ImportEdge[] }} visitedNode - The node currently being evaluated; its imports are inspected.
+   * @param {string} childPath - The path it was reached from; used to look up the current affected symbols.
+   * @returns {boolean} `true` if at least one imported symbol is affected and traversal should continue; `false` to prune.
    */
   public updateAffectedSymbols(
     visitedNode: { path: string; imports: ImportEdge[] },

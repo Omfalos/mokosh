@@ -2,6 +2,7 @@ import type { FileNode } from "../types/node";
 import { Graph } from "./model";
 import type { WorkspacePackage } from "./workspace";
 
+/** @description JSON-safe snapshot of a `WorkspaceGraph`, suitable for writing to disk and restoring via `WorkspaceGraph.deserialize`. */
 export interface SerializedWorkspaceGraph {
   monorepoRoot: string;
   type: string;
@@ -20,6 +21,10 @@ export interface SerializedWorkspaceGraph {
 export class WorkspaceGraph {
   readonly packages: Map<string, { graph: Graph; pkg: WorkspacePackage }> = new Map();
 
+  /**
+   * @param {string} monorepoRoot - Absolute path to the monorepo root directory.
+   * @param {string} type - Primary detected monorepo tool (e.g. `"turborepo"`, `"pnpm"`), or `"none"`.
+   */
   constructor(
     readonly monorepoRoot: string,
     readonly type: string,

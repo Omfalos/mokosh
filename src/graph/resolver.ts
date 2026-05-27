@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
+/** @description The result of resolving a single import specifier to a concrete file path. */
 export interface ResolvedImport {
   path: string;
   isExternal: boolean;
@@ -25,6 +26,7 @@ export interface PathResolver {
   resolve(currentFile: string, specifier: string): ResolvedImport | null;
 }
 
+/** @description Configuration options for `DefaultResolver`, used to support monorepo and alias-aware resolution. */
 export interface ResolverOptions {
   /**
    * Maps workspace package names to their absolute root directories.

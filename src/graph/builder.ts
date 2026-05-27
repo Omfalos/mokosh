@@ -99,6 +99,11 @@ export class GraphBuilder {
     return new Graph(this.graph.nodes);
   }
 
+  /**
+   * @description Scans the file system for test files and processes them into the graph.
+   *   Test files are never reachable from library entry points, so they must be discovered
+   *   separately; without this pass `enrichTestedBy` would have no data to work with.
+   */
   private async processTestFiles(): Promise<void> {
     const patterns = getTestPatterns();
     const ignoreDirs = new Set([

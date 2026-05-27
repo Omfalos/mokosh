@@ -6,6 +6,9 @@ import type { FileNode } from "../types/node";
  *   without the full traversal infrastructure.
  */
 export class GraphAnalyzer {
+  /**
+   * @param {Map<string, FileNode>} nodes - The full node map of the graph to analyze, keyed by project-relative file path.
+   */
   constructor(private nodes: Map<string, FileNode>) {}
 
   /**
@@ -23,8 +26,8 @@ export class GraphAnalyzer {
    * @description Returns files whose highest single-edge export usage ratio meets or exceeds
    *   `threshold`, sorted descending by `maxExportUsage`. Useful for identifying files
    *   that consume a large fraction of one dependency's API surface.
-   * @param threshold - Minimum `maxExportUsage` value (0–1) for a file to be included.
-   * @returns Array of `{ path, maxExportUsage, tightestDep }` entries, sorted descending.
+   * @param {number} threshold - Minimum `maxExportUsage` value (0–1) for a file to be included.
+   * @returns {Array<{ path: string; maxExportUsage: number; tightestDep: string }>} Entries sorted descending by `maxExportUsage`.
    */
   public findHighExportUsage(
     threshold: number,

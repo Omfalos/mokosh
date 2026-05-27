@@ -6,8 +6,8 @@ import type { StructuredTag } from "../types/node";
 export interface TestNodeIdentifier {
   /**
    * @description Returns whether the given node should be treated as a test node.
-   * @param node - A minimal node descriptor containing its category and structured tags.
-   * @returns `true` if the node is a test file.
+   * @param {{ category: string; tags: StructuredTag[] }} node - A minimal node descriptor containing its category and structured tags.
+   * @returns {boolean} `true` if the node is a test file.
    */
   isTestNode(node: { category: string; tags: StructuredTag[] }): boolean;
 }
@@ -19,8 +19,8 @@ export interface TestNodeIdentifier {
 export class DefaultTestNodeIdentifier implements TestNodeIdentifier {
   /**
    * @description Checks the node's category and tag list to determine if it is a test node.
-   * @param node - A minimal node descriptor containing its category and structured tags.
-   * @returns `true` if the category is `"test"` or any tag is named `"test"`.
+   * @param {{ category: string; tags: StructuredTag[] }} node - A minimal node descriptor containing its category and structured tags.
+   * @returns {boolean} `true` if the category is `"test"` or any tag is named `"test"`.
    */
   public isTestNode(node: { category: string; tags: StructuredTag[] }): boolean {
     return node.category === "test" || node.tags.some((t) => t.name === "test");
