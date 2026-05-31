@@ -25,6 +25,8 @@ npx mokosh [options] <entry-point1> <entry-point2> ...
 | `--feature-threshold <N>` | Minimum number of importers for a file to be considered a feature hub (default: `5`). Applies to `--detect-features`, `--propose-tags`, and `--affected-tests`. |
 | `--find-unused` | Scan the project for files not reachable from the provided entry points. |
 | `--exclude-tests` | Exclude test files from `--find-unused` output. |
+| `--find-uncovered` | List non-test files whose line coverage is below the threshold. Requires `coverageReportPath` in config. |
+| `--callers --file <path>` | Print files whose exported functions call into the given file (call-graph dependents). |
 | `--check-cycles` | Check for circular dependencies; exits non-zero if any are found (CI gate). |
 | `--query <query>` | Filter the output graph using a query string (e.g., `category:logic,tag:auth`). See the [Query Language Guide](./query.md). |
 | `--silent` | Suppress progress output on stderr. |
@@ -107,6 +109,8 @@ const graph = await createImportMap(process.cwd(), config.entryPoints ?? ['src/i
 | `testLibraries` | `string[]` | Extra import names that classify a file as `"test"` |
 | `barrelThreshold` | `number` | Export-ratio threshold for `"barrel"` detection (default `0.8`) |
 | `gitStats` | `boolean` | When `true`, enriches each cache-missed node with `commitCount90d` and `lastAuthor` via `git log`. Off by default. |
+| `coverageReportPath` | `string` | Path (relative to project root) to an Istanbul `coverage-summary.json`. When set, each node gets a `coveragePct` field. |
+| `coverageThreshold` | `number` | Line-coverage % below which `--find-uncovered` / `find_uncovered` flags a file. Default: `80`. |
 
 ### Extensibility
 
@@ -228,7 +232,52 @@ For custom integrations, use the exported functions and classes.
 ```typescript
 import { createImportMap } from 'mokosh';
 
-const graph = createImportMap(process.cwd(), ['src/index.ts']);
+const graph = await createImportMap(process.cwd(), ['src/index.ts']);
+```
+
+### Monorepo / Workspace Graph
+
+Use `createWorkspaceGraph` for monorepos. It auto-detects the workspace layout (Turborepo, Nx, pnpm, Yarn, npm) and builds one graph per package.
+
+```typescript
+import { createWorkspaceGraph } from 'mokosh';
+
+const ws = await createWorkspaceGraph(process.cwd());
+
+// List packages
+for (const [name, { graph, pkg }] of ws.packages) {
+  console.log(name, pkg.relativeRoot, graph.nodes.size, 'nodes');
+}
+
+// Cross-package blast radius
+const affected = ws.getAffectedAcrossPackages('packages/shared/src/utils.ts');
+for (const { file, package: pkg } of affected) {
+  console.log(`${pkg}: ${file}`);
+}
+
+// Limit to specific packages
+const partial = await createWorkspaceGraph(process.cwd(), {
+  packages: ['@myorg/api', '@myorg/shared'],
+});
+```
+
+See [Monorepo Support](./monorepo.md) for details.
+
+### Coverage-annotated Graph
+
+```typescript
+import { createImportMap, loadCoverageMap } from 'mokosh';
+
+const rootDir = process.cwd();
+const coverageMap = loadCoverageMap(rootDir, 'coverage/coverage-summary.json');
+const graph = await createImportMap(rootDir, ['src/index.ts'], null, { coverageMap });
+
+// Each node now has coveragePct
+for (const node of graph.nodes.values()) {
+  if ((node.coveragePct ?? 100) < 80) {
+    console.log(`Low coverage: ${node.path} (${node.coveragePct}%)`);
+  }
+}
 ```
 
 ### Serializing and Deserializing
