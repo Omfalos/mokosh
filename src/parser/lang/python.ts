@@ -47,6 +47,17 @@ export function parsePython(filePath: string, content: string): ParseResult {
         }
         break;
       }
+
+      case "AssignStatement": {
+        // Only top-level simple assignments: `MY_VAR = value`
+        if (cursor.node.parent?.name === "Script") {
+          const target = cursor.node.firstChild;
+          if (target?.name === "VariableName") {
+            exports.push({ name: content.slice(target.from, target.to) });
+          }
+        }
+        break;
+      }
     }
   } while (cursor.next());
 
@@ -105,7 +116,7 @@ function extractFromImport(node: SyntaxNode, src: string, filePath: string): Imp
   if (dotCount === 0) {
     // Absolute import: `from pathlib import Path`
     // Keep dotted module name as-is; resolver converts dots → path separators.
-    return [makeEdge(filePath, rawModule, importedNames)];
+    return [makeEdge(filePath, rawModule, importedNames, true)];
   }
 
   // n=1 → "./"  (current package)
@@ -117,14 +128,14 @@ function extractFromImport(node: SyntaxNode, src: string, filePath: string): Imp
     // `from . import utils, models` — each name is its own sub-module.
     // `from . import *`            — edge to the package init.
     if (importedNames[0] === "*") {
-      return [makeEdge(filePath, prefix.slice(0, -1), ["*"])];
+      return [makeEdge(filePath, prefix.slice(0, -1), ["*"], false)];
     }
-    return importedNames.map((name) => makeEdge(filePath, prefix + name, [name]));
+    return importedNames.map((name) => makeEdge(filePath, prefix + name, [name], false));
   }
 
   // `from .models import User` → "./models"
   // `from .models.user import X` → "./models/user"
-  return [makeEdge(filePath, prefix + modulePart.replace(/\./g, "/"), importedNames)];
+  return [makeEdge(filePath, prefix + modulePart.replace(/\./g, "/"), importedNames, false)];
 }
 
 /**
@@ -147,7 +158,7 @@ function extractBareImport(node: SyntaxNode, src: string, filePath: string): Imp
       if (c.nextSibling?.name === "as") {
         c = c.nextSibling.nextSibling ?? c.nextSibling;
       }
-      edges.push(makeEdge(filePath, modName, ["*"]));
+      edges.push(makeEdge(filePath, modName, ["*"], true));
     }
     c = c.nextSibling;
   }
@@ -178,12 +189,18 @@ function collectImportedNames(start: SyntaxNode | null, src: string): string[] {
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
-function makeEdge(filePath: string, rawSpecifier: string, symbols: string[]): ImportEdge {
+function makeEdge(
+  filePath: string,
+  rawSpecifier: string,
+  symbols: string[],
+  isExternal: boolean,
+): ImportEdge {
   return {
     fromPath: filePath,
     toPath: "",
     rawSpecifier,
     isStyle: false,
+    isExternal,
     type: "static",
     symbols: symbols.length > 0 ? symbols : undefined,
   };

@@ -10,6 +10,7 @@ export type FileType =
   | "lua"
   | "gherkin"
   | "python"
+  | "go"
   | "unknown";
 
 export type ImportType = "static" | "dynamic" | "require" | "re-export" | "side-effect";

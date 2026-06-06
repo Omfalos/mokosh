@@ -35,6 +35,8 @@ export function getFileType(filePath: string): FileType {
       return "lua";
     case ".py":
       return "python";
+    case ".go":
+      return "go";
     case ".java":
     case ".cpp":
     case ".cc":

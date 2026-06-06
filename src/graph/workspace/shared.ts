@@ -89,45 +89,111 @@ export function resolveGlobPatterns(root: string, patterns: string[]): Workspace
 
   for (const pattern of patterns) {
     const normalised = pattern.replace(/\/$/, "").replace(/^\.\//, "");
-
-    if (!normalised.includes("*")) {
-      const abs = path.join(root, normalised);
-      if (!seen.has(abs) && isDirectory(abs)) {
-        seen.add(abs);
-        const pkg = buildPackage(root, abs);
-        if (pkg) packages.push(pkg);
-      }
-      continue;
-    }
-
-    const segments = normalised.split("/");
-    const recursive = segments.includes("**");
-
-    if (recursive) {
-      const base = path.join(root, segments[0] === "**" ? "" : (segments[0] ?? ""));
-      walkRecursive(root, base, seen, packages);
-    } else {
-      const starIdx = segments.findIndex((s) => s.includes("*"));
-      const base = path.join(root, ...segments.slice(0, starIdx));
-      let entries: fs.Dirent[];
-      try {
-        entries = fs.readdirSync(base, { withFileTypes: true });
-      } catch {
-        continue;
-      }
-      for (const entry of entries) {
-        if (!entry.isDirectory()) continue;
-        const abs = path.join(base, entry.name);
-        if (!seen.has(abs)) {
-          seen.add(abs);
-          const pkg = buildPackage(root, abs);
-          if (pkg) packages.push(pkg);
-        }
-      }
-    }
+    resolvePattern(root, normalised, seen, packages);
   }
 
   return packages;
+}
+
+/**
+ * @description Dispatches a single normalised glob pattern to the appropriate resolver
+ *   based on whether it contains no wildcard, a `**` recursive glob, or a `*` shallow glob.
+ * @param {string} root - Absolute monorepo root used as the base for path resolution.
+ * @param {string} pattern - A single normalised pattern (trailing slash and leading `./` already stripped).
+ * @param {Set<string>} seen - Set of already-visited absolute paths; updated in place to prevent duplicates.
+ * @param {WorkspacePackage[]} packages - Accumulator array that receives discovered packages.
+ */
+function resolvePattern(
+  root: string,
+  pattern: string,
+  seen: Set<string>,
+  packages: WorkspacePackage[],
+): void {
+  if (!pattern.includes("*")) {
+    resolveLiteralPattern(root, pattern, seen, packages);
+    return;
+  }
+
+  const segments = pattern.split("/");
+
+  if (segments.includes("**")) {
+    resolveRecursivePattern(root, segments, seen, packages);
+  } else {
+    resolveShallowPattern(root, segments, seen, packages);
+  }
+}
+
+/**
+ * @description Resolves a pattern with no wildcards as a literal directory path relative to `root`.
+ *   Adds a `WorkspacePackage` if the directory exists and has not been visited before.
+ * @param {string} root - Absolute monorepo root used to join the literal path and compute `relativeRoot`.
+ * @param {string} pattern - A literal (non-glob) relative path, e.g. `"packages/core"`.
+ * @param {Set<string>} seen - Set of already-visited absolute paths; updated in place to prevent duplicates.
+ * @param {WorkspacePackage[]} packages - Accumulator array that receives discovered packages.
+ */
+function resolveLiteralPattern(
+  root: string,
+  pattern: string,
+  seen: Set<string>,
+  packages: WorkspacePackage[],
+): void {
+  const abs = path.join(root, pattern);
+  if (seen.has(abs) || !isDirectory(abs)) return;
+  seen.add(abs);
+  const pkg = buildPackage(root, abs);
+  if (pkg) packages.push(pkg);
+}
+
+/**
+ * @description Resolves a `**` glob by walking all subdirectories under the base segment recursively.
+ *   If the pattern starts with `**` itself the walk begins at `root`; otherwise at the first segment.
+ * @param {string} root - Absolute monorepo root passed through to `walkRecursive` for `relativeRoot` computation.
+ * @param {string[]} segments - Path segments of the pattern split on `/`, must contain `"**"`.
+ * @param {Set<string>} seen - Set of already-visited absolute paths; updated in place to prevent duplicates.
+ * @param {WorkspacePackage[]} packages - Accumulator array that receives discovered packages.
+ */
+function resolveRecursivePattern(
+  root: string,
+  segments: string[],
+  seen: Set<string>,
+  packages: WorkspacePackage[],
+): void {
+  const base = path.join(root, segments[0] === "**" ? "" : (segments[0] ?? ""));
+  walkRecursive(root, base, seen, packages);
+}
+
+/**
+ * @description Resolves a single-`*` glob by listing every immediate subdirectory of the base path.
+ *   The base is everything before the first segment containing `*`, e.g. `packages` for `packages/*`.
+ * @param {string} root - Absolute monorepo root used to join path segments and compute `relativeRoot`.
+ * @param {string[]} segments - Path segments of the pattern split on `/`, must contain a `*` (but not `**`).
+ * @param {Set<string>} seen - Set of already-visited absolute paths; updated in place to prevent duplicates.
+ * @param {WorkspacePackage[]} packages - Accumulator array that receives discovered packages.
+ */
+function resolveShallowPattern(
+  root: string,
+  segments: string[],
+  seen: Set<string>,
+  packages: WorkspacePackage[],
+): void {
+  const starIdx = segments.findIndex((s) => s.includes("*"));
+  const base = path.join(root, ...segments.slice(0, starIdx));
+
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(base, { withFileTypes: true });
+  } catch {
+    return;
+  }
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const abs = path.join(base, entry.name);
+    if (seen.has(abs)) continue;
+    seen.add(abs);
+    const pkg = buildPackage(root, abs);
+    if (pkg) packages.push(pkg);
+  }
 }
 
 /**

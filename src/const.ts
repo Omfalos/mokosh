@@ -25,6 +25,7 @@ export const DEFAULT_EXTENSIONS: readonly string[] = [
   ".ls",
   ".lua",
   ".py",
+  ".go",
   ".feature",
 ];
 

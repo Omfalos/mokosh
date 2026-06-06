@@ -96,6 +96,17 @@ describe("relative imports", () => {
     const { imports } = parsePython("a.py", "from ..utils import helper");
     expect(imports[0]).toMatchObject({ rawSpecifier: "../utils", symbols: ["helper"] });
   });
+
+  test("from ...grandparent import name → specifier is ../../name", () => {
+    const { imports } = parsePython("a.py", "from ...core import base");
+    expect(imports[0]).toMatchObject({ rawSpecifier: "../../core", symbols: ["base"] });
+  });
+
+  test("from . import * → single edge to package init with symbol *", () => {
+    const { imports } = parsePython("a.py", "from . import *");
+    expect(imports).toHaveLength(1);
+    expect(imports[0]).toMatchObject({ rawSpecifier: ".", symbols: ["*"] });
+  });
 });
 
 // ─── comment handling ─────────────────────────────────────────────────────────
@@ -220,6 +231,32 @@ describe("category: logic", () => {
   });
 });
 
+// ─── exports (top-level variables) ───────────────────────────────────────────
+
+describe("exports: top-level variables", () => {
+  test("top-level assignment → exported symbol", () => {
+    const { exports } = parsePython("a.py", "MY_VAR = 42");
+    expect(exports).toContainEqual({ name: "MY_VAR" });
+  });
+
+  test("__all__ assignment → exported symbol", () => {
+    const { exports } = parsePython("a.py", '__all__ = ["foo", "bar"]');
+    expect(exports).toContainEqual({ name: "__all__" });
+  });
+
+  test("indented assignment (inside function) → not exported", () => {
+    const src = "def setup():\n    config = {}";
+    const { exports } = parsePython("a.py", src);
+    expect(exports.map((e) => e.name)).not.toContain("config");
+  });
+
+  test("mixed defs and variables all exported", () => {
+    const src = "VERSION = '1.0'\ndef get_version(): pass\nclass App: pass";
+    const { exports } = parsePython("a.py", src);
+    expect(exports.map((e) => e.name)).toEqual(["VERSION", "get_version", "App"]);
+  });
+});
+
 // ─── edge metadata ────────────────────────────────────────────────────────────
 
 describe("edge metadata", () => {
@@ -236,5 +273,15 @@ describe("edge metadata", () => {
   test("fromPath matches the provided filePath", () => {
     const { imports } = parsePython("/app/src/auth.py", "import os");
     expect(imports[0]?.fromPath).toBe("/app/src/auth.py");
+  });
+
+  test("absolute imports are marked external", () => {
+    const { imports } = parsePython("a.py", "import os\nfrom pathlib import Path");
+    expect(imports.every((i) => i.isExternal === true)).toBe(true);
+  });
+
+  test("relative imports are marked not external", () => {
+    const { imports } = parsePython("a.py", "from . import utils\nfrom ..models import User");
+    expect(imports.every((i) => i.isExternal === false)).toBe(true);
   });
 });

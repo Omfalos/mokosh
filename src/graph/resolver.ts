@@ -1,5 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
+import {
+  type LangResolver,
+  GoLangResolver,
+  LuaLangResolver,
+  PythonLangResolver,
+} from "./lang-resolvers/index";
 
 /** @description The result of resolving a single import specifier to a concrete file path. */
 export interface ResolvedImport {
@@ -40,6 +46,11 @@ export interface ResolverOptions {
    * `[packageRoot, monorepoRoot]` so per-package aliases take precedence.
    */
   tsconfigSearchPaths?: string[];
+  /**
+   * Language-specific resolvers that handle bare (non-relative) specifiers before
+   * falling through to the external-module default. Defaults to Python, Lua, and Go resolvers.
+   */
+  langResolvers?: LangResolver[];
 }
 
 /**
@@ -49,11 +60,12 @@ export interface ResolverOptions {
 export class DefaultResolver implements PathResolver {
   private readonly workspaceMap: Map<string, string>;
   private readonly tsconfigSearchPaths: string[];
+  private readonly langResolvers: LangResolver[];
 
   /**
    * @param rootDir - Absolute path to the project root, used as the boundary for
    *   deciding whether a resolved path is internal or external.
-   * @param options - Optional workspace map and tsconfig search paths for monorepo builds.
+   * @param options - Optional workspace map, tsconfig search paths, and lang resolvers.
    */
   constructor(
     private rootDir: string,
@@ -61,6 +73,12 @@ export class DefaultResolver implements PathResolver {
   ) {
     this.workspaceMap = options.workspaceMap ?? new Map();
     this.tsconfigSearchPaths = options.tsconfigSearchPaths ?? [rootDir];
+    this.langResolvers =
+      options.langResolvers ?? [
+        new PythonLangResolver(),
+        new LuaLangResolver(),
+        new GoLangResolver(),
+      ];
   }
 
   /**
@@ -80,31 +98,20 @@ export class DefaultResolver implements PathResolver {
       return this.resolveLocalPath(currentFile, specifier);
     }
 
-    // 3. Lua-specific resolution: Try converting dots to path separators
-    if (currentFile.endsWith(".lua") && !specifier.startsWith(".") && !specifier.startsWith("/")) {
-      const luaSpecifier = specifier.replace(/\./g, path.sep);
-      // We try resolving relative to root and specifically "lib" if it exists,
-      // as many Lua projects use a lib/ folder.
-      const pathsToTry = [this.rootDir, path.join(this.rootDir, "lib")];
-
-      for (const baseDir of pathsToTry) {
-        if (!fs.existsSync(baseDir)) continue;
-        const resolved = this.resolveLocalPath(path.join(baseDir, "dummy.lua"), luaSpecifier);
-        if (resolved) return resolved;
+    // 3. Language-specific resolution (Python, Lua, Go, …)
+    const resolveLocal = (cf: string, spec: string) => this.resolveLocalPath(cf, spec);
+    for (const lr of this.langResolvers) {
+      if (lr.extensions.some((ext) => currentFile.endsWith(ext))) {
+        const local = lr.resolve(currentFile, specifier, this.rootDir, resolveLocal);
+        if (local) return local;
       }
     }
 
-    // 4. Python bare module names: try local .py files before marking external
-    if (currentFile.endsWith(".py")) {
-      const local = this.resolvePythonBareImport(specifier);
-      if (local) return local;
-    }
-
-    // 5. Workspace package resolution — check before falling through to external
+    // 4. Workspace package resolution — check before falling through to external
     const workspace = this.resolveWorkspaceImport(specifier);
     if (workspace) return workspace;
 
-    // 6. Non-relative, non-absolute import (likely a node_module or built-in)
+    // 5. Non-relative, non-absolute import (likely a node_module or built-in)
     return { path: specifier, isExternal: true };
   }
 
@@ -336,29 +343,4 @@ export class DefaultResolver implements PathResolver {
     return null;
   }
 
-  /**
-   * @description Tries to resolve a bare Python module name (e.g. `mymodule` or `mypackage.sub`)
-   *   to a local `.py` file or package `__init__.py` inside the project root.
-   *   Dots in the specifier are treated as path separators. Returns `null` if no local file is
-   *   found — the caller then falls through to marking the import as external.
-   * @param {string} specifier - The bare module name as it appears in the source (e.g. `"os.path"`).
-   * @returns {ResolvedImport | null} Resolved local file path, or `null` if no match is found.
-   */
-  private resolvePythonBareImport(specifier: string): ResolvedImport | null {
-    const pyPath = specifier.replace(/\./g, path.sep);
-
-    // Try as a .py file or package (__init__.py) relative to the project root.
-    for (const base of [this.rootDir]) {
-      const pyFile = path.join(base, pyPath + ".py");
-      if (this.isFile(pyFile)) {
-        return { path: pyFile, isExternal: false };
-      }
-      const initFile = path.join(base, pyPath, "__init__.py");
-      if (this.isFile(initFile)) {
-        return { path: initFile, isExternal: false };
-      }
-    }
-
-    return null;
-  }
 }

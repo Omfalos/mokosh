@@ -1,27 +1,34 @@
 import { getFileType } from "./parser/file-type";
 import { parseCoffeeScript } from "./parser/lang/coffee";
 import { parseGherkin } from "./parser/lang/gherkin";
+import { parseGo } from "./parser/lang/go";
 import { parseLiveScript } from "./parser/lang/ls";
 import { parseLua } from "./parser/lang/lua";
 import { parsePython } from "./parser/lang/python";
 import { parseCodeFile } from "./parser/lang/typescript";
 import { getParserForType, registerParser } from "./parser/registry";
+import type { ParserFunction } from "./parser/registry";
 import { parseStyleFile } from "./parser/style";
 import type { ParseResult } from "./parser/types";
+import type { FileType } from "./types/parse";
 import type { ImportEdge } from "./types/node";
 
-// Register default parsers
-registerParser("javascript", (path, content) => parseCodeFile(path, content, "javascript"));
-registerParser("typescript", (path, content) => parseCodeFile(path, content, "typescript"));
-registerParser("css", parseStyleFile);
-registerParser("scss", parseStyleFile);
-registerParser("less", parseStyleFile);
-registerParser("stylus", parseStyleFile);
-registerParser("coffeescript", parseCoffeeScript);
-registerParser("livescript", parseLiveScript);
-registerParser("lua", parseLua);
-registerParser("python", parsePython);
-registerParser("gherkin", parseGherkin);
+(
+  [
+    ["javascript", (path, content) => parseCodeFile(path, content, "javascript")],
+    ["typescript", (path, content) => parseCodeFile(path, content, "typescript")],
+    ["css", parseStyleFile],
+    ["scss", parseStyleFile],
+    ["less", parseStyleFile],
+    ["stylus", parseStyleFile],
+    ["coffeescript", parseCoffeeScript],
+    ["livescript", parseLiveScript],
+    ["lua", parseLua],
+    ["python", parsePython],
+    ["go", parseGo],
+    ["gherkin", parseGherkin],
+  ] satisfies [FileType, ParserFunction][]
+).forEach(([type, parser]) => registerParser(type, parser));
 
 export {
   getBarrelThreshold,
@@ -44,7 +51,7 @@ export async function parseFile(filePath: string, content: string): Promise<Pars
   const parser = getParserForType(fileType);
 
   if (parser) {
-    return await parser(filePath, content);
+    return parser(filePath, content);
   }
 
   return { imports: [], exports: [], tags: [], category: "other" };
