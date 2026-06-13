@@ -36,7 +36,7 @@ describe("pnpmDetector", () => {
     write("packages/a/package.json", JSON.stringify({ name: "@org/a" }));
     const pkgs = pnpmDetector.detect(root);
     expect(pkgs).not.toBeNull();
-    expect(pkgs!.map((p) => p.name)).toContain("@org/a");
+    expect(pkgs?.map((p) => p.name)).toContain("@org/a");
   });
 
   test("returns null when yaml is malformed", () => {
@@ -77,14 +77,14 @@ describe("npmDetector", () => {
     write("package.json", JSON.stringify({ name: "root", workspaces: ["packages/*"] }));
     write("packages/a/package.json", JSON.stringify({ name: "@org/a" }));
     const pkgs = npmDetector.detect(root);
-    expect(pkgs!.map((p) => p.name)).toContain("@org/a");
+    expect(pkgs?.map((p) => p.name)).toContain("@org/a");
   });
 
   test("resolves packages from object workspaces.packages field", () => {
     write("package.json", JSON.stringify({ name: "root", workspaces: { packages: ["apps/*"] } }));
     write("apps/web/package.json", JSON.stringify({ name: "web" }));
     const pkgs = npmDetector.detect(root);
-    expect(pkgs!.map((p) => p.name)).toContain("web");
+    expect(pkgs?.map((p) => p.name)).toContain("web");
   });
 });
 
@@ -111,7 +111,7 @@ describe("yarnDetector", () => {
     write("package.json", JSON.stringify({ name: "root", workspaces: ["packages/*"] }));
     write("packages/a/package.json", JSON.stringify({ name: "pkg-a" }));
     const pkgs = yarnDetector.detect(root);
-    expect(pkgs!.map((p) => p.name)).toContain("pkg-a");
+    expect(pkgs?.map((p) => p.name)).toContain("pkg-a");
   });
 });
 
@@ -127,14 +127,14 @@ describe("nxDetector", () => {
     write("apps/web/project.json", JSON.stringify({ name: "web" }));
     write("apps/web/package.json", JSON.stringify({ name: "web" }));
     const pkgs = nxDetector.detect(root);
-    expect(pkgs!.map((p) => p.name)).toContain("web");
+    expect(pkgs?.map((p) => p.name)).toContain("web");
   });
 
   test("discovers integrated-style projects (no package.json, name from project.json)", () => {
     write("nx.json", JSON.stringify({ version: 2 }));
     write("libs/ui/project.json", JSON.stringify({ name: "@org/ui" }));
     const pkgs = nxDetector.detect(root);
-    expect(pkgs!.map((p) => p.name)).toContain("@org/ui");
+    expect(pkgs?.map((p) => p.name)).toContain("@org/ui");
   });
 
   test("skips node_modules and dot directories", () => {
@@ -142,8 +142,8 @@ describe("nxDetector", () => {
     write("node_modules/some-pkg/project.json", JSON.stringify({ name: "should-skip" }));
     write(".nx/cache/project.json", JSON.stringify({ name: "also-skip" }));
     const pkgs = nxDetector.detect(root);
-    expect(pkgs!.map((p) => p.name)).not.toContain("should-skip");
-    expect(pkgs!.map((p) => p.name)).not.toContain("also-skip");
+    expect(pkgs?.map((p) => p.name)).not.toContain("should-skip");
+    expect(pkgs?.map((p) => p.name)).not.toContain("also-skip");
   });
 
   test("prefers package.json name over project.json name", () => {
@@ -151,7 +151,7 @@ describe("nxDetector", () => {
     write("apps/web/project.json", JSON.stringify({ name: "web-proj" }));
     write("apps/web/package.json", JSON.stringify({ name: "@org/web" }));
     const pkgs = nxDetector.detect(root);
-    expect(pkgs![0]!.name).toBe("@org/web");
+    expect(pkgs?.[0]?.name).toBe("@org/web");
   });
 
   test("uses targets.build.options.main as entry point when present", () => {
@@ -166,7 +166,7 @@ describe("nxDetector", () => {
     );
     write("libs/core/src/index.ts", "");
     const pkgs = nxDetector.detect(root);
-    expect(pkgs![0]!.entryPoints[0]).toContain("index.ts");
+    expect(pkgs?.[0]?.entryPoints[0]).toContain("index.ts");
   });
 });
 

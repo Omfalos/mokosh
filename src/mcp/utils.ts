@@ -1,3 +1,4 @@
+/** MCP response helpers: text() response wrapper and validateRoot() path guard. */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

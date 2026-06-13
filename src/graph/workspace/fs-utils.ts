@@ -1,3 +1,4 @@
+/** Filesystem utilities for monorepo detectors: existence checks for files and directories. */
 
 import fs from "node:fs";
 import path from "node:path";

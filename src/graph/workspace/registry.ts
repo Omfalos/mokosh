@@ -1,3 +1,4 @@
+/** Registry for MonorepoDetector plugins, allowing custom detectors to be added alongside the built-in ones. */
 import type { WorkspacePackage } from "./types";
 
 /**

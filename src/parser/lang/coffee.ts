@@ -1,3 +1,4 @@
+/** Parses CoffeeScript files to extract import edges and tag annotations. */
 import coffee from "coffeescript";
 import type { ImportEdge } from "../../types/node";
 import { isStyleFile } from "../file-type";

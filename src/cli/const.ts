@@ -1,4 +1,4 @@
-export const enum Flag {
+export enum Flag {
   Root = "--root",
   Cache = "--cache",
   Config = "--config",

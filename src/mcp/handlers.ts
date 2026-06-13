@@ -1,18 +1,26 @@
 import path from "node:path";
 import {
   applyConfig,
+  buildApiSurface,
+  buildFeatureGraph,
+  buildResponsibilityGraph,
+  buildTypeGraph,
+  DefaultGitProvider,
+  detectAllEntryPoints,
   detectFeatures,
   detectMonorepo,
   filterGraph,
   Graph,
   getAllProjectFiles,
-  DefaultGitProvider,
   loadCoverageMap,
   loadMokoshConfig,
   MermaidExporter,
   parseQuery,
   proposeAffectedTests,
   proposeTags,
+  queryCallGraph,
+  queryChangeImpact,
+  queryTypeGraph,
 } from "../index";
 import type { SessionState } from "./cache";
 import type { TextResponse } from "./utils";
@@ -56,6 +64,12 @@ export type QueryArgs = {
 };
 
 export type ClearCacheArgs = { root: string };
+export type GetChangeImpactArgs = { root: string; file: string; testsOnly?: boolean };
+export type GetTypeGraphArgs = { root: string; type?: string };
+export type GetModuleResponsibilityArgs = { root: string; paths?: string[]; minOutDegree?: number };
+export type GetFeatureGraphArgs = { root: string; minOutDegree?: number };
+export type GetCallGraphArgs = { root: string; function: string };
+export type GetApiSurfaceArgs = { root: string; entryPoints?: string[] };
 
 export type ToolArgs =
   | AnalyzeArgs
@@ -69,7 +83,13 @@ export type ToolArgs =
   | ProposeAffectedTestsArgs
   | DetectFeaturesArgs
   | QueryArgs
-  | ClearCacheArgs;
+  | ClearCacheArgs
+  | GetChangeImpactArgs
+  | GetTypeGraphArgs
+  | GetModuleResponsibilityArgs
+  | GetFeatureGraphArgs
+  | GetCallGraphArgs
+  | GetApiSurfaceArgs;
 
 // ---------------------------------------------------------------------------
 // Handlers
@@ -273,7 +293,10 @@ export function handleProposeTags(cache: SessionState, args: ProposeTagsArgs) {
   const { root, changedFiles, featureThreshold } = args;
   const graph = cache.require(root);
   const files =
-    changedFiles ?? new DefaultGitProvider().getChangedFiles().map((f) => path.relative(root, path.resolve(root, f)));
+    changedFiles ??
+    new DefaultGitProvider()
+      .getChangedFiles()
+      .map((f) => path.relative(root, path.resolve(root, f)));
   const tags = proposeTags(graph, files, {
     ...(featureThreshold !== undefined && { featureDetection: { minOutDegree: featureThreshold } }),
   });
@@ -292,7 +315,10 @@ export function handleProposeAffectedTests(cache: SessionState, args: ProposeAff
   const { root, changedFiles, featureThreshold } = args;
   const graph = cache.require(root);
   const files =
-    changedFiles ?? new DefaultGitProvider().getChangedFiles().map((f) => path.relative(root, path.resolve(root, f)));
+    changedFiles ??
+    new DefaultGitProvider()
+      .getChangedFiles()
+      .map((f) => path.relative(root, path.resolve(root, f)));
   const affectedTests = proposeAffectedTests(graph, files, {
     ...(featureThreshold !== undefined && { featureDetection: { minOutDegree: featureThreshold } }),
   });
@@ -414,5 +440,135 @@ export function handleGetWorkspaceAffected(
 export function handleClearCache(cache: SessionState, args: ClearCacheArgs): TextResponse {
   const { root } = args;
   const cleared = cache.invalidate(root);
-  return text({ root, cleared, message: cleared ? "Cache cleared. Call analyze to rebuild." : "No cache was present for this root." });
+  return text({
+    root,
+    cleared,
+    message: cleared
+      ? "Cache cleared. Call analyze to rebuild."
+      : "No cache was present for this root.",
+  });
+}
+
+/**
+ * @description Returns all files transitively affected by a change to `file` using a pre-computed
+ *   O(1) lookup cache. The cache is built lazily on first call and reused for the session.
+ *   Call `clear_cache` after editing source files to invalidate it. Requires a prior `analyze` call.
+ * @param cache - Session state holding the graph and lazy change-impact cache.
+ * @param args - `root` selects the graph; `file` is the changed file; `testsOnly` filters to test files only.
+ * @returns TextResponse with `{ file, affected, count }` listing all transitively impacted files.
+ */
+export function handleGetChangeImpact(
+  cache: SessionState,
+  args: GetChangeImpactArgs,
+): TextResponse {
+  const { root, file, testsOnly = false } = args;
+  const impactCache = cache.getOrBuildChangeImpact(root);
+  const allAffected = queryChangeImpact(impactCache, file);
+  const affected = testsOnly
+    ? allAffected.filter((p) => cache.require(root).nodes.get(p)?.category === "test")
+    : allAffected;
+  return text({ file, affected, count: affected.length });
+}
+
+/**
+ * @description Returns type-level relationships for the project. Without `type`, returns an inventory
+ *   of all interfaces, classes, enums, and type aliases. With `type`, returns which files import that
+ *   type and which types the defining file itself imports. Requires a prior `analyze` call.
+ * @param cache - Session state holding the cached graph for `root`.
+ * @param args - `root` selects the graph; `type` is the exact exported name to look up (omit for full inventory).
+ * @returns TextResponse with either a full type inventory or a focused `TypeQueryResult`.
+ */
+export function handleGetTypeGraph(cache: SessionState, args: GetTypeGraphArgs): TextResponse {
+  const { root, type } = args;
+  const graph = cache.require(root);
+  const typeGraph = buildTypeGraph(graph);
+  if (type) {
+    return text(queryTypeGraph(typeGraph, type));
+  }
+  const types = Array.from(typeGraph.types.values());
+  return text({ count: types.length, types });
+}
+
+/**
+ * @description Returns what each file is responsible for: its semantic role, JSDoc description,
+ *   exported symbol names, and which feature hub it belongs to. Pass `paths` to filter to specific
+ *   files, or omit to get all files. Requires a prior `analyze` call.
+ * @param cache - Session state holding the cached graph for `root`.
+ * @param args - `root` selects the graph; `paths` filters to specific files; `minOutDegree` tunes hub detection.
+ * @returns TextResponse with `{ count, modules }` where each module includes its role, description, and exports.
+ */
+export function handleGetModuleResponsibility(
+  cache: SessionState,
+  args: GetModuleResponsibilityArgs,
+): TextResponse {
+  const { root, paths, minOutDegree } = args;
+  const graph = cache.require(root);
+  const respGraph = buildResponsibilityGraph(
+    graph,
+    minOutDegree !== undefined ? { minOutDegree } : undefined,
+  );
+  if (paths?.length) {
+    const modules = paths.map((p) => respGraph.get(p)).filter(Boolean);
+    return text({ count: modules.length, modules });
+  }
+  const modules = Array.from(respGraph.values());
+  return text({ count: modules.length, modules });
+}
+
+/**
+ * @description Groups files into feature domains under their respective hub files (high-import
+ *   orchestrators). Each file is assigned to the most specific hub that can transitively reach it.
+ *   Returns up to 85–95% fewer tokens than a full graph query for domain-based questions.
+ *   Requires a prior `analyze` call.
+ * @param cache - Session state holding the cached graph for `root`.
+ * @param args - `root` selects the graph; `minOutDegree` sets the minimum internal imports to qualify as a hub.
+ * @returns TextResponse with `{ features, unassigned }` where `features` is a plain object keyed by feature name.
+ */
+export function handleGetFeatureGraph(
+  cache: SessionState,
+  args: GetFeatureGraphArgs,
+): TextResponse {
+  const { root, minOutDegree } = args;
+  const graph = cache.require(root);
+  const featureGraph = buildFeatureGraph(
+    graph,
+    minOutDegree !== undefined ? { minOutDegree } : undefined,
+  );
+  const features = Object.fromEntries(featureGraph.features);
+  return text({ features, unassigned: featureGraph.unassigned });
+}
+
+/**
+ * @description Looks up callers and callees for a named function. Returns the file that defines
+ *   the function, all files/functions that call it, and all files/functions it calls. Call edges
+ *   are only populated for TypeScript/JavaScript files. Requires a prior `analyze` call.
+ * @param cache - Session state holding the cached graph for `root`.
+ * @param args - `root` selects the graph; `function` is the exact name of the function to look up.
+ * @returns TextResponse with `{ functionName, definedIn, callers, callees }`.
+ */
+export function handleGetCallGraph(cache: SessionState, args: GetCallGraphArgs): TextResponse {
+  const { root, function: functionName } = args;
+  const graph = cache.require(root);
+  return text(queryCallGraph(graph, functionName));
+}
+
+/**
+ * @description Builds the API surface report for a project, expanding `export *` chains so every
+ *   symbol accessible to consumers is listed. Partitions the graph into `internalFiles`,
+ *   `privateFiles` (dead-code candidates), and `testFiles`. When `entryPoints` is omitted,
+ *   auto-detects them from `package.json` exports/main/module fields. Requires a prior `analyze` call.
+ * @param cache - Session state holding the cached graph for `root`.
+ * @param args - `root` selects the graph; `entryPoints` are the public entry files (auto-detected when omitted).
+ * @returns TextResponse with `{ entryPoints, publicExports, internalFiles, privateFiles, testFiles }`.
+ */
+export function handleGetApiSurface(cache: SessionState, args: GetApiSurfaceArgs): TextResponse {
+  const { root, entryPoints } = args;
+  const graph = cache.require(root);
+  const eps = entryPoints?.length ? entryPoints : detectAllEntryPoints(graph, root);
+  if (eps.length === 0) {
+    throw new Error(
+      "No entry points found. Pass entryPoints explicitly or ensure package.json has a main/exports field.",
+    );
+  }
+  return text(buildApiSurface(graph, eps));
 }

@@ -1,3 +1,4 @@
+/** CLI command: detects circular imports and exits with code 1 if any are found. */
 import type { CommandContext } from "./types";
 
 /**

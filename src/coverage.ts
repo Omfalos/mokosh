@@ -1,3 +1,4 @@
+/** Reads Istanbul/v8 coverage-summary.json and returns a map of file paths to line-coverage percentages. */
 import fs from "node:fs";
 import path from "node:path";
 

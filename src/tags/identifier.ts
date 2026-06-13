@@ -1,3 +1,4 @@
+/** Strategy interface and default implementation for identifying test nodes in the graph. */
 import type { StructuredTag } from "../types/node";
 
 /**

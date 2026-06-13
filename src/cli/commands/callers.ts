@@ -1,3 +1,4 @@
+/** CLI command: prints files whose exported functions call into the given file. */
 import type { CommandContext } from "./types";
 
 /**

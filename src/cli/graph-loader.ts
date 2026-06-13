@@ -1,3 +1,4 @@
+/** Loads the dependency graph from a JSON disk cache or builds it fresh if the cache is missing. */
 import fs from "node:fs";
 import path from "node:path";
 import { createImportMap, Graph } from "../index";

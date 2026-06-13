@@ -1,3 +1,4 @@
+/** Parses LiveScript files to extract import edges and tag annotations. */
 // @ts-expect-error
 import ls from "livescript";
 import type { ImportEdge } from "../../types/node";

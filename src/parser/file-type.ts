@@ -1,3 +1,4 @@
+/** Maps file extensions to FileType enum values for use by the parser registry and graph builder. */
 import path from "node:path";
 import type { FileType } from "../types/parse";
 

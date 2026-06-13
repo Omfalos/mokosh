@@ -1,8 +1,9 @@
+/** DefaultResolver turns raw import specifiers into absolute file paths, handling relative paths, tsconfig aliases, workspace packages, and node_modules. */
 import fs from "node:fs";
 import path from "node:path";
 import {
-  type LangResolver,
   GoLangResolver,
+  type LangResolver,
   LuaLangResolver,
   PythonLangResolver,
 } from "./lang-resolvers/index";
@@ -73,12 +74,11 @@ export class DefaultResolver implements PathResolver {
   ) {
     this.workspaceMap = options.workspaceMap ?? new Map();
     this.tsconfigSearchPaths = options.tsconfigSearchPaths ?? [rootDir];
-    this.langResolvers =
-      options.langResolvers ?? [
-        new PythonLangResolver(),
-        new LuaLangResolver(),
-        new GoLangResolver(),
-      ];
+    this.langResolvers = options.langResolvers ?? [
+      new PythonLangResolver(),
+      new LuaLangResolver(),
+      new GoLangResolver(),
+    ];
   }
 
   /**
@@ -342,5 +342,4 @@ export class DefaultResolver implements PathResolver {
 
     return null;
   }
-
 }

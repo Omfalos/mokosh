@@ -1,3 +1,4 @@
+/** Monorepo detector for npm workspaces (package.json workspaces field). */
 import fs from "node:fs";
 import path from "node:path";
 import type { MonorepoDetector } from "../registry";

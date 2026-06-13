@@ -1,3 +1,4 @@
+/** Language resolver for Python: maps bare module specifiers to local .py files or __init__.py packages. */
 import fs from "node:fs";
 import path from "node:path";
 import type { LangResolver, ResolvedImport } from "./index";
@@ -27,7 +28,7 @@ export class PythonLangResolver implements LangResolver {
   ): ResolvedImport | null {
     const pyPath = specifier.replace(/\./g, path.sep);
 
-    const pyFile = path.join(rootDir, pyPath + ".py");
+    const pyFile = path.join(rootDir, `${pyPath}.py`);
     if (isFile(pyFile)) return { path: pyFile, isExternal: false };
 
     const initFile = path.join(rootDir, pyPath, "__init__.py");

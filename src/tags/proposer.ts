@@ -1,5 +1,7 @@
-import { detectFeatures, type FeatureDetectionOptions, type FeatureInfo } from "../graph";
+/** Proposes semantic test tags and affected test files from git diff and the dependency graph. */
+
 import type { Graph } from "../graph";
+import { detectFeatures, type FeatureDetectionOptions, type FeatureInfo } from "../graph";
 import type { ExportedSymbol, FileNode, ImportEdge } from "../types/node";
 import { DefaultTestNodeIdentifier, type TestNodeIdentifier } from "./identifier";
 

@@ -1,3 +1,4 @@
+/** CLI command: outputs the dependency graph as Mermaid or JSON, optionally filtered by a query. */
 import { filterGraph, Graph, MermaidExporter, parseQuery } from "../../index";
 import type { CommandContext } from "./types";
 

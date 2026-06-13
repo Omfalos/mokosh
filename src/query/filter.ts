@@ -1,3 +1,4 @@
+/** Filters a graph by applying NodeQuery predicates: category, type, tag, path, imports, coverage, and more. */
 import type { SerializedGraph } from "../types/graph";
 import type { FileNode } from "../types/node";
 import type { NodeQuery } from "./types";
@@ -47,11 +48,12 @@ export function matchNode(
     if (!query.allTags.every((t) => node.tags.some((st) => st.name === t))) return false;
   }
   if (query.importsFile) {
-    if (!node.imports.some((imp) => imp.toPath?.includes(query.importsFile!))) return false;
+    if (!node.imports.some((imp) => imp.toPath?.includes(query.importsFile as string)))
+      return false;
   }
   if (query.importedBy !== undefined) {
     const importers = reverseIndex?.get(node.path) ?? [];
-    if (!importers.some((p) => p.includes(query.importedBy!))) return false;
+    if (!importers.some((p) => p.includes(query.importedBy as string))) return false;
   }
   if (query.minImports !== undefined && node.imports.length < query.minImports) return false;
   if (query.maxImports !== undefined && node.imports.length > query.maxImports) return false;

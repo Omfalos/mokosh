@@ -1,15 +1,17 @@
+/** Git integration: changed-file detection via GitProvider and per-file commit activity stats via getGitFileStats. */
 import { execSync } from "node:child_process";
 
 /**
- * Interface for retrieving changed files from Git.
- * Allows for easier testing by mocking Git operations.
+ * @description Contract for querying changed files from a version-control backend.
+ *   Abstracted so the CLI and MCP server can be tested without a live git repository.
  */
 export interface GitProvider {
   getChangedFiles(): string[];
 }
 
 /**
- * Default implementation of GitProvider that uses the Git CLI.
+ * @description Default `GitProvider` that shells out to the git CLI to discover
+ *   modified, staged, and untracked files in the current repository.
  */
 export class DefaultGitProvider implements GitProvider {
   /**
@@ -44,7 +46,6 @@ export class DefaultGitProvider implements GitProvider {
     }
   }
 }
-
 
 /**
  * @description Commit activity metadata for a single file, used to surface churn and ownership signals.

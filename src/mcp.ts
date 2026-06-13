@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+/** MCP server entry point: bootstraps the server and connects it to the stdio transport. */
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { createMcpServer } from "./mcp/server";
 

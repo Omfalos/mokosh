@@ -1,3 +1,4 @@
+/** Parses Gherkin .feature files to extract scenario tag annotations using the official Cucumber parser. */
 import { AstBuilder, GherkinClassicTokenMatcher, Parser } from "@cucumber/gherkin";
 import { IdGenerator } from "@cucumber/messages";
 import { registerParser } from "../registry";

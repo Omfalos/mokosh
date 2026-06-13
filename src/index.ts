@@ -1,3 +1,4 @@
+/** Public library API: createImportMap, createWorkspaceGraph, and getAllProjectFiles. */
 export { applyConfig, loadMokoshConfig, type MokoshConfig } from "./config";
 export * from "./const";
 export { loadCoverageMap } from "./coverage";
@@ -12,13 +13,7 @@ export * from "./types";
 import fs from "node:fs";
 import path from "node:path";
 import { DEFAULT_EXTENSIONS, DEFAULT_IGNORE_DIRS, type ScanOptions } from "./const";
-import {
-  DefaultResolver,
-  detectMonorepo,
-  type Graph,
-  GraphBuilder,
-  WorkspaceGraph,
-} from "./graph";
+import { DefaultResolver, detectMonorepo, type Graph, GraphBuilder, WorkspaceGraph } from "./graph";
 
 /**
  * @description Builds a dependency graph from the given entry points, optionally reusing a
@@ -67,7 +62,7 @@ export async function createWorkspaceGraph(
 
   const pkgs = options.packages
     ? layout.packages.filter(
-        (p) => options.packages!.includes(p.name) || options.packages!.includes(p.relativeRoot),
+        (p) => options.packages?.includes(p.name) || options.packages?.includes(p.relativeRoot),
       )
     : layout.packages;
 
@@ -93,7 +88,6 @@ export async function createWorkspaceGraph(
 
   return wg;
 }
-
 
 /**
  * @description Recursively walks `rootDir` and returns paths of every file whose extension

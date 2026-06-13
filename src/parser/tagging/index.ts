@@ -1,3 +1,4 @@
+/** Collects structured tags from a TypeScript/JavaScript AST node using declaration names, @marker strings, comment annotations, and Vitest/Playwright option bags. */
 import ts from "typescript";
 import type { TagKind } from "../../types/parse";
 import type { ParseContext } from "../types";

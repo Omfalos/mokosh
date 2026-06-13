@@ -342,19 +342,19 @@ describe("filterGraph", () => {
 
     test("removes edges whose target is not in the filtered result", () => {
       const result = filterGraph(graph, { category: "logic" });
-      const aNode = result.nodes.find((n) => n.path === "src/a.ts")!;
+      const aNode = result.nodes.find((n) => n.path === "src/a.ts") as FileNode;
       expect(aNode.imports.map((i) => i.toPath)).not.toContain("src/removed.ts");
     });
 
     test("keeps edges whose target is in the filtered result", () => {
       const result = filterGraph(graph, { category: "logic" });
-      const aNode = result.nodes.find((n) => n.path === "src/a.ts")!;
+      const aNode = result.nodes.find((n) => n.path === "src/a.ts") as FileNode;
       expect(aNode.imports.map((i) => i.toPath)).toContain("src/b.ts");
     });
 
     test("keeps edges with empty toPath (external with no resolved path)", () => {
       const result = filterGraph(graph, { category: "logic" });
-      const aNode = result.nodes.find((n) => n.path === "src/a.ts")!;
+      const aNode = result.nodes.find((n) => n.path === "src/a.ts") as FileNode;
       expect(aNode.imports.some((i) => i.toPath === "")).toBe(true);
     });
   });

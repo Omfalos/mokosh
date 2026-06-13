@@ -1,3 +1,4 @@
+/** CLI command: detects feature-hub files and prints them as JSON. */
 import { createImportMap, detectFeatures, getAllProjectFiles } from "../../index";
 import type { CommandContext } from "./types";
 

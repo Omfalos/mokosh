@@ -1,3 +1,4 @@
+/** Detects feature-hub files — high-out-degree orchestrators that import many other files — from a dependency graph. */
 import path from "node:path";
 import type { FileNode } from "../../types/node";
 

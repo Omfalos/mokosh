@@ -1,3 +1,4 @@
+/** Monorepo detector for Yarn Classic/Berry workspaces (yarn.lock + workspaces field). */
 import fs from "node:fs";
 import path from "node:path";
 import type { MonorepoDetector } from "../registry";

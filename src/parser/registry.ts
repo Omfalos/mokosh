@@ -1,3 +1,4 @@
+/** Parser registry: maps FileType values to parser functions and provides lookup by file type. */
 import type { FileType } from "../types/parse";
 import type { ParseResult } from "./types";
 

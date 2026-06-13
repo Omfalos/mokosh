@@ -1,3 +1,4 @@
+/** Shared CLI command utilities: test-file filtering and git-diff resolution. */
 import path from "node:path";
 import { DefaultGitProvider } from "../../index";
 
@@ -23,5 +24,7 @@ export function getTestFiles(allFiles: string[]): string[] {
  * @returns {string[]} Paths of git-changed files relative to rootDir.
  */
 export function resolveChangedFiles(rootDir: string): string[] {
-  return new DefaultGitProvider().getChangedFiles().map((f) => path.relative(rootDir, path.resolve(rootDir, f)));
+  return new DefaultGitProvider()
+    .getChangedFiles()
+    .map((f) => path.relative(rootDir, path.resolve(rootDir, f)));
 }

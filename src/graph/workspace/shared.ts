@@ -1,3 +1,4 @@
+/** Shared helpers for monorepo detectors: package building, entry-point resolution, and glob pattern expansion. */
 import fs from "node:fs";
 import path from "node:path";
 import { isDirectory, isFile } from "./fs-utils";
@@ -58,9 +59,9 @@ export function resolveEntryPoints(
         candidates.push(path.join(pkgRoot, dot));
       } else if (typeof dot === "object" && dot !== null) {
         const src =
-          (dot as Record<string, unknown>)["import"] ??
-          (dot as Record<string, unknown>)["require"] ??
-          (dot as Record<string, unknown>)["default"];
+          (dot as Record<string, unknown>).import ??
+          (dot as Record<string, unknown>).require ??
+          (dot as Record<string, unknown>).default;
         if (typeof src === "string") candidates.push(path.join(pkgRoot, src));
       }
     }

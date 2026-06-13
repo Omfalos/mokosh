@@ -1,3 +1,4 @@
+/** Creates and configures the MCP server, wiring all tool handlers to their JSON Schema definitions. */
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { SessionState } from "./cache";
@@ -8,9 +9,15 @@ import {
   type FindUncoveredArgs,
   type FindUnusedArgs,
   type GetAffectedArgs,
+  type GetApiSurfaceArgs,
   type GetCallersArgs,
+  type GetCallGraphArgs,
+  type GetChangeImpactArgs,
   type GetDependenciesArgs,
   type GetDependentsArgs,
+  type GetFeatureGraphArgs,
+  type GetModuleResponsibilityArgs,
+  type GetTypeGraphArgs,
   type GetWorkspaceAffectedArgs,
   type GetWorkspacePackagesArgs,
   handleAnalyze,
@@ -19,9 +26,15 @@ import {
   handleFindUncovered,
   handleFindUnused,
   handleGetAffected,
+  handleGetApiSurface,
   handleGetCallers,
+  handleGetCallGraph,
+  handleGetChangeImpact,
   handleGetDependencies,
   handleGetDependents,
+  handleGetFeatureGraph,
+  handleGetModuleResponsibility,
+  handleGetTypeGraph,
   handleGetWorkspaceAffected,
   handleGetWorkspacePackages,
   handleProposeAffectedTests,
@@ -56,7 +69,6 @@ export function createMcpServer(): Server {
 
     const toolArgs = rawArgs as unknown as ToolArgs;
 
-    // biome-ignore lint/suspicious/noExplicitAny: dispatch map holds heterogeneous handler return types
     const dispatch: Record<string, (args: ToolArgs) => Promise<TextResponse> | TextResponse> = {
       analyze: (args) => handleAnalyze(cache, args as AnalyzeArgs),
       get_dependencies: (args) => handleGetDependencies(cache, args as GetDependenciesArgs),
@@ -69,6 +81,13 @@ export function createMcpServer(): Server {
       propose_affected_tests: (args) =>
         handleProposeAffectedTests(cache, args as ProposeAffectedTestsArgs),
       detect_features: (args) => handleDetectFeatures(cache, args as DetectFeaturesArgs),
+      get_change_impact: (args) => handleGetChangeImpact(cache, args as GetChangeImpactArgs),
+      get_type_graph: (args) => handleGetTypeGraph(cache, args as GetTypeGraphArgs),
+      get_module_responsibility: (args) =>
+        handleGetModuleResponsibility(cache, args as GetModuleResponsibilityArgs),
+      get_feature_graph: (args) => handleGetFeatureGraph(cache, args as GetFeatureGraphArgs),
+      get_call_graph: (args) => handleGetCallGraph(cache, args as GetCallGraphArgs),
+      get_api_surface: (args) => handleGetApiSurface(cache, args as GetApiSurfaceArgs),
       query: (args) => handleQuery(cache, args as QueryArgs),
       get_workspace_packages: (args) =>
         handleGetWorkspacePackages(cache, args as GetWorkspacePackagesArgs),

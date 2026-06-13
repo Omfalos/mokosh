@@ -1,3 +1,4 @@
+/** Analyzes a dependency graph node map for unused files, export-usage hotspots, and circular import chains. */
 import type { FileNode } from "../types/node";
 
 /**

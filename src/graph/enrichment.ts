@@ -1,3 +1,4 @@
+/** Post-build enrichment passes that annotate graph nodes with coverage, library tags, test links, and export-usage ratios. */
 import path from "node:path";
 import type { FileNode, ImportEdge, StructuredTag } from "../types/node";
 

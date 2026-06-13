@@ -1,3 +1,4 @@
+/** Loads and applies mokosh.config.* files, activating user-defined matchers, patterns, and thresholds. */
 import fs from "node:fs";
 import path from "node:path";
 import {
@@ -7,6 +8,11 @@ import {
   setBarrelThreshold,
 } from "./parser/classify";
 
+/**
+ * @description Top-level configuration for mokosh. All fields are optional; unset fields
+ *   fall back to built-in defaults. Load this object via `loadMokoshConfig`, then activate
+ *   it with `applyConfig` before calling `createImportMap`.
+ */
 export interface MokoshConfig {
   /** Additional directories to skip when scanning (merged with built-in defaults). */
   ignoreDirs?: string[];

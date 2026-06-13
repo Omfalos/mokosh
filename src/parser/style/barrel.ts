@@ -1,3 +1,4 @@
+/** Classifies CSS/Less files as barrels (import-only) or UI files based on PostCSS AST analysis. */
 import type postcss from "postcss";
 import type { ImportEdge } from "../../types/node";
 import type { NodeCategory } from "../../types/parse";

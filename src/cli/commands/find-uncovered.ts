@@ -1,3 +1,4 @@
+/** CLI command: lists non-test files below the configured coverage threshold. */
 import type { CommandContext } from "./types";
 
 /**

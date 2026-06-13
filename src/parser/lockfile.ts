@@ -1,3 +1,4 @@
+/** Parses npm, Yarn, and pnpm lock files to extract installed package versions for import-edge annotation. */
 import fs from "node:fs";
 import path from "node:path";
 import yaml from "js-yaml";

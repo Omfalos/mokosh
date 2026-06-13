@@ -1,3 +1,4 @@
+/** GraphBuilder walks the file system from entry points, parses each reachable file, and assembles the dependency graph. */
 import fs from "node:fs";
 import path from "node:path";
 import { getGitFileStats } from "../git.js";
@@ -275,7 +276,8 @@ export class GraphBuilder {
     parsed: Awaited<ReturnType<typeof parseFile>>,
     callEdges: CallEdge[],
   ): FileNode {
-    const { imports, exports, tags, category, description, complexity, cognitiveComplexity } = parsed;
+    const { imports, exports, tags, category, description, complexity, cognitiveComplexity } =
+      parsed;
     return {
       path: relativePath,
       type: getFileType(filePath),

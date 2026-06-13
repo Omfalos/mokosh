@@ -186,8 +186,8 @@ describe("serialize / deserialize", () => {
     const wg = makeTwoPackageWorkspace();
     const restored = WorkspaceGraph.deserialize(wg.serialize());
 
-    const { graph } = restored.packages.get("@org/app")!;
-    const page = graph.nodes.get("packages/app/src/page.ts")!;
+    const { graph } = restored.packages.get("@org/app") as { graph: Graph; pkg: WorkspacePackage };
+    const page = graph.nodes.get("packages/app/src/page.ts") as FileNode;
     const wsEdge = page.imports.find((i) => i.isWorkspace);
 
     expect(wsEdge?.workspacePackage).toBe("@org/shared");

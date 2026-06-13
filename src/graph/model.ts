@@ -1,3 +1,4 @@
+/** Graph class wrapping the raw node map with DFS traversal, cycle detection, serialization, and reverse-edge helpers. */
 import type { SerializedGraph, TraversalOptions, TraversalVisitor } from "../types/graph";
 import type { CallEdge, FileNode } from "../types/node";
 import { GraphAnalyzer } from "./analyzer";

@@ -1,3 +1,4 @@
+/** Parses JavaScript and TypeScript source files using the TypeScript Compiler API to extract imports, exports, tags, category, and complexity. */
 import path from "node:path";
 import ts from "typescript";
 import type { ExportedSymbol, ImportEdge, StructuredTag } from "../../types/node";

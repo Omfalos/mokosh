@@ -1,3 +1,4 @@
+/** Parses Lua source files via luaparse to extract require() dependency edges and @tag annotations. */
 import type { Chunk, Node } from "luaparse";
 import luaparse from "luaparse";
 import type { ImportEdge } from "../../types/node";

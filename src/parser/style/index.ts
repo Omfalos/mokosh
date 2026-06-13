@@ -1,3 +1,4 @@
+/** Dispatches style file parsing to the appropriate dialect handler (CSS, Less, SCSS, Sass, Stylus). */
 import { getFileType } from "../file-type";
 import type { ParseResult } from "../types";
 import { detectCssBarrel } from "./barrel";

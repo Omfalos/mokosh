@@ -1,3 +1,4 @@
+/** Parses CSS and Less files using PostCSS to extract @import edges. */
 import postcss from "postcss";
 import type { ImportEdge } from "../../types/node";
 

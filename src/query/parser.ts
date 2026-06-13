@@ -1,3 +1,4 @@
+/** Parses a key:value query string into a structured NodeQuery for use with filterGraph. */
 import type { NodeQuery } from "./types";
 
 /**

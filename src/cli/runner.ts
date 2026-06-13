@@ -1,3 +1,4 @@
+/** CLI entry point: parses arguments, loads configuration and the graph, then dispatches to the appropriate command. */
 import { applyConfig, Graph } from "../index";
 import { parseArgs } from "./args";
 import { run as runAffectedTests } from "./commands/affected-tests";

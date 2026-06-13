@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
-import { detectMonorepo } from "./workspace";
+import { detectMonorepo, type WorkspacePackage } from "./workspace";
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -45,7 +45,7 @@ describe("pnpm workspaces", () => {
     write("packages/a/src/index.ts", "");
 
     const layout = detectMonorepo(root);
-    const pkg = layout.packages[0]!;
+    const pkg = layout.packages[0] as WorkspacePackage;
 
     expect(pkg.root).toBe(path.join(root, "packages/a"));
     expect(pkg.relativeRoot).toBe("packages/a");
@@ -105,7 +105,7 @@ describe("npm workspaces", () => {
 
     expect(layout.type).toBe("npm");
     expect(layout.packages).toHaveLength(1);
-    expect(layout.packages[0]!.name).toBe("web");
+    expect(layout.packages[0]?.name).toBe("web");
   });
 
   test("returns none when package.json has no workspaces field", () => {
@@ -158,7 +158,7 @@ describe("Nx workspaces", () => {
 
     expect(layout.type).toBe("nx");
     expect(layout.packages).toHaveLength(1);
-    expect(layout.packages[0]!.name).toBe("@org/ui");
+    expect(layout.packages[0]?.name).toBe("@org/ui");
   });
 
   test("uses targets.build.options.main as the entry point", () => {
@@ -174,7 +174,7 @@ describe("Nx workspaces", () => {
     write("libs/core/src/index.ts", "");
 
     const layout = detectMonorepo(root);
-    const pkg = layout.packages[0]!;
+    const pkg = layout.packages[0] as WorkspacePackage;
 
     expect(pkg.entryPoints[0]).toContain("libs/core/src/index.ts");
   });
@@ -188,7 +188,7 @@ describe("Nx workspaces", () => {
     write("libs/utils/src/index.ts", "");
 
     const layout = detectMonorepo(root);
-    const pkg = layout.packages[0]!;
+    const pkg = layout.packages[0] as WorkspacePackage;
 
     expect(pkg.entryPoints[0]).toContain("index.ts");
   });
@@ -200,7 +200,7 @@ describe("Nx workspaces", () => {
 
     const layout = detectMonorepo(root);
 
-    expect(layout.packages[0]!.name).toBe("@org/web");
+    expect(layout.packages[0]?.name).toBe("@org/web");
   });
 });
 
@@ -218,7 +218,7 @@ describe("Turborepo", () => {
     expect(layout.types).toContain("turborepo");
     expect(layout.types).toContain("pnpm");
     expect(layout.packages).toHaveLength(1);
-    expect(layout.packages[0]!.name).toBe("api");
+    expect(layout.packages[0]?.name).toBe("api");
   });
 
   test("turborepo + yarn: both types reported, packages from yarn", () => {
@@ -292,7 +292,7 @@ describe("entry point resolution", () => {
     write("packages/a/src/index.ts", "");
 
     const layout = detectMonorepo(root);
-    const pkg = layout.packages[0]!;
+    const pkg = layout.packages[0] as WorkspacePackage;
 
     expect(pkg.entryPoints[0]).toBe(path.join(root, "packages/a/src/index.ts"));
   });
@@ -303,7 +303,7 @@ describe("entry point resolution", () => {
     write("packages/a/dist/index.js", "");
 
     const layout = detectMonorepo(root);
-    const pkg = layout.packages[0]!;
+    const pkg = layout.packages[0] as WorkspacePackage;
 
     expect(pkg.entryPoints[0]).toContain("dist/index.js");
   });
@@ -317,7 +317,7 @@ describe("entry point resolution", () => {
     write("packages/a/src/index.ts", "");
 
     const layout = detectMonorepo(root);
-    const pkg = layout.packages[0]!;
+    const pkg = layout.packages[0] as WorkspacePackage;
 
     expect(pkg.entryPoints[0]).toContain("src/index.ts");
   });

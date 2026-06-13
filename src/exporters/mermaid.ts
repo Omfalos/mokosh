@@ -1,3 +1,4 @@
+/** GraphExporter implementation that renders dependency graphs as Mermaid flowchart diagrams. */
 import type { Graph } from "../graph";
 import type { GraphExporter } from "./types";
 

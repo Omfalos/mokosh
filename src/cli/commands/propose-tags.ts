@@ -1,3 +1,4 @@
+/** CLI command: infers test tags from git-changed files and prints them as JSON or plain text. */
 import { createImportMap, getAllProjectFiles, proposeTags } from "../../index";
 import type { CommandContext } from "./types";
 import { getTestFiles, resolveChangedFiles } from "./utils";

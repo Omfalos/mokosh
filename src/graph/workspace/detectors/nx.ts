@@ -1,3 +1,4 @@
+/** Monorepo detector for Nx workspaces (nx.json + project.json files). */
 import fs from "node:fs";
 import path from "node:path";
 import { isFile } from "../fs-utils";

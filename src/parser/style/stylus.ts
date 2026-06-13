@@ -1,3 +1,4 @@
+/** Parses Stylus files to extract @require and bare import/require dependency edges. */
 import type { ImportEdge } from "../../types/node";
 
 /**

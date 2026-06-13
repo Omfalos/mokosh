@@ -1,3 +1,4 @@
+/** Runs all registered monorepo detectors and returns the layout describing the detected tool and packages. */
 import path from "node:path";
 import { npmDetector } from "./detectors/npm";
 import { nxDetector } from "./detectors/nx";
@@ -49,7 +50,7 @@ export function detectMonorepo(
   const packages = Array.from(allPackages.values());
   return {
     root: abs,
-    type: detectedTypes[0]!,
+    type: detectedTypes[0] as string,
     types: detectedTypes,
     packages,
     packageMap: new Map(packages.map((p) => [p.name, p])),

@@ -42,8 +42,8 @@ describe("buildPackage", () => {
     write("pkg/package.json", JSON.stringify({ name: "@org/pkg" }));
     const result = buildPackage(root, path.join(root, "pkg"));
     expect(result).not.toBeNull();
-    expect(result!.name).toBe("@org/pkg");
-    expect(result!.relativeRoot).toBe("pkg");
+    expect(result?.name).toBe("@org/pkg");
+    expect(result?.relativeRoot).toBe("pkg");
   });
 });
 
@@ -117,7 +117,7 @@ describe("resolveGlobPatterns", () => {
     write("libs/ui/package.json", JSON.stringify({ name: "@org/ui" }));
     const result = resolveGlobPatterns(root, ["libs/ui"]);
     expect(result).toHaveLength(1);
-    expect(result[0]!.name).toBe("@org/ui");
+    expect(result[0]?.name).toBe("@org/ui");
   });
 
   test("returns empty array when the glob base directory does not exist", () => {

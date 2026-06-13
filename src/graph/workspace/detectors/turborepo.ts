@@ -1,3 +1,4 @@
+/** Monorepo detector for Turborepo (turbo.json), contributing the orchestrator type without enumerating packages. */
 import fs from "node:fs";
 import path from "node:path";
 import type { MonorepoDetector } from "../registry";

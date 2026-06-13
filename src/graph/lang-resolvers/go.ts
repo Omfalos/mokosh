@@ -1,3 +1,4 @@
+/** Language resolver for Go: maps module-local import paths to concrete .go files using go.mod. */
 import fs from "node:fs";
 import path from "node:path";
 import type { LangResolver, ResolvedImport } from "./index";
@@ -28,7 +29,7 @@ export class GoLangResolver implements LangResolver {
   ): ResolvedImport | null {
     const mod = this.readModule(rootDir);
     if (!mod) return null;
-    if (specifier !== mod && !specifier.startsWith(mod + "/")) return null;
+    if (specifier !== mod && !specifier.startsWith(`${mod}/`)) return null;
 
     const rel = specifier.slice(mod.length).replace(/^\//, "");
     if (!rel) return null;
@@ -43,7 +44,8 @@ export class GoLangResolver implements LangResolver {
    * @returns {string | null} The declared module path (e.g. `"github.com/myorg/myrepo"`), or `null`.
    */
   private readModule(rootDir: string): string | null {
-    if (this.moduleCache.has(rootDir)) return this.moduleCache.get(rootDir)!;
+    const cached = this.moduleCache.get(rootDir);
+    if (cached !== undefined) return cached;
     try {
       const content = fs.readFileSync(path.join(rootDir, "go.mod"), "utf-8");
       const line = content.split("\n").find((l) => l.startsWith("module "));
@@ -78,6 +80,6 @@ function resolveGoPackageDir(absDir: string): ResolvedImport | null {
 
   if (!goFiles.length) return null;
 
-  const preferred = goFiles.find((f) => path.basename(f) === "doc.go") ?? goFiles[0]!;
+  const preferred = goFiles.find((f) => path.basename(f) === "doc.go") ?? (goFiles[0] as string);
   return { path: preferred, isExternal: false };
 }

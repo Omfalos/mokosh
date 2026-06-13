@@ -1,3 +1,4 @@
+/** Resolves the final CLI configuration by merging parsed args, mokosh.config.*, and built-in defaults. */
 import path from "node:path";
 import { loadMokoshConfig, type MokoshConfig, type ScanOptions } from "../index";
 import type { ParsedArgs } from "./args";

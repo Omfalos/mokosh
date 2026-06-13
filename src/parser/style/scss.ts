@@ -1,3 +1,4 @@
+/** Parses SCSS/Sass files using postcss-scss to extract @use, @forward, and @import edges. */
 import type postcss from "postcss";
 import { parse as scssParse } from "postcss-scss";
 import type { ImportEdge } from "../../types/node";

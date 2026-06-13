@@ -180,7 +180,8 @@ export const TOOL_DEFINITIONS = [
         },
         featureThreshold: {
           type: "number",
-          description: "Min internal imports a file must have to qualify as a feature hub (default: 5).",
+          description:
+            "Min internal imports a file must have to qualify as a feature hub (default: 5).",
         },
       },
       required: ["root"],
@@ -242,6 +243,115 @@ export const TOOL_DEFINITIONS = [
         },
       },
       required: ["root", "file"],
+    },
+  },
+  {
+    name: "get_change_impact",
+    description:
+      "Return all files transitively affected if a given file changes, using a pre-computed cache for O(1) lookup. Equivalent to get_affected but avoids graph traversal on repeated calls — the cache is built lazily on first use and reused for the session. Requires a prior analyze() call. Call clear_cache to invalidate when source files change.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        root: { type: "string", description: "Absolute path to the project root" },
+        file: {
+          type: "string",
+          description: "Project-relative path of the changed file (e.g. 'src/types/node.ts')",
+        },
+        testsOnly: {
+          type: "boolean",
+          description: "Return only test/spec files (default: false)",
+        },
+      },
+      required: ["root", "file"],
+    },
+  },
+  {
+    name: "get_type_graph",
+    description:
+      "Return type-level relationships for the project. Without a type name, returns an inventory of all interfaces, classes, enums, and type aliases with their file and kind. With a type name, returns which files import that type (usedByFiles) and which types the defining file imports (uses). Requires a prior analyze() call. Only covers TypeScript/JavaScript files.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        root: { type: "string", description: "Absolute path to the project root" },
+        type: {
+          type: "string",
+          description:
+            "Exact exported name of the type to look up (e.g. 'FileNode'). Omit to get the full type inventory.",
+        },
+      },
+      required: ["root"],
+    },
+  },
+  {
+    name: "get_module_responsibility",
+    description:
+      "Return what each file is responsible for: its semantic role, JSDoc description (when present), exported symbol names, and which feature hub it belongs to. Pass specific paths to filter, or omit paths to get all files. Requires a prior analyze() call.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        root: { type: "string", description: "Absolute path to the project root" },
+        paths: {
+          type: "array",
+          items: { type: "string" },
+          description: "Project-relative file paths to include. Omit to return all files.",
+        },
+        minOutDegree: {
+          type: "number",
+          description: "Min imports for a file to qualify as a feature hub (default: 5).",
+        },
+      },
+      required: ["root"],
+    },
+  },
+  {
+    name: "get_feature_graph",
+    description:
+      "Group files by domain: returns which files each feature hub (high-import orchestrator) transitively owns. Each file is assigned to the most specific hub that can reach it (lowest out-degree wins). Use this instead of a full query when answering 'what files are in the X feature/module?' — typically 85–95% fewer tokens than a full graph query.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        root: { type: "string", description: "Absolute path to the project root" },
+        minOutDegree: {
+          type: "number",
+          description:
+            "Minimum internal imports a file must have to qualify as a feature hub (default: 5).",
+        },
+      },
+      required: ["root"],
+    },
+  },
+  {
+    name: "get_call_graph",
+    description:
+      "Look up callers and callees for a named function. Returns the file that defines the function, all files/functions that call it, and all files/functions it calls. Always requires a function name — never returns the full call graph unfiltered. Call edges are only populated for TypeScript/JavaScript files.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        root: { type: "string", description: "Absolute path to the project root" },
+        function: {
+          type: "string",
+          description: "Exact name of the function to look up (e.g. 'parseFile').",
+        },
+      },
+      required: ["root", "function"],
+    },
+  },
+  {
+    name: "get_api_surface",
+    description:
+      "Build the API surface report for a project. Expands export* chains so every symbol accessible to consumers is listed (not just those directly declared in the entry file). Each export is resolved to its defining file and tagged with a kind (function/class/interface/type/enum/const). The graph is partitioned into: internalFiles (implementation reachable from entry points), privateFiles (unreachable non-test files — dead-code candidates), and testFiles (test suite). Supports multiple public entry points for libraries with sub-path exports. Requires a prior analyze() call. When entryPoints is omitted, auto-detects all entry points from package.json exports/main/module.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        root: { type: "string", description: "Absolute path to the project root" },
+        entryPoints: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Project-relative paths of public entry points (e.g. ['src/index.ts', 'src/utils.ts']). Omit to auto-detect from package.json exports / main / module fields.",
+        },
+      },
+      required: ["root"],
     },
   },
   {

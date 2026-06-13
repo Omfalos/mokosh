@@ -1,5 +1,13 @@
+/** Session-scoped graph cache keyed by root directory, shared across MCP tool calls in one session. */
 import type { MokoshConfig } from "../config";
-import { createImportMap, createWorkspaceGraph, type Graph, type WorkspaceGraph } from "../index";
+import {
+  buildChangeImpactCache,
+  type ChangeImpactCache,
+  createImportMap,
+  createWorkspaceGraph,
+  type Graph,
+  type WorkspaceGraph,
+} from "../index";
 
 /**
  * Per-session state keyed by absolute project root path.
@@ -15,6 +23,7 @@ export class SessionState {
   private readonly graphs = new Map<string, Graph>();
   private readonly configs = new Map<string, MokoshConfig>();
   private readonly workspaceGraphs = new Map<string, WorkspaceGraph>();
+  private readonly changeImpactCaches = new Map<string, ChangeImpactCache>();
 
   /**
    * @description Returns `true` if config has already been loaded and applied for `root` this session.
@@ -112,9 +121,25 @@ export class SessionState {
   }
 
   /**
-   * @description Drops the cached graph and workspace graph for `root`, forcing the next
-   *   `analyze` call to rebuild from disk. Config is preserved. Use after editing source
-   *   files mid-session to ensure subsequent queries reflect the updated state.
+   * @description Returns the change impact cache for `root`, building it lazily on first access.
+   *   The cache pre-computes all incoming traversals so `get_change_impact` queries are O(1).
+   *   Requires a prior `analyze` call to ensure the graph is available.
+   * @param root - Absolute project root path.
+   * @returns The `ChangeImpactCache` for this root.
+   */
+  getOrBuildChangeImpact(root: string): ChangeImpactCache {
+    const existing = this.changeImpactCaches.get(root);
+    if (existing) return existing;
+    const graph = this.require(root);
+    const cache = buildChangeImpactCache(graph);
+    this.changeImpactCaches.set(root, cache);
+    return cache;
+  }
+
+  /**
+   * @description Drops the cached graph, workspace graph, and change impact cache for `root`,
+   *   forcing the next `analyze` call to rebuild from disk. Config is preserved. Use after
+   *   editing source files mid-session to ensure subsequent queries reflect the updated state.
    * @param root - Absolute path of the project root to invalidate.
    * @returns `true` if a cached graph existed and was removed, `false` if nothing was cached.
    */
@@ -122,6 +147,7 @@ export class SessionState {
     const had = this.graphs.has(root) || this.workspaceGraphs.has(root);
     this.graphs.delete(root);
     this.workspaceGraphs.delete(root);
+    this.changeImpactCaches.delete(root);
     return had;
   }
 }

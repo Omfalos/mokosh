@@ -1,5 +1,4 @@
 import { describe, expect, test, vi } from "vitest";
-import type { WorkspacePackage } from "../graph/workspace";
 import { WorkspaceGraph } from "../graph/workspace-model";
 import { Graph } from "../index";
 import type { SerializedGraph } from "../types/graph";
@@ -99,7 +98,7 @@ function makeCache(): SessionState {
 }
 
 function parse(result: { content: Array<{ type: string; text: string }> }): unknown {
-  return JSON.parse(result.content[0]!.text);
+  return JSON.parse(result.content[0]?.text ?? "");
 }
 
 describe("handleAnalyze", () => {
@@ -231,7 +230,9 @@ describe("handleDetectFeatures", () => {
     expect(Array.isArray(data.features)).toBe(true);
     expect(data.count).toBe(data.features.length);
     for (let i = 1; i < data.features.length; i++) {
-      expect(data.features[i - 1]!.outDegree).toBeGreaterThanOrEqual(data.features[i]!.outDegree);
+      expect(data.features[i - 1]?.outDegree ?? 0).toBeGreaterThanOrEqual(
+        data.features[i]?.outDegree ?? 0,
+      );
     }
   });
 });
@@ -402,8 +403,10 @@ describe("handleGetWorkspacePackages", () => {
     expect(data.monorepoType).toBe("pnpm");
     expect(data.packageCount).toBe(2);
 
-    const shared = data.packages.find((p) => p.name === "@org/shared")!;
-    const app = data.packages.find((p) => p.name === "@org/app")!;
+    const shared = data.packages.find(
+      (p) => p.name === "@org/shared",
+    ) as (typeof data.packages)[number];
+    const app = data.packages.find((p) => p.name === "@org/app") as (typeof data.packages)[number];
 
     expect(shared.nodeCount).toBe(1);
     expect(shared.dependsOn).toEqual([]);

@@ -1,3 +1,4 @@
+/** Monorepo detector for pnpm workspaces (pnpm-workspace.yaml). */
 import fs from "node:fs";
 import path from "node:path";
 import yaml from "js-yaml";

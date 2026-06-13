@@ -1,3 +1,4 @@
+/** Parses command-line arguments into a structured ParsedArgs object. */
 import path from "node:path";
 import { DEFAULT_CACHE_DIR, DEFAULT_CACHE_FILE, Flag } from "./const";
 
@@ -33,7 +34,7 @@ export interface ParsedArgs {
 function resolveRootDir(argv: string[]): string {
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === Flag.Root && argv[i + 1]) {
-      return path.resolve(argv[i + 1]!);
+      return path.resolve(argv[i + 1] as string);
     }
   }
   return process.cwd();

@@ -1,3 +1,4 @@
+/** Parses Python source files using the Lezer parser to extract import edges, exports, and tag annotations. */
 import path from "node:path";
 import type { SyntaxNode } from "@lezer/common";
 import { parser } from "@lezer/python";
@@ -95,7 +96,8 @@ function extractImportEdges(node: SyntaxNode, src: string, filePath: string): Im
  *   absolute, relative (. / .. / ...), dotted module paths, star, aliases.
  */
 function extractFromImport(node: SyntaxNode, src: string, filePath: string): ImportEdge[] {
-  const fromKw = node.firstChild!;
+  const fromKw = node.firstChild;
+  if (!fromKw) return [];
 
   // Find the `import` keyword that splits module from names
   let importKw: SyntaxNode | null = fromKw.nextSibling;
@@ -151,8 +153,8 @@ function extractBareImport(node: SyntaxNode, src: string, filePath: string): Imp
       // Collect possibly dotted module name: os + . + path → "os.path"
       let modName = src.slice(c.from, c.to);
       while (c.nextSibling?.name === "." && c.nextSibling.nextSibling?.name === "VariableName") {
-        c = c.nextSibling.nextSibling!;
-        modName += "." + src.slice(c.from, c.to);
+        c = c.nextSibling.nextSibling as SyntaxNode;
+        modName += `.${src.slice(c.from, c.to)}`;
       }
       // Skip optional `as alias`
       if (c.nextSibling?.name === "as") {

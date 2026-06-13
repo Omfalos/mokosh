@@ -1,3 +1,4 @@
+/** CLI command: lists files unreachable from the entry points (candidates for deletion). */
 import path from "node:path";
 import { getAllProjectFiles } from "../../index";
 import type { CommandContext } from "./types";

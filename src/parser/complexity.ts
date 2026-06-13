@@ -1,3 +1,4 @@
+/** Computes McCabe cyclomatic complexity and cognitive complexity for TypeScript/JavaScript source files. */
 import ts from "typescript";
 
 /**
@@ -107,9 +108,7 @@ export function computeComplexity(sourceFile: ts.SourceFile): {
     // Nested functions and lambdas increase nesting for their body
     const isNestedFn =
       depth > 0 &&
-      (ts.isFunctionDeclaration(node) ||
-        ts.isFunctionExpression(node) ||
-        ts.isArrowFunction(node));
+      (ts.isFunctionDeclaration(node) || ts.isFunctionExpression(node) || ts.isArrowFunction(node));
     if (isNestedFn) {
       cognitiveComplexity += 1 + depth;
       ts.forEachChild(node, (child) => walkCognitive(child, depth + 1, false));

@@ -1,3 +1,4 @@
+/** Parses Go source files using the Lezer parser to extract import paths and tag annotations. */
 import path from "node:path";
 import { parser } from "@lezer/go";
 import type { ExportedSymbol, ImportEdge } from "../../types/node";
@@ -32,10 +33,10 @@ export function parseGo(filePath: string, content: string): ParseResult {
         if (tagM?.[1]) tags.add(tagM[1]);
 
         const newBuild = text.match(BUILD_NEW_RE);
-        if (newBuild) extractBuildTokens(newBuild[1]!, buildTags);
+        if (newBuild) extractBuildTokens(newBuild[1] as string, buildTags);
 
         const oldBuild = text.match(BUILD_OLD_RE);
-        if (oldBuild) extractBuildTokens(oldBuild[1]!, buildTags);
+        if (oldBuild) extractBuildTokens(oldBuild[1] as string, buildTags);
         break;
       }
 
