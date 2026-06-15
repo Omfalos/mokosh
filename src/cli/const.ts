@@ -18,6 +18,15 @@ export enum Flag {
   Silent = "--silent",
   QueryHelp = "--query-help",
   Help = "--help",
+  TypeGraph = "--type-graph",
+  TypeFilter = "--type",
+  ModuleResponsibility = "--module-responsibility",
+  FilterPaths = "--paths",
+  MinOutDegree = "--min-out-degree",
+  FeatureGraph = "--feature-graph",
+  CallGraph = "--call-graph",
+  FunctionName = "--function",
+  ApiSurface = "--api-surface",
 }
 
 export const DEFAULT_CACHE_DIR = "mokosh-cache";

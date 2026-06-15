@@ -23,6 +23,15 @@ export interface ParsedArgs {
   queryHelp: boolean;
   entryPoints: string[];
   help: boolean;
+  typeGraph: boolean;
+  typeFilter: string | undefined;
+  moduleResponsibility: boolean;
+  filterPaths: string[] | undefined;
+  minOutDegree: number | undefined;
+  featureGraph: boolean;
+  callGraph: boolean;
+  functionName: string | undefined;
+  apiSurface: boolean;
 }
 
 /**
@@ -72,6 +81,15 @@ export function parseArgs(argv: string[]): ParsedArgs {
     queryHelp: false,
     entryPoints: [],
     help: argv.length === 0 || argv.includes(Flag.Help),
+    typeGraph: false,
+    typeFilter: undefined,
+    moduleResponsibility: false,
+    filterPaths: undefined,
+    minOutDegree: undefined,
+    featureGraph: false,
+    callGraph: false,
+    functionName: undefined,
+    apiSurface: false,
   };
 
   for (let i = 0; i < argv.length; i++) {
@@ -147,6 +165,45 @@ export function parseArgs(argv: string[]): ParsedArgs {
         break;
       case Flag.QueryHelp:
         result.queryHelp = true;
+        break;
+      case Flag.TypeGraph:
+        result.typeGraph = true;
+        break;
+      case Flag.TypeFilter:
+        if (next) {
+          result.typeFilter = next;
+          i++;
+        }
+        break;
+      case Flag.ModuleResponsibility:
+        result.moduleResponsibility = true;
+        break;
+      case Flag.FilterPaths:
+        if (next) {
+          result.filterPaths = next.split(",").map((p) => p.trim());
+          i++;
+        }
+        break;
+      case Flag.MinOutDegree:
+        if (next) {
+          result.minOutDegree = parseInt(next, 10);
+          i++;
+        }
+        break;
+      case Flag.FeatureGraph:
+        result.featureGraph = true;
+        break;
+      case Flag.CallGraph:
+        result.callGraph = true;
+        break;
+      case Flag.FunctionName:
+        if (next) {
+          result.functionName = next;
+          i++;
+        }
+        break;
+      case Flag.ApiSurface:
+        result.apiSurface = true;
         break;
       default:
         if (arg && !arg.startsWith("--")) {

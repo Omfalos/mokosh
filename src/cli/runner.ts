@@ -2,13 +2,19 @@
 import { applyConfig, Graph } from "../index";
 import { parseArgs } from "./args";
 import { run as runAffectedTests } from "./commands/affected-tests";
+import { run as runApiSurface } from "./commands/api-surface";
+import { run as runCallGraph } from "./commands/call-graph";
 import { run as runCallers } from "./commands/callers";
 import { run as runCheckCycles } from "./commands/check-cycles";
 import { run as runDetectFeatures } from "./commands/detect-features";
+import { run as runFeatureGraph } from "./commands/feature-graph";
 import { run as runFindUncovered } from "./commands/find-uncovered";
 import { run as runFindUnused } from "./commands/find-unused";
 import { run as runGraphOutput } from "./commands/graph-output";
+import { run as runModuleResponsibility } from "./commands/module-responsibility";
 import { run as runProposeTags } from "./commands/propose-tags";
+import { run as runTypeGraph } from "./commands/type-graph";
+import type { CommandHandler } from "./commands/types";
 import { resolveConfig } from "./config";
 import { buildGraph, loadGraphFromCache, saveGraphToCache } from "./graph-loader";
 import { HELP_TEXT, QUERY_HELP_TEXT } from "./help";
@@ -49,9 +55,26 @@ export async function run(): Promise<void> {
     featureThreshold,
     query: queryStr,
     mermaid: mermaidOutput,
+    typeGraph,
+    typeFilter,
+    moduleResponsibility,
+    filterPaths,
+    minOutDegree,
+    featureGraph,
+    callGraph,
+    functionName,
+    apiSurface,
   } = parsed;
 
-  const autoScan = proposeTags || affectedTests || callers || findUncovered;
+  const autoScan =
+    proposeTags ||
+    affectedTests ||
+    callers ||
+    findUncovered ||
+    typeGraph ||
+    moduleResponsibility ||
+    callGraph ||
+    apiSurface;
 
   let graph: Graph = loadGraphFromCache(resolvedCachePath) ?? new Graph(new Map());
 
@@ -80,6 +103,7 @@ export async function run(): Promise<void> {
   const ctx = {
     graph,
     rootDir,
+    entryPoints: resolvedEntryPoints.map((p) => p.replace(rootDir + "/", "")),
     scanOptions,
     rawConfig: config.rawConfig,
     featureThreshold,
@@ -88,23 +112,27 @@ export async function run(): Promise<void> {
     plain,
     excludeTests,
     file,
+    typeFilter,
+    filterPaths,
+    minOutDegree,
+    functionName,
   };
 
-  if (proposeTags) {
-    await runProposeTags(ctx);
-  } else if (affectedTests) {
-    await runAffectedTests(ctx);
-  } else if (detectFeatures) {
-    await runDetectFeatures(ctx);
-  } else if (findUnused) {
-    await runFindUnused(ctx);
-  } else if (checkCycles) {
-    await runCheckCycles(ctx);
-  } else if (findUncovered) {
-    await runFindUncovered(ctx);
-  } else if (callers) {
-    await runCallers(ctx);
-  } else {
-    await runGraphOutput(ctx);
-  }
+  const commands: Array<[boolean, CommandHandler]> = [
+    [proposeTags, runProposeTags],
+    [affectedTests, runAffectedTests],
+    [detectFeatures, runDetectFeatures],
+    [findUnused, runFindUnused],
+    [checkCycles, runCheckCycles],
+    [findUncovered, runFindUncovered],
+    [callers, runCallers],
+    [typeGraph, runTypeGraph],
+    [moduleResponsibility, runModuleResponsibility],
+    [featureGraph, runFeatureGraph],
+    [callGraph, runCallGraph],
+    [apiSurface, runApiSurface],
+  ];
+
+  const handler = commands.find(([flag]) => flag)?.[1] ?? runGraphOutput;
+  await handler(ctx);
 }

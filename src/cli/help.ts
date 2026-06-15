@@ -14,6 +14,15 @@ Options:
   --find-unused               Find files that are not reachable from entry points
   --exclude-tests             Exclude test files from --find-unused output
   --check-cycles              Check for circular dependencies; exits non-zero if found (CI gate)
+  --type-graph                Output type-level graph (interfaces, classes, enums, type aliases)
+  --type <name>               Filter --type-graph to a single type name
+  --module-responsibility     Output each file's semantic role, description, and exports
+  --paths <a,b,...>           Comma-separated file paths to filter --module-responsibility output
+  --min-out-degree <N>        Min internal imports for hub detection (--module-responsibility, --feature-graph)
+  --feature-graph             Group files into feature domains under their hub orchestrators
+  --call-graph                Look up callers and callees for a named function
+  --function <name>           Function name to look up with --call-graph
+  --api-surface               Output the public API surface (expands export * chains)
   --silent                    Suppress progress output on stderr
   --query <query>             Filter output using a query (e.g., category:logic,tag:auth)
   --query-help                Show all supported query filter keys and examples
