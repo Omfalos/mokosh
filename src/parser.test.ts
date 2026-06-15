@@ -245,3 +245,54 @@ require './b'`;
     expect(result.imports.length).toBe(0);
   });
 });
+
+describe("call edge collection", () => {
+  test("collects call edges from top-level exported functions", async () => {
+    const content = `
+      import { parseFile } from './parser';
+      export function build() { parseFile('p', 's'); }
+    `;
+    const result = await parseFile("builder.ts", content);
+    const edges = result.rawCallEdges ?? [];
+    expect(edges.some((e) => e.from === "build" && e.to === "parseFile")).toBe(true);
+  });
+
+  test("collects call edges from class methods", async () => {
+    const content = `
+      import { parseFile } from './parser';
+      import { resolveImports } from './resolver';
+      export class GraphBuilder {
+        async build() { const r = await parseFile('p', 's'); return r; }
+        resolve() { return resolveImports([]); }
+      }
+    `;
+    const result = await parseFile("builder.ts", content);
+    const edges = result.rawCallEdges ?? [];
+    expect(edges.some((e) => e.from === "GraphBuilder.build" && e.to === "parseFile")).toBe(true);
+    expect(edges.some((e) => e.from === "GraphBuilder.resolve" && e.to === "resolveImports")).toBe(
+      true,
+    );
+  });
+
+  test("collects call edges from class constructor", async () => {
+    const content = `
+      import { initCache } from './cache';
+      export class Server {
+        constructor() { initCache(); }
+      }
+    `;
+    const result = await parseFile("server.ts", content);
+    const edges = result.rawCallEdges ?? [];
+    expect(edges.some((e) => e.from === "Server.constructor" && e.to === "initCache")).toBe(true);
+  });
+
+  test("does not produce call edges for files with no imports", async () => {
+    const content = `
+      export class Standalone {
+        run() { console.log('hi'); }
+      }
+    `;
+    const result = await parseFile("standalone.ts", content);
+    expect(result.rawCallEdges ?? []).toHaveLength(0);
+  });
+});

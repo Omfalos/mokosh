@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
-import type { CallEdge, FileNode } from "../types/node";
-import { queryCallGraph } from "./call-graph";
-import { Graph } from "./model";
+import type { CallEdge, FileNode } from "../../types/node";
+import { Graph } from "../model";
+import { queryCallGraph } from "./index";
 
 function makeNode(p: string, exports: string[] = [], callEdges: CallEdge[] = []): FileNode {
   return {
@@ -125,5 +125,22 @@ describe("queryCallGraph", () => {
     ]);
     const result = queryCallGraph(graph, "parseFile");
     expect(result.callers).toHaveLength(0);
+  });
+
+  test("finds callers from class methods using ClassName.method format", () => {
+    const graph = makeGraph([
+      makeNode("src/parser.ts", ["parseFile"]),
+      makeNode(
+        "src/builder.ts",
+        [],
+        [{ from: "GraphBuilder.build", to: "parseFile", toFile: "src/parser.ts" }],
+      ),
+    ]);
+    const result = queryCallGraph(graph, "parseFile");
+    expect(result.callers).toHaveLength(1);
+    expect(result.callers[0]).toEqual({
+      file: "src/builder.ts",
+      callerFunction: "GraphBuilder.build",
+    });
   });
 });

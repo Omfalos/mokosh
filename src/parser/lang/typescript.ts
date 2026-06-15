@@ -494,10 +494,11 @@ function hasExportModifier(node: ts.Node): boolean {
 
 /**
  * @description Builds a map of imported symbol names to their module specifiers, then walks
- *   every top-level exported function body to collect caller→callee→specifier triples.
- *   Populates `ctx.rawCallEdges` in place; skipped entirely for test files.
- * @param ctx - The parse context whose `rawCallEdges` array is populated.
- * @param sourceFile - The TypeScript source file AST used to enumerate statements.
+ *   every top-level exported function body and every class method body to collect
+ *   caller→callee→specifier triples. Class method edges use `ClassName.methodName` as
+ *   the `from` field. Populates `ctx.rawCallEdges` in place; skipped entirely for test files.
+ * @param {ParseContext} ctx - The parse context whose `rawCallEdges` array is populated.
+ * @param {ts.SourceFile} sourceFile - The TypeScript source file AST used to enumerate statements.
  */
 function collectRawCallEdges(ctx: ParseContext, sourceFile: ts.SourceFile): void {
   const edges: RawCallEdge[] = ctx.rawCallEdges ?? [];
@@ -520,10 +521,37 @@ function collectRawCallEdges(ctx: ParseContext, sourceFile: ts.SourceFile): void
 
   for (const stmt of sourceFile.statements) {
     const fnName = getTopLevelExportedFunctionName(stmt);
-    if (!fnName) continue;
-    const body = getFunctionBody(stmt);
-    if (!body) continue;
-    walkCallExpressions(body, fnName, importSymbolMap, edges);
+    if (fnName) {
+      const body = getFunctionBody(stmt);
+      if (body) walkCallExpressions(body, fnName, importSymbolMap, edges);
+      continue;
+    }
+    if (ts.isClassDeclaration(stmt) && stmt.name) {
+      collectClassMethodCallEdges(stmt, importSymbolMap, edges);
+    }
+  }
+}
+
+/**
+ * @description Walks every method and constructor in a class declaration and records
+ *   call edges for any imported symbol invocations found in their bodies.
+ *   Edge `from` fields are formatted as `ClassName.methodName` (or `ClassName.constructor`).
+ * @param {ts.ClassDeclaration} classDecl - The class declaration to walk.
+ * @param {Map<string, string>} importSymbolMap - Maps local import names to their module specifiers.
+ * @param {RawCallEdge[]} edges - Accumulator array that receives discovered edges.
+ */
+function collectClassMethodCallEdges(
+  classDecl: ts.ClassDeclaration,
+  importSymbolMap: Map<string, string>,
+  edges: RawCallEdge[],
+): void {
+  const className = classDecl.name!.text;
+  for (const member of classDecl.members) {
+    if (ts.isMethodDeclaration(member) && member.body && ts.isIdentifier(member.name)) {
+      walkCallExpressions(member.body, `${className}.${member.name.text}`, importSymbolMap, edges);
+    } else if (ts.isConstructorDeclaration(member) && member.body) {
+      walkCallExpressions(member.body, `${className}.constructor`, importSymbolMap, edges);
+    }
   }
 }
 

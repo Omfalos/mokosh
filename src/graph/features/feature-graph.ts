@@ -1,7 +1,7 @@
 /** Builds a FeatureGraph grouping graph nodes into feature domains under their respective hub files. */
+import type { FileNode } from "../../types/node";
 import type { Graph } from "../model";
-import type { FeatureDetectionOptions } from "./index";
-import { detectFeatures } from "./index";
+import { detectFeatures, type FeatureDetectionOptions, type FeatureInfo } from "./index";
 
 /**
  * A group of files that a single feature hub transitively imports.
@@ -32,21 +32,34 @@ export interface FeatureGraph {
 }
 
 /**
- * Builds a domain-clustered view of the import graph by grouping files under
- * the most specific feature hub that can reach them.
- *
- * Assignment rule: each file is assigned to the hub with the lowest out-degree
- * that can transitively reach it. This favours specific, focused hubs
- * (e.g. `src/mcp/server.ts`) over broad aggregators (e.g. `src/index.ts`).
- *
- * @param graph - The import graph to cluster.
- * @param options - Controls which files qualify as feature hubs.
- * @returns A `FeatureGraph` with one domain per hub and an `unassigned` list.
+ * Options for `buildFeatureGraph`. Extends `FeatureDetectionOptions` so callers
+ * can pass `{ minOutDegree }` without needing to know this type explicitly.
  */
-export function buildFeatureGraph(graph: Graph, options?: FeatureDetectionOptions): FeatureGraph {
-  const hubs = detectFeatures(graph.nodes, options);
+export interface FeatureGraphOptions extends FeatureDetectionOptions {
+  /**
+   * Comparator used to pick the "best" hub when a file is reachable from
+   * multiple hubs. Return a negative number when `a` should win over `b`.
+   * @default ascending out-degree (most-specific hub wins)
+   */
+  hubComparator?: (a: FeatureInfo, b: FeatureInfo) => number;
+  /**
+   * Override the hub-detection function. Defaults to `detectFeatures`.
+   * Inject a custom implementation for testing or alternative hub strategies.
+   */
+  detectFn?: (
+    nodes: Map<string, FileNode>,
+    options?: FeatureDetectionOptions,
+  ) => Map<string, FeatureInfo>;
+}
 
-  // Pass 1: collect all files reachable from each hub (no exclusions yet).
+const DEFAULT_HUB_COMPARATOR = (a: FeatureInfo, b: FeatureInfo) => a.outDegree - b.outDegree;
+
+/**
+ * @param graph - The import graph to cluster.
+ * @param hubs - Detected feature hub files.
+ * @returns Map from hub path to the set of files reachable from that hub (hub itself excluded).
+ */
+function collectReachable(graph: Graph, hubs: Map<string, FeatureInfo>): Map<string, Set<string>> {
   const reachable = new Map<string, Set<string>>();
   for (const hub of hubs.values()) {
     const files = new Set<string>();
@@ -60,24 +73,44 @@ export function buildFeatureGraph(graph: Graph, options?: FeatureDetectionOption
     );
     reachable.set(hub.path, files);
   }
+  return reachable;
+}
 
-  // Pass 2: assign each non-hub file to the hub with the lowest out-degree
-  // that can reach it (most specific hub wins).
+/**
+ * @param nodes - All graph nodes.
+ * @param hubs - Detected feature hub files.
+ * @param reachable - Pre-computed reachability sets from `collectReachable`.
+ * @param comparator - Tiebreak function; lower return value means the hub wins.
+ * @returns Map from non-hub file path to the path of its assigned hub.
+ */
+function assignFilesToHubs(
+  nodes: Map<string, FileNode>,
+  hubs: Map<string, FeatureInfo>,
+  reachable: Map<string, Set<string>>,
+  comparator: (a: FeatureInfo, b: FeatureInfo) => number,
+): Map<string, string> {
   const fileToHub = new Map<string, string>();
-  for (const [filePath] of graph.nodes) {
-    if (hubs.has(filePath)) continue; // hubs belong to themselves, not to others
-    let bestHubPath: string | null = null;
-    let bestOutDegree = Infinity;
+  for (const [filePath] of nodes) {
+    if (hubs.has(filePath)) continue;
+    let bestHub: FeatureInfo | null = null;
     for (const hub of hubs.values()) {
-      if (reachable.get(hub.path)?.has(filePath) && hub.outDegree < bestOutDegree) {
-        bestHubPath = hub.path;
-        bestOutDegree = hub.outDegree;
-      }
+      if (!reachable.get(hub.path)?.has(filePath)) continue;
+      if (!bestHub || comparator(hub, bestHub) < 0) bestHub = hub;
     }
-    if (bestHubPath) fileToHub.set(filePath, bestHubPath);
+    if (bestHub) fileToHub.set(filePath, bestHub.path);
   }
+  return fileToHub;
+}
 
-  // Pass 3: build FeatureDomain per hub.
+/**
+ * @param hubs - Detected feature hub files.
+ * @param fileToHub - Assignment map from `assignFilesToHubs`.
+ * @returns Map from feature name to its `FeatureDomain`.
+ */
+function buildDomains(
+  hubs: Map<string, FeatureInfo>,
+  fileToHub: Map<string, string>,
+): Map<string, FeatureDomain> {
   const features = new Map<string, FeatureDomain>();
   for (const hub of hubs.values()) {
     const featureName = hub.tag.replace("feature:", "");
@@ -87,14 +120,48 @@ export function buildFeatureGraph(graph: Graph, options?: FeatureDetectionOption
     }
     features.set(featureName, { hub: hub.path, outDegree: hub.outDegree, files });
   }
+  return features;
+}
 
-  // Pass 4: collect unassigned files (not a hub and not claimed by any hub).
+/**
+ * @param nodes - All graph nodes.
+ * @param hubs - Detected feature hub files.
+ * @param fileToHub - Assignment map from `assignFilesToHubs`.
+ * @returns File paths that are neither a hub nor claimed by any hub.
+ */
+function collectUnassigned(
+  nodes: Map<string, FileNode>,
+  hubs: Map<string, FeatureInfo>,
+  fileToHub: Map<string, string>,
+): string[] {
   const unassigned: string[] = [];
-  for (const filePath of graph.nodes.keys()) {
+  for (const filePath of nodes.keys()) {
     if (!hubs.has(filePath) && !fileToHub.has(filePath)) {
       unassigned.push(filePath);
     }
   }
+  return unassigned;
+}
 
-  return { features, unassigned };
+/**
+ * Builds a domain-clustered view of the import graph by grouping files under
+ * the most specific feature hub that can reach them.
+ *
+ * Assignment rule: each file is assigned to the hub with the lowest out-degree
+ * that can transitively reach it (overridable via `options.hubComparator`).
+ *
+ * @param graph - The import graph to cluster.
+ * @param options - Controls hub detection threshold, assignment comparator, and detectFn override.
+ * @returns A `FeatureGraph` with one domain per hub and an `unassigned` list.
+ */
+export function buildFeatureGraph(graph: Graph, options?: FeatureGraphOptions): FeatureGraph {
+  const detectFn = options?.detectFn ?? detectFeatures;
+  const comparator = options?.hubComparator ?? DEFAULT_HUB_COMPARATOR;
+  const hubs = detectFn(graph.nodes, options);
+  const reachable = collectReachable(graph, hubs);
+  const fileToHub = assignFilesToHubs(graph.nodes, hubs, reachable, comparator);
+  return {
+    features: buildDomains(hubs, fileToHub),
+    unassigned: collectUnassigned(graph.nodes, hubs, fileToHub),
+  };
 }
