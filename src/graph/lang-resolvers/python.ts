@@ -1,7 +1,7 @@
 /** Language resolver for Python: maps bare module specifiers to local .py files or __init__.py packages. */
 import fs from "node:fs";
 import path from "node:path";
-import type { LangResolver, ResolvedImport } from "./index";
+import type { LangResolver, ResolvedImport } from "./types";
 
 /**
  * @description Resolves bare Python module names (e.g. `mymodule` or `mypackage.sub`)

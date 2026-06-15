@@ -4,62 +4,6 @@ Findings from a full MCP tool audit and AI/senior/staff engineering assessment (
 
 ---
 
-## P0 — Bug
-
-### 1. Call edge collection misses class methods
-
-**Files:** `src/parser/lang/typescript.ts:502` (`collectRawCallEdges`), `src/graph/builder.ts`
-
-**Symptom:** `get_callers` and `get_call_graph` return zero callers for any file whose consumers call it from inside a class method. For example, `src/parser.ts` shows 0 callers despite being called by `GraphBuilder.tryParse()` in `src/graph/builder.ts`.
-
-**Root cause:** `getTopLevelExportedFunctionName` (line 536) only matches `export function foo` and `export const foo = () => ...` at the top level. Class methods (`export class Foo { bar() { ... } }`) are never walked, so files that are primarily class-based produce zero call edges.
-
-**Fix:**
-- Extend `collectRawCallEdges` to also walk `ClassDeclaration → MethodDeclaration` bodies.
-- Attribute edges as `ClassName.methodName` for the `from` field.
-- Add a regression test: a file exporting a class whose method calls an imported function must produce call edges.
-
----
-
-## P1 — Correctness / trust issues
-
-### 2. Cycles in `src/graph/lang-resolvers/`
-
-**Files:** `src/graph/lang-resolvers/index.ts`, `src/graph/resolver.ts`, `src/graph/lang-resolvers/go.ts`, `src/graph/lang-resolvers/lua.ts`, `src/graph/lang-resolvers/python.ts`
-
-**Symptom:** `analyze` always reports four cycles involving `lang-resolvers/index.ts ↔ resolver.ts` and `index.ts ↔ {go,lua,python}.ts`. A tool whose primary feature is cycle detection should not have cycles in its own source.
-
-**Fix:**
-- `resolver.ts` should not import from `lang-resolvers/index.ts`.
-- The index should only aggregate resolvers; the thing it aggregates should not import back from it.
-- Break the cycle by injecting resolvers via a registry or constructor parameter rather than a static import.
-
----
-
-### 3. `privateFiles` label in `get_api_surface` is misleading
-
-**File:** `src/mcp/handlers.ts:549`, `src/graph/api-surface.ts`
-
-**Symptom:** `get_api_surface` returns `src/cli/` and `src/mcp/` under `privateFiles`. These are major consumers of the library, not dead code. Anyone skimming the output will incorrectly flag them for deletion.
-
-**Fix:**
-- Rename the field to `unreachableFromEntry` (or `separateConsumers`).
-- Or add a `note` alongside: `"files not reachable from the given entry points — may be separate consumers, not dead code"`.
-
----
-
-### 4. `find_uncovered` returns noise when no coverage report is configured
-
-**File:** `src/mcp/handlers.ts:277–281`
-
-**Symptom:** Without a `coverageReportPath` in `mokosh.config`, every file returns `coveragePct: null`. Line 279 treats `null` as `0%` (`n.coveragePct ?? 0`), so all 97 non-test files appear "uncovered". The output looks like a real finding but is entirely meaningless.
-
-**Fix (two parts):**
-- Line 279: exclude nodes where `coveragePct` is `null`/`undefined` before the threshold check — do not coerce to 0.
-- If `coverageMap` is empty (no report loaded), return early with `{ error: "No coverage data available. Set coverageReportPath in mokosh.config and run analyze again." }` rather than a misleading file list.
-
----
-
 ## P2 — Usability / reliability
 
 ### 5. Stale graph cache has no detection or warning
@@ -148,14 +92,71 @@ Separate ticket from #4 because it is a one-line fix independent of the early-re
 
 ---
 
+---
+
+## P0 — Pre-publish blockers (architect review, 2026-06-15)
+
+### 12. Public API surface leaks all internals via `export *`
+
+**File:** `src/index.ts`
+
+**Symptom:** `export * from "./graph"` and `export * from "./parser"` mass-re-export every internal type and function. Anything exported without `@internal` becomes semver-protected at v1. This makes API stabilisation and future refactors extremely painful.
+
+**Fix:**
+- Audit every symbol currently re-exported; tag each as `@public`, `@beta`, or `@internal` in JSDoc.
+- Replace `export *` with explicit named exports for the stable public surface only.
+- Keep internal types accessible for testing via deep imports (`mokosh/internal`) guarded by a `@internal` convention.
+
+---
+
+### 13. Go local-resolution is silently wrong
+
+**File:** `src/graph/lang-resolvers/go.ts`, `README.md`
+
+**Symptom:** The Go parser treats all imports as external, including intra-project packages. The dependency graph for Go projects contains no local edges — the tool gives confidently wrong structural output without any warning.
+
+**Fix (choose one):**
+- **Remove Go from supported languages** until proper resolution is implemented.
+- **Warn loudly**: add `"warning": "Go local package resolution is not supported — all imports are classified as external"` to every `analyze` response when Go files are present.
+- **Implement correctly** via `go list -json ./...` subprocess (noted in roadmap as the right approach).
+
+---
+
+### 14. Consolidate overlapping MCP tools
+
+**File:** `src/mcp/tools.ts`, `src/mcp/handlers.ts`
+
+**Symptom:** `get_affected` and `get_change_impact` do the same traversal with different caching strategies. `propose_tags` and `propose_affected_tests` run the same graph walk and differ only in output format. 20 tools before v1 increases cognitive overhead for AI agents and maintenance surface for maintainers.
+
+**Fix:**
+- Merge `get_change_impact` into `get_affected` with a `cached: true` parameter.
+- Merge `propose_affected_tests` into `propose_tags` with a `format: "paths" | "tags"` parameter.
+- Target: ~12 tools at v1.
+
+---
+
+### 15. Stale cache has no query-time detection
+
+Already tracked as **#5** above — promoted to P0 because it produces wrong answers silently, which is the highest-risk failure mode for an AI-facing tool. See #5 for the fix.
+
+---
+
+### 16. No competitive positioning statement
+
+**File:** `README.md`, `docs/prd.md`
+
+**Symptom:** The README does not answer "why not use Sourcegraph or GitHub Copilot Workspace instead?" Without this, adoption by teams who already have those tools is blocked. The PRD still describes Mokosh as a "frontend-focused" tool despite supporting 10 languages.
+
+**Fix:**
+- Add a "Why Mokosh?" section to the README: local-first, no data leaves the machine, works offline, integrates in 5 minutes via MCP, no vendor lock-in.
+- Update the PRD problem statement to reflect the actual product scope.
+
+---
+
 ## Summary table
 
 | # | Priority | File(s) | Effort |
 |---|----------|---------|--------|
-| 1 | P0 bug | `parser/lang/typescript.ts` | M |
-| 2 | P1 | `graph/lang-resolvers/` | M |
-| 3 | P1 | `graph/api-surface.ts`, `mcp/handlers.ts` | S |
-| 4 | P1 | `mcp/handlers.ts` | S |
 | 5 | P2 | `mcp/cache.ts`, all handlers | M |
 | 6 | P2 | `tags/proposer.ts`, `mcp/handlers.ts` | M |
 | 7 | P2 | `mcp/cache.ts`, `mcp/handlers.ts` | S |
@@ -163,5 +164,10 @@ Separate ticket from #4 because it is a one-line fix independent of the early-re
 | 9 | P3 | `cli/commands/affected-tests.ts`, docs | L |
 | 10 | P3 | `mcp/tools.ts` (descriptions) | XS |
 | 11 | P3 | `mcp/handlers.ts:115` | S |
+| 12 | P0 | `src/index.ts` | L |
+| 13 | P0 | `src/graph/lang-resolvers/go.ts`, `README.md` | M |
+| 14 | P0 | `src/mcp/tools.ts`, `src/mcp/handlers.ts` | M |
+| 15 | P0 | `src/mcp/cache.ts`, all handlers | M |
+| 16 | P0 | `README.md`, `docs/prd.md` | S |
 
 **Effort key:** XS < 30 min · S < 2 h · M < 1 day · L multi-day

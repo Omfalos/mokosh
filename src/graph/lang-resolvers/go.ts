@@ -1,7 +1,7 @@
 /** Language resolver for Go: maps module-local import paths to concrete .go files using go.mod. */
 import fs from "node:fs";
 import path from "node:path";
-import type { LangResolver, ResolvedImport } from "./index";
+import type { LangResolver, ResolvedImport } from "./types";
 
 /**
  * @description Resolves Go module-local import paths to concrete `.go` files by reading

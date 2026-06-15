@@ -265,6 +265,7 @@ export async function handleFindUnused(cache: SessionState, args: FindUnusedArgs
  * @description Returns non-test files whose line coverage is below the configured threshold.
  *   Threshold priority: `args.coverageThreshold` → `config.coverageThreshold` → 80.
  *   Requires a prior `analyze` call with `coverageReportPath` set in `mokosh.config`.
+ *   Returns an error when no coverage data was loaded rather than treating all files as 0%.
  * @param cache - Session state holding the cached graph and config.
  * @param args - `root` selects the graph; `coverageThreshold` overrides the config default.
  * @returns TextResponse with `{ threshold, uncovered, count }` where each entry includes file path and coverage percentage.
@@ -274,10 +275,19 @@ export function handleFindUncovered(cache: SessionState, args: FindUncoveredArgs
   const graph = cache.require(root);
   const config = cache.getConfig(root);
   const threshold = coverageThreshold ?? config?.coverageThreshold ?? 80;
+
+  const hasCoverageData = [...graph.nodes.values()].some((n) => n.coveragePct !== undefined);
+  if (!hasCoverageData) {
+    return text({
+      error:
+        "No coverage data available. Set coverageReportPath in mokosh.config and call analyze again.",
+    });
+  }
+
   const uncovered = [...graph.nodes.values()]
     .filter((n) => n.category !== "test" && n.category !== "config")
-    .filter((n) => (n.coveragePct ?? 0) < threshold)
-    .map((n) => ({ file: n.path, coveragePct: n.coveragePct ?? null }));
+    .filter((n) => n.coveragePct !== undefined && n.coveragePct < threshold)
+    .map((n) => ({ file: n.path, coveragePct: n.coveragePct as number }));
   return text({ threshold, uncovered, count: uncovered.length });
 }
 
@@ -555,11 +565,11 @@ export function handleGetCallGraph(cache: SessionState, args: GetCallGraphArgs):
 /**
  * @description Builds the API surface report for a project, expanding `export *` chains so every
  *   symbol accessible to consumers is listed. Partitions the graph into `internalFiles`,
- *   `privateFiles` (dead-code candidates), and `testFiles`. When `entryPoints` is omitted,
+ *   `unreachableFromEntry` (separate consumers or dead-code candidates), and `testFiles`. When `entryPoints` is omitted,
  *   auto-detects them from `package.json` exports/main/module fields. Requires a prior `analyze` call.
  * @param cache - Session state holding the cached graph for `root`.
  * @param args - `root` selects the graph; `entryPoints` are the public entry files (auto-detected when omitted).
- * @returns TextResponse with `{ entryPoints, publicExports, internalFiles, privateFiles, testFiles }`.
+ * @returns TextResponse with `{ entryPoints, publicExports, internalFiles, unreachableFromEntry, testFiles }`.
  */
 export function handleGetApiSurface(cache: SessionState, args: GetApiSurfaceArgs): TextResponse {
   const { root, entryPoints } = args;

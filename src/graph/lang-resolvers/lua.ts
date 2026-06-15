@@ -1,7 +1,7 @@
 /** Language resolver for Lua: converts dot-separated module names to local .lua file paths. */
 import fs from "node:fs";
 import path from "node:path";
-import type { LangResolver, ResolvedImport } from "./index";
+import type { LangResolver, ResolvedImport } from "./types";
 
 /**
  * @description Resolves Lua dot-separated module names (e.g. `utils.string`) to local files

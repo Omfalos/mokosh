@@ -64,11 +64,11 @@ describe("buildApiSurface — entry validation", () => {
     expect(() => buildApiSurface(graph, [])).toThrow("at least one entry point");
   });
 
-  test("entry point itself is excluded from internalFiles, privateFiles, and testFiles", () => {
+  test("entry point itself is excluded from internalFiles, unreachableFromEntry, and testFiles", () => {
     const graph = makeGraph([makeNode("src/index.ts")]);
     const s = buildApiSurface(graph, ["src/index.ts"]);
     expect(s.internalFiles).not.toContain("src/index.ts");
-    expect(s.privateFiles).not.toContain("src/index.ts");
+    expect(s.unreachableFromEntry).not.toContain("src/index.ts");
     expect(s.testFiles).not.toContain("src/index.ts");
   });
 });
@@ -262,20 +262,20 @@ describe("buildApiSurface — file partitioning", () => {
     expect(s.internalFiles).not.toContain("src/orphan.ts");
   });
 
-  test("privateFiles contains non-reachable non-test files", () => {
+  test("unreachableFromEntry contains non-reachable non-test files", () => {
     const graph = makeGraph([makeNode("src/index.ts"), makeNode("src/cli.ts")]);
     const s = buildApiSurface(graph, ["src/index.ts"]);
-    expect(s.privateFiles).toContain("src/cli.ts");
+    expect(s.unreachableFromEntry).toContain("src/cli.ts");
   });
 
-  test("testFiles contains unreachable test nodes, not privateFiles", () => {
+  test("testFiles contains unreachable test nodes, not unreachableFromEntry", () => {
     const graph = makeGraph([
       makeNode("src/index.ts"),
       makeNode("src/a.test.ts", { category: "test" }),
     ]);
     const s = buildApiSurface(graph, ["src/index.ts"]);
     expect(s.testFiles).toContain("src/a.test.ts");
-    expect(s.privateFiles).not.toContain("src/a.test.ts");
+    expect(s.unreachableFromEntry).not.toContain("src/a.test.ts");
   });
 
   test("all graph nodes appear in exactly one bucket", () => {
@@ -286,7 +286,12 @@ describe("buildApiSurface — file partitioning", () => {
       makeNode("src/impl.test.ts", { category: "test" }),
     ]);
     const s = buildApiSurface(graph, ["src/index.ts"]);
-    const all = new Set([...s.entryPoints, ...s.internalFiles, ...s.privateFiles, ...s.testFiles]);
+    const all = new Set([
+      ...s.entryPoints,
+      ...s.internalFiles,
+      ...s.unreachableFromEntry,
+      ...s.testFiles,
+    ]);
     for (const [p] of graph.nodes) {
       expect(all.has(p), `${p} should be in exactly one bucket`).toBe(true);
     }
@@ -303,7 +308,7 @@ describe("buildApiSurface — file partitioning", () => {
     const s = buildApiSurface(graph, ["src/index.ts"]);
     expect(s.internalFiles).toContain("src/a.ts");
     expect(s.internalFiles).toContain("src/b.ts");
-    expect(s.privateFiles).toHaveLength(0);
+    expect(s.unreachableFromEntry).toHaveLength(0);
     expect(s.testFiles).toHaveLength(0);
   });
 });

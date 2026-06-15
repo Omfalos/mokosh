@@ -6,17 +6,10 @@ import {
   type LangResolver,
   LuaLangResolver,
   PythonLangResolver,
+  type ResolvedImport,
 } from "./lang-resolvers/index";
 
-/** @description The result of resolving a single import specifier to a concrete file path. */
-export interface ResolvedImport {
-  path: string;
-  isExternal: boolean;
-  /** True when resolved to a sibling workspace package. */
-  isWorkspace?: boolean;
-  /** Package name when `isWorkspace` is true (e.g. `"@myorg/shared"`). */
-  workspacePackage?: string;
-}
+export type { ResolvedImport };
 
 /**
  * @description Contract for resolving an import specifier to an absolute file path

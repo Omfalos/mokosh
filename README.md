@@ -2,7 +2,7 @@
 
 > **Not yet published to npm.** This package is under active development. Install directly from the repository for now.
 
-Mokosh is a lightweight, AST-powered dependency graph generator for modern web and script projects. It extracts import maps from JavaScript, TypeScript, Python, CSS, SCSS, Less, Stylus, CoffeeScript, LiveScript, Lua, and Gherkin files to help AI models and developers understand code relationships efficiently.
+Mokosh is a lightweight, AST-powered dependency graph generator for modern web and script projects. It extracts import maps from JavaScript, TypeScript, Python, Go, CSS, SCSS, Less, Stylus, CoffeeScript, LiveScript, Lua, and Gherkin files to help AI models and developers understand code relationships efficiently.
 
 Designed for performance and RAG (Retrieval-Augmented Generation) workflows, Mokosh enables you to visualize your project structure, traverse dependencies, and even propose test tags based on code changes.
 
@@ -11,6 +11,7 @@ Designed for performance and RAG (Retrieval-Augmented Generation) workflows, Mok
 - **Multi-Language Support**: Robust extraction from:
     - **JavaScript/TypeScript**: static `import`, dynamic `import()`, `require()`, and re-exports.
     - **Python**: all import forms (`import X`, `from X import Y`, relative `.`/`..` imports, star imports) via `@lezer/python` AST. Test files (`test_*.py`, `*_test.py`) and test frameworks (`pytest`, `unittest`) auto-detected.
+    - **Go**: top-level declarations and `// @tag` markers via `@lezer/go` AST. All imports are treated as external (local package resolution requires `go.mod` context).
     - **CSS/SCSS/Less/Stylus**: tracks `@import` relationships.
     - **CoffeeScript/LiveScript/Lua/Gherkin**: AST-based parsing for dependencies and tags.
 - **Graph Traversal**: Programmatically explore dependencies from any entry point with depth control.
@@ -21,7 +22,7 @@ Designed for performance and RAG (Retrieval-Augmented Generation) workflows, Mok
 - **Caching**: Serialize and deserialize the graph to save computation time.
 - **Filtering & Token Saving**: Use `--query` to filter nodes and dependencies, significantly reducing the size of the output for AI models.
 - **Test Tag Proposal**: Automatically identify affected Playwright/Cucumber test tags based on `git diff`.
-- **Feature Hub Detection**: Identify architectural hub files (files that import many internal modules — orchestrators/aggregators) and surface them as `feature:<name>` tags. Prevents tag explosion when a widely-used utility changes.
+- **Feature Hub Detection**: Identify architectural hub files (files with high out-degree — orchestrators and aggregators that import many internal modules) and surface them as `feature:<name>` tags. Prevents tag explosion when a widely-used utility changes.
 - **Enriched Exports**: Named exports carry their JSDoc description, type signature, and lifecycle flags (`deprecated`, `internal`, `public`, `alpha`, `beta`) — giving AI models precise symbol-level context.
 - **Call Edges**: Beyond imports, Mokosh traces cross-file function/method calls and stores them as `callEdges` on each node.
 - **Tested-By Index**: Every logic/barrel file records which test files import it (`testedBy`), enabling instant "what tests cover this module?" queries.
@@ -51,6 +52,7 @@ Mokosh automatically detects file types and uses the appropriate parser. You can
 | JavaScript | `.js`, `.jsx` | `// @tag core` |
 | TypeScript | `.ts`, `.tsx` | `// @tag models` |
 | Python | `.py` | `# @tag auth` |
+| Go | `.go` | `// @tag service` |
 | CSS/SCSS/Less | `.css`, `.scss`, `.less` | N/A |
 | Stylus | `.styl` | N/A |
 | CoffeeScript | `.coffee` | `# @tag script` |
@@ -93,7 +95,7 @@ Propose test tags for changed files:
 npx mokosh --propose-tags src/index.ts
 ```
 
-Detect feature hub files (high in-degree):
+Detect feature hub files (high out-degree orchestrators):
 ```bash
 npx mokosh --detect-features src/index.ts
 ```
@@ -124,12 +126,16 @@ npx mokosh --query "category:logic,tag:auth" src/index.ts
 - `--propose-tags`: Use `git diff` to identify changed files and propose relevant test tags by traversing the dependency graph.
 - `--plain`: Output tags as plain text (one per line) instead of JSON. Use with `--propose-tags`.
 - `--affected-tests`: Like `--propose-tags` but outputs test file paths instead of tags — pipe directly into a test runner: `vitest $(mokosh --affected-tests)`.
-- `--detect-features`: Output files with high in-degree (feature hubs), sorted by number of importers descending.
-- `--feature-threshold <N>`: Minimum importers for a file to be a feature hub (default: `5`). Applies to `--detect-features`, `--propose-tags`, and `--affected-tests`.
+- `--detect-features`: Output files with high out-degree (feature hubs — orchestrators/aggregators that import many internal modules), sorted by out-degree descending.
+- `--feature-threshold <N>`: Minimum internal imports (out-degree) for a file to be a feature hub (default: `5`). Applies to `--detect-features`, `--propose-tags`, and `--affected-tests`.
 - `--find-unused`: Scan the project for files that are not reachable from the specified entry points.
 - `--exclude-tests`: Exclude test files from `--find-unused` output.
 - `--check-cycles`: Check for circular dependencies; exits non-zero if any are found (CI gate).
+- `--find-uncovered`: List non-test files whose line coverage is below the configured threshold (requires `coverageReportPath` in `mokosh.config.*`). Use `--feature-threshold` to override the default 80 % threshold.
+- `--callers`: List files whose exported functions call into a given file. Requires `--file <path>`. More precise than `--find-unused` because it uses call edges rather than import edges.
+- `--file <path>`: Target file for `--callers`.
 - `--query <query>`: Filter the output graph using a query string. Supported keys: `path`, `type`, `category`, `tag`, `external`, `importsFile`, `importedBy`, `minImports`, `maxImports`, `minSize`, `maxSize`, `hasDocstring`, `sort`, `limit`. Example: `category:logic,hasDocstring:false`.
+- `--query-help`: Print the full query filter reference and examples.
 - `--silent`: Suppress progress output on stderr.
 - `--help`: Show usage information.
 
@@ -156,6 +162,7 @@ console.log(graph.toMermaid());
 
 For detailed information on each process, check the following guides:
 
+### Guides
 - [Architecture Overview](./docs/architecture.md)
 - [Product Requirements Document (PRD)](./docs/prd.md)
 - [Usage Guide](./docs/usage.md)
@@ -163,5 +170,14 @@ For detailed information on each process, check the following guides:
 - [Graph Traversal](./docs/traversal.md)
 - [Test Tag Proposal](./docs/test-tags.md)
 - [Lock File Analysis](./docs/lock-files.md)
+- [MCP Server](./docs/mcp.md)
+- [Monorepo Support](./docs/monorepo.md)
+- [Roadmap](./docs/roadmap.md)
+
+### Architecture Decision Records
 - [ADR-001: AST Libraries for Style Parsers](./docs/adr-001-styles-parsing.md)
 - [ADR-002: Python Parsing with @lezer/python](./docs/adr-002-python-parsing.md)
+- [ADR-003: Call-Edge Graph — Function-Level Dependency Layer](./docs/adr-003-call-edge-graph.md)
+- [ADR-004: Type Graph — Type-Level Dependency Layer](./docs/adr-004-type-graph.md)
+- [ADR-005: Feature Graph — Domain Clustering by Hub Detection](./docs/adr-005-feature-graph.md)
+- [ADR-006: Responsibility Graph — Semantic Role Assignment](./docs/adr-006-responsibility-graph.md)

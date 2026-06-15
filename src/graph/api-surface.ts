@@ -44,13 +44,13 @@ export interface ApiSurface {
    */
   internalFiles: string[];
   /**
-   * Non-test files NOT reachable from any entry point. These are candidates for dead code —
-   * separate binaries (CLI, MCP server), config, or truly unused files.
+   * Non-test files NOT reachable from any entry point — separate consumers (CLI, MCP server),
+   * config, or truly unused files. Not automatically dead code.
    */
-  privateFiles: string[];
+  unreachableFromEntry: string[];
   /**
    * Test files in the graph that are not reachable from any entry point.
-   * Shown separately so they don't inflate the `privateFiles` dead-code signal.
+   * Shown separately so they don't inflate the `unreachableFromEntry` signal.
    */
   testFiles: string[];
 }
@@ -266,7 +266,7 @@ export function detectAllEntryPoints(graph: Graph, root: string): string[] {
  * - `entryPoints` themselves
  * - `internalFiles` — reachable from any entry point, non-test
  * - `testFiles` — not reachable from any entry point, `category === "test"`
- * - `privateFiles` — not reachable from any entry point, non-test (dead-code candidates)
+ * - `unreachableFromEntry` — not reachable from any entry point, non-test (may be separate consumers or dead code)
  *
  * @param {Graph} graph - The built dependency graph.
  * @param {string[]} entryPoints - Project-relative paths of the public entry point files.
@@ -345,8 +345,8 @@ export function buildApiSurface(graph: Graph, entryPoints: string[]): ApiSurface
   const internalFiles = [...reachable].filter((p) => !entryPoints.includes(p) && !isTestNode(p));
 
   const notReachable = [...graph.nodes.keys()].filter((p) => !reachable.has(p));
-  const privateFiles = notReachable.filter((p) => !isTestNode(p));
+  const unreachableFromEntry = notReachable.filter((p) => !isTestNode(p));
   const testFiles = notReachable.filter((p) => isTestNode(p));
 
-  return { entryPoints, publicExports, internalFiles, privateFiles, testFiles };
+  return { entryPoints, publicExports, internalFiles, unreachableFromEntry, testFiles };
 }

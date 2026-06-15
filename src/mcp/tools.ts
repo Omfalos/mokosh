@@ -339,7 +339,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "get_api_surface",
     description:
-      "Build the API surface report for a project. Expands export* chains so every symbol accessible to consumers is listed (not just those directly declared in the entry file). Each export is resolved to its defining file and tagged with a kind (function/class/interface/type/enum/const). The graph is partitioned into: internalFiles (implementation reachable from entry points), privateFiles (unreachable non-test files — dead-code candidates), and testFiles (test suite). Supports multiple public entry points for libraries with sub-path exports. Requires a prior analyze() call. When entryPoints is omitted, auto-detects all entry points from package.json exports/main/module.",
+      "Build the API surface report for a project. Expands export* chains so every symbol accessible to consumers is listed (not just those directly declared in the entry file). Each export is resolved to its defining file and tagged with a kind (function/class/interface/type/enum/const). The graph is partitioned into: internalFiles (implementation reachable from entry points), unreachableFromEntry (non-test files not reachable from any entry point — may be separate consumers like CLI/MCP, config, or dead code), and testFiles (test suite). Supports multiple public entry points for libraries with sub-path exports. Requires a prior analyze() call. When entryPoints is omitted, auto-detects all entry points from package.json exports/main/module.",
     inputSchema: {
       type: "object",
       properties: {
