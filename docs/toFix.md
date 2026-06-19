@@ -135,21 +135,28 @@ Separate ticket from #4 because it is a one-line fix independent of the early-re
 
 ---
 
-### 15. Stale cache has no query-time detection
+### 15. Stale cache has no query-time detection — ✅ Resolved (2026-06-19)
 
-Already tracked as **#5** above — promoted to P0 because it produces wrong answers silently, which is the highest-risk failure mode for an AI-facing tool. See #5 for the fix.
+Already tracked as **#5** above — promoted to P0 because it produces wrong answers silently, which is the highest-risk failure mode for an AI-facing tool.
+
+**Fixed:** File-watcher auto-refresh via `node:fs` (no new dependencies):
+- `analyze` starts an `fs.watch({ recursive: true })` listener on the project root (ignoring `node_modules`, `.git`, `dist`, `build`, `coverage`).
+- Any source file change marks the root as dirty in `SessionState`.
+- Every query handler calls `cache.ensureFresh()` / `cache.ensureFreshWorkspace()` instead of `cache.require()` — if dirty, an incremental rebuild runs transparently before answering.
+- `clear_cache` still works for manual invalidation; the watcher survives it (session-scoped, not cache-scoped).
+- `startWatching()` is idempotent — safe to call on re-analyze.
 
 ---
 
-### 16. No competitive positioning statement
+### 16. No positioning statement — ✅ Resolved (2026-06-19)
 
 **File:** `README.md`, `docs/prd.md`
 
-**Symptom:** The README does not answer "why not use Sourcegraph or GitHub Copilot Workspace instead?" Without this, adoption by teams who already have those tools is blocked. The PRD still describes Mokosh as a "frontend-focused" tool despite supporting 10 languages.
+**Was:** The README had no "Why Mokosh?" section. The PRD described Mokosh as a "frontend-focused" tool despite supporting 10+ languages.
 
-**Fix:**
-- Add a "Why Mokosh?" section to the README: local-first, no data leaves the machine, works offline, integrates in 5 minutes via MCP, no vendor lock-in.
-- Update the PRD problem statement to reflect the actual product scope.
+**Fixed:**
+- Added "Why Mokosh?" section to the README: local-first, offline, MCP integration, multi-language, AI-ready output, no vendor lock-in.
+- Updated PRD product overview and problem statement to reflect the actual multi-language, local-first scope.
 
 ---
 
@@ -167,7 +174,8 @@ Already tracked as **#5** above — promoted to P0 because it produces wrong ans
 | 12 | ✅ Done | `src/index.ts` — all `export *` replaced with explicit named exports | L |
 | 13 | ✅ Done | `src/graph/lang-resolvers/go.ts` — pure-FS fix; see ADR-007 | M |
 | 14 | ✅ Done | `src/mcp/tools.ts`, `src/mcp/handlers.ts` — merged get_change_impact→get_affected (cached param), propose_affected_tests→propose_tags (format param) | M |
-| 15 | P0 | `src/mcp/cache.ts`, all handlers | M |
-| 16 | P0 | `README.md`, `docs/prd.md` | S |
+| 15 | ✅ Done | `src/mcp/cache.ts`, all handlers — `fs.watch` watcher + `ensureFresh()` auto-rebuild | M |
+| 16 | ✅ Done | `README.md`, `docs/prd.md` — "Why Mokosh?" section added; PRD updated to multi-language scope | S |
 
-**Effort key:** XS < 30 min · S < 2 h · M < 1 day · L multi-day
+**Effort key:** XS < 30 min · S < 2 h · M < 1 day 
+· L multi-day

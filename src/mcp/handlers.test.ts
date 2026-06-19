@@ -93,6 +93,10 @@ function makeCache(): SessionState {
     getConfig: vi.fn().mockReturnValue({}),
     getOrBuild: vi.fn().mockResolvedValue(graph),
     require: vi.fn().mockReturnValue(graph),
+    ensureFresh: vi.fn().mockResolvedValue(graph),
+    storeLastAnalyze: vi.fn(),
+    startWatching: vi.fn(),
+    getOrBuildChangeImpact: vi.fn().mockReturnValue({ impactMap: new Map() }),
   } as unknown as SessionState;
 }
 
@@ -138,7 +142,9 @@ describe("handleAnalyze", () => {
 
 describe("handleGetDependencies", () => {
   test("returns immediate imports at depth 1", async () => {
-    const data = parse(handleGetDependencies(makeCache(), { root: ROOT, file: "src/b.ts" })) as {
+    const data = parse(
+      await handleGetDependencies(makeCache(), { root: ROOT, file: "src/b.ts" }),
+    ) as {
       dependencies: string[];
     };
 
@@ -148,7 +154,7 @@ describe("handleGetDependencies", () => {
 
   test("does not traverse past leaves even at higher depth", async () => {
     const data = parse(
-      handleGetDependencies(makeCache(), { root: ROOT, file: "src/b.ts", depth: 10 }),
+      await handleGetDependencies(makeCache(), { root: ROOT, file: "src/b.ts", depth: 10 }),
     ) as { dependencies: string[] };
 
     expect(data.dependencies).toEqual(["src/a.ts"]);
@@ -157,7 +163,9 @@ describe("handleGetDependencies", () => {
 
 describe("handleGetDependents", () => {
   test("returns direct importers of a file", async () => {
-    const data = parse(handleGetDependents(makeCache(), { root: ROOT, file: "src/a.ts" })) as {
+    const data = parse(
+      await handleGetDependents(makeCache(), { root: ROOT, file: "src/a.ts" }),
+    ) as {
       dependents: string[];
     };
 
@@ -168,7 +176,7 @@ describe("handleGetDependents", () => {
 
 describe("handleGetAffected", () => {
   test("returns all upstream files", async () => {
-    const data = parse(handleGetAffected(makeCache(), { root: ROOT, file: "src/a.ts" })) as {
+    const data = parse(await handleGetAffected(makeCache(), { root: ROOT, file: "src/a.ts" })) as {
       affected: string[];
     };
 
@@ -178,7 +186,7 @@ describe("handleGetAffected", () => {
 
   test("testsOnly filters to test-category files", async () => {
     const data = parse(
-      handleGetAffected(makeCache(), { root: ROOT, file: "src/a.ts", testsOnly: true }),
+      await handleGetAffected(makeCache(), { root: ROOT, file: "src/a.ts", testsOnly: true }),
     ) as { affected: string[] };
 
     expect(data.affected).toContain("src/a.test.ts");
@@ -201,7 +209,7 @@ describe("handleFindUnused", () => {
 describe("handleProposeTags", () => {
   test("returns tags from test files affected by changed files", async () => {
     const data = parse(
-      handleProposeTags(makeCache(), { root: ROOT, changedFiles: ["src/a.ts"] }),
+      await handleProposeTags(makeCache(), { root: ROOT, changedFiles: ["src/a.ts"] }),
     ) as { proposedTags: string[] };
 
     expect(data.proposedTags).toContain("a");
@@ -211,7 +219,11 @@ describe("handleProposeTags", () => {
 describe("handleProposeTags with format='paths'", () => {
   test("returns test file paths affected by changed files", async () => {
     const data = parse(
-      handleProposeTags(makeCache(), { root: ROOT, changedFiles: ["src/a.ts"], format: "paths" }),
+      await handleProposeTags(makeCache(), {
+        root: ROOT,
+        changedFiles: ["src/a.ts"],
+        format: "paths",
+      }),
     ) as { affectedTests: string[]; count: number };
 
     expect(data.affectedTests).toContain("src/a.test.ts");
@@ -337,6 +349,9 @@ function makeWorkspaceCache(wg: WorkspaceGraph): SessionState {
     getOrBuildWorkspace: vi.fn().mockResolvedValue(wg),
     requireWorkspace: vi.fn().mockReturnValue(wg),
     hasWorkspace: vi.fn().mockReturnValue(true),
+    ensureFreshWorkspace: vi.fn().mockResolvedValue(wg),
+    storeLastAnalyze: vi.fn(),
+    startWatching: vi.fn(),
   } as unknown as SessionState;
 }
 
@@ -389,11 +404,11 @@ describe("handleAnalyze (monorepo auto-detection)", () => {
 });
 
 describe("handleGetWorkspacePackages", () => {
-  test("returns package list with node counts and dependencies", () => {
+  test("returns package list with node counts and dependencies", async () => {
     const wg = makeWorkspaceFixture();
     const cache = makeWorkspaceCache(wg);
 
-    const data = parse(handleGetWorkspacePackages(cache, { root: ROOT })) as {
+    const data = parse(await handleGetWorkspacePackages(cache, { root: ROOT })) as {
       monorepoType: string;
       packageCount: number;
       packages: Array<{ name: string; nodeCount: number; dependsOn: string[] }>;
@@ -415,12 +430,12 @@ describe("handleGetWorkspacePackages", () => {
 });
 
 describe("handleGetWorkspaceAffected", () => {
-  test("returns cross-package affected files", () => {
+  test("returns cross-package affected files", async () => {
     const wg = makeWorkspaceFixture();
     const cache = makeWorkspaceCache(wg);
 
     const data = parse(
-      handleGetWorkspaceAffected(cache, {
+      await handleGetWorkspaceAffected(cache, {
         root: ROOT,
         file: "packages/shared/src/utils.ts",
       }),
@@ -434,12 +449,12 @@ describe("handleGetWorkspaceAffected", () => {
     expect(appEntry?.package).toBe("@org/app");
   });
 
-  test("returns empty affected for an unknown file", () => {
+  test("returns empty affected for an unknown file", async () => {
     const wg = makeWorkspaceFixture();
     const cache = makeWorkspaceCache(wg);
 
     const data = parse(
-      handleGetWorkspaceAffected(cache, { root: ROOT, file: "nonexistent/file.ts" }),
+      await handleGetWorkspaceAffected(cache, { root: ROOT, file: "nonexistent/file.ts" }),
     ) as { count: number };
 
     expect(data.count).toBe(0);

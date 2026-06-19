@@ -1,4 +1,5 @@
 /** Session-scoped graph cache keyed by root directory, shared across MCP tool calls in one session. */
+import fs, { type FSWatcher } from "node:fs";
 import type { MokoshConfig } from "../config";
 import {
   buildChangeImpactCache,
@@ -8,6 +9,12 @@ import {
   type Graph,
   type WorkspaceGraph,
 } from "../index";
+
+type LastAnalyzeArgs =
+  | { kind: "single"; entryPoints: string[]; coverageMap: Map<string, number> }
+  | { kind: "workspace" };
+
+const IGNORE_WATCH = /(?:^|[/\\])(?:node_modules|\.git|dist|build|coverage)(?:[/\\]|$)/;
 
 /**
  * Per-session state keyed by absolute project root path.
@@ -24,6 +31,9 @@ export class SessionState {
   private readonly configs = new Map<string, MokoshConfig>();
   private readonly workspaceGraphs = new Map<string, WorkspaceGraph>();
   private readonly changeImpactCaches = new Map<string, ChangeImpactCache>();
+  private readonly dirtyRoots = new Set<string>();
+  private readonly watchers = new Map<string, FSWatcher>();
+  private readonly lastAnalyze = new Map<string, LastAnalyzeArgs>();
 
   /**
    * @description Returns `true` if config has already been loaded and applied for `root` this session.
@@ -137,6 +147,73 @@ export class SessionState {
   }
 
   /**
+   * @description Records the arguments used in the last `analyze` call for `root` so the watcher
+   *   can trigger an incremental rebuild using the same parameters when source files change.
+   * @param root - Absolute project root path.
+   * @param args - The kind of analysis performed (single-package or workspace) and its options.
+   */
+  storeLastAnalyze(root: string, args: LastAnalyzeArgs): void {
+    this.lastAnalyze.set(root, args);
+  }
+
+  /**
+   * @description Starts an `fs.watch` listener on `root` (recursive, ignoring `node_modules`,
+   *   `.git`, `dist`, `build`, and `coverage` directories). When any source file changes, marks
+   *   `root` as dirty so the next query transparently triggers an incremental rebuild.
+   *   Safe to call multiple times — a second call for the same root is a no-op.
+   * @param root - Absolute path of the directory to watch.
+   */
+  startWatching(root: string): void {
+    if (this.watchers.has(root)) return;
+    try {
+      const watcher = fs.watch(root, { recursive: true }, (_event, filename) => {
+        if (!filename || IGNORE_WATCH.test(filename)) return;
+        this.dirtyRoots.add(root);
+      });
+      watcher.on("error", () => {
+        this.watchers.delete(root);
+      });
+      this.watchers.set(root, watcher);
+    } catch {
+      // Degrade gracefully on unsupported filesystems or permission errors.
+    }
+  }
+
+  /**
+   * @description Returns a fresh graph for `root`, rebuilding incrementally if source files changed
+   *   since the last `analyze` call. Acts as a drop-in replacement for `require` in query handlers.
+   * @param root - Absolute project root path.
+   * @returns The up-to-date `Graph` for this root.
+   * @throws {Error} if `analyze` has never been called for this root.
+   */
+  async ensureFresh(root: string): Promise<Graph> {
+    if (!this.dirtyRoots.has(root)) return this.require(root);
+    this.dirtyRoots.delete(root);
+    this.changeImpactCaches.delete(root);
+    const args = this.lastAnalyze.get(root);
+    if (args?.kind === "single") {
+      return this.getOrBuild(root, args.entryPoints, args.coverageMap);
+    }
+    return this.require(root);
+  }
+
+  /**
+   * @description Returns a fresh workspace graph for `root`, rebuilding if source files changed.
+   *   Acts as a drop-in replacement for `requireWorkspace` in workspace query handlers.
+   * @param root - Absolute monorepo root path.
+   * @returns The up-to-date `WorkspaceGraph` for this root.
+   * @throws {Error} if `analyze` has never been called for this root.
+   */
+  async ensureFreshWorkspace(root: string): Promise<WorkspaceGraph> {
+    if (!this.dirtyRoots.has(root)) return this.requireWorkspace(root);
+    this.dirtyRoots.delete(root);
+    this.changeImpactCaches.delete(root);
+    this.workspaceGraphs.delete(root);
+    const config = this.configs.get(root);
+    return this.getOrBuildWorkspace(root, { gitStats: config?.gitStats ?? false });
+  }
+
+  /**
    * @description Drops the cached graph, workspace graph, and change impact cache for `root`,
    *   forcing the next `analyze` call to rebuild from disk. Config is preserved. Use after
    *   editing source files mid-session to ensure subsequent queries reflect the updated state.
@@ -148,6 +225,7 @@ export class SessionState {
     this.graphs.delete(root);
     this.workspaceGraphs.delete(root);
     this.changeImpactCaches.delete(root);
+    this.dirtyRoots.delete(root);
     return had;
   }
 }

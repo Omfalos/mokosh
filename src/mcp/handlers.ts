@@ -114,6 +114,8 @@ export async function handleAnalyze(cache: SessionState, args: AnalyzeArgs) {
     if (layout.type !== "none") {
       const config = cache.getConfig(root);
       const wg = await cache.getOrBuildWorkspace(root, { gitStats: config?.gitStats ?? false });
+      cache.storeLastAnalyze(root, { kind: "workspace" });
+      cache.startWatching(root);
       const perPackage = Array.from(wg.packages.values()).map(({ graph, pkg }) => ({
         package: pkg.name,
         relativeRoot: pkg.relativeRoot,
@@ -133,6 +135,8 @@ export async function handleAnalyze(cache: SessionState, args: AnalyzeArgs) {
     ? loadCoverageMap(root, config.coverageReportPath)
     : new Map<string, number>();
   const graph = await cache.getOrBuild(root, resolvedEntries, coverageMap);
+  cache.storeLastAnalyze(root, { kind: "single", entryPoints: resolvedEntries, coverageMap });
+  cache.startWatching(root);
   const serialized = graph.serialize();
   const categories = serialized.nodes.reduce<Record<string, number>>((acc, n) => {
     acc[n.category] = (acc[n.category] ?? 0) + 1;
@@ -149,9 +153,12 @@ export async function handleAnalyze(cache: SessionState, args: AnalyzeArgs) {
  * @param args - `root` selects the graph; `file` is the starting node; `depth` caps traversal depth.
  * @returns TextResponse with `{ file, dependencies }` listing all reachable imported paths.
  */
-export function handleGetDependencies(cache: SessionState, args: GetDependenciesArgs) {
+export async function handleGetDependencies(
+  cache: SessionState,
+  args: GetDependenciesArgs,
+): Promise<TextResponse> {
   const { root, file, depth = 1 } = args;
-  const graph = cache.require(root);
+  const graph = await cache.ensureFresh(root);
   const deps: string[] = [];
   graph.traverse(
     file,
@@ -171,9 +178,12 @@ export function handleGetDependencies(cache: SessionState, args: GetDependencies
  * @param args - `root` selects the graph; `file` is the node whose direct importers to find.
  * @returns TextResponse with `{ file, dependents }` listing files that import `file` directly.
  */
-export function handleGetDependents(cache: SessionState, args: GetDependentsArgs) {
+export async function handleGetDependents(
+  cache: SessionState,
+  args: GetDependentsArgs,
+): Promise<TextResponse> {
   const { root, file } = args;
-  const graph = cache.require(root);
+  const graph = await cache.ensureFresh(root);
   const dependents: string[] = [];
   graph.traverse(
     file,
@@ -195,17 +205,20 @@ export function handleGetDependents(cache: SessionState, args: GetDependentsArgs
  * @param args - `root` selects the graph; `file` is the changed node; `testsOnly` restricts results to test/spec files; `cached` switches to the impact cache.
  * @returns TextResponse with `{ file, affected, count }` listing all transitively impacted files.
  */
-export function handleGetAffected(cache: SessionState, args: GetAffectedArgs) {
+export async function handleGetAffected(
+  cache: SessionState,
+  args: GetAffectedArgs,
+): Promise<TextResponse> {
   const { root, file, testsOnly = false, cached = false } = args;
+  const graph = await cache.ensureFresh(root);
   if (cached) {
     const impactCache = cache.getOrBuildChangeImpact(root);
     const allAffected = queryChangeImpact(impactCache, file);
     const affected = testsOnly
-      ? allAffected.filter((p) => cache.require(root).nodes.get(p)?.category === "test")
+      ? allAffected.filter((p) => graph.nodes.get(p)?.category === "test")
       : allAffected;
     return text({ file, affected, count: affected.length });
   }
-  const graph = cache.require(root);
   const affected: string[] = [];
   graph.traverse(
     file,
@@ -228,9 +241,12 @@ export function handleGetAffected(cache: SessionState, args: GetAffectedArgs) {
  * @param args - `root`/`file` identify the target; `depth` caps hops; `withEdgeDetail` adds from/to function names per edge.
  * @returns TextResponse with `{ file, callers, count }` where each caller optionally includes edge detail.
  */
-export function handleGetCallers(cache: SessionState, args: GetCallersArgs) {
+export async function handleGetCallers(
+  cache: SessionState,
+  args: GetCallersArgs,
+): Promise<TextResponse> {
   const { root, file, depth = 1, withEdgeDetail = false } = args;
-  const graph = cache.require(root);
+  const graph = await cache.ensureFresh(root);
   const callers: Array<{ file: string; edges?: Array<{ from: string; to: string }> }> = [];
   graph.traverseCalls(
     file,
@@ -277,9 +293,12 @@ export async function handleFindUnused(cache: SessionState, args: FindUnusedArgs
  * @param args - `root` selects the graph; `coverageThreshold` overrides the config default.
  * @returns TextResponse with `{ threshold, uncovered, count }` where each entry includes file path and coverage percentage.
  */
-export function handleFindUncovered(cache: SessionState, args: FindUncoveredArgs) {
+export async function handleFindUncovered(
+  cache: SessionState,
+  args: FindUncoveredArgs,
+): Promise<TextResponse> {
   const { root, coverageThreshold } = args;
-  const graph = cache.require(root);
+  const graph = await cache.ensureFresh(root);
   const config = cache.getConfig(root);
   const threshold = coverageThreshold ?? config?.coverageThreshold ?? 80;
 
@@ -308,9 +327,12 @@ export function handleFindUncovered(cache: SessionState, args: FindUncoveredArgs
  * @param args - `root` selects the graph; `changedFiles` overrides git diff detection; `featureThreshold` tunes hub sensitivity; `format` controls output shape.
  * @returns TextResponse with `{ changedFiles, proposedTags }` for tags or `{ changedFiles, affectedTests, count }` for paths.
  */
-export function handleProposeTags(cache: SessionState, args: ProposeTagsArgs) {
+export async function handleProposeTags(
+  cache: SessionState,
+  args: ProposeTagsArgs,
+): Promise<TextResponse> {
   const { root, changedFiles, featureThreshold, format = "tags" } = args;
-  const graph = cache.require(root);
+  const graph = await cache.ensureFresh(root);
   const files =
     changedFiles ??
     new DefaultGitProvider()
@@ -335,14 +357,17 @@ export function handleProposeTags(cache: SessionState, args: ProposeTagsArgs) {
  * @param args - `root` is the project directory; `entryPoints` optionally seeds a fresh build; `featureThreshold` sets the minimum out-degree to qualify.
  * @returns TextResponse with `{ features, count }` sorted by out-degree descending.
  */
-export async function handleDetectFeatures(cache: SessionState, args: DetectFeaturesArgs) {
+export async function handleDetectFeatures(
+  cache: SessionState,
+  args: DetectFeaturesArgs,
+): Promise<TextResponse> {
   const { root, entryPoints, featureThreshold } = args;
   const graph = entryPoints
     ? await cache.getOrBuild(
         root,
         entryPoints.map((ep) => path.resolve(root, ep)),
       )
-    : cache.require(root);
+    : await cache.ensureFresh(root);
   const featureMap = detectFeatures(
     graph.nodes,
     featureThreshold !== undefined ? { minOutDegree: featureThreshold } : undefined,
@@ -365,7 +390,7 @@ export async function handleQuery(cache: SessionState, args: QueryArgs): Promise
         root,
         entryPoints.map((ep) => path.resolve(root, ep)),
       )
-    : cache.require(root);
+    : await cache.ensureFresh(root);
   const filtered = filterGraph(graph.serialize(), parseQuery(filter));
   if (mermaid) {
     return text(MermaidExporter.serialize(Graph.deserialize(filtered)));
@@ -400,12 +425,12 @@ export async function handleQuery(cache: SessionState, args: QueryArgs): Promise
  * @param args - `root` identifies the monorepo root to look up.
  * @returns TextResponse with `{ monorepoType, packageCount, packages }` where each package includes its dependsOn list.
  */
-export function handleGetWorkspacePackages(
+export async function handleGetWorkspacePackages(
   cache: SessionState,
   args: GetWorkspacePackagesArgs,
-): TextResponse {
+): Promise<TextResponse> {
   const { root } = args;
-  const wg = cache.requireWorkspace(root);
+  const wg = await cache.ensureFreshWorkspace(root);
   const pkgDeps = wg.getPackageDependencies();
   const packages = Array.from(wg.packages.values()).map(({ graph, pkg }) => ({
     name: pkg.name,
@@ -423,12 +448,12 @@ export function handleGetWorkspacePackages(
  * @param args - `root` identifies the monorepo; `file` is the changed file (relative to root).
  * @returns TextResponse with `{ file, affected, count }` where each entry includes its package name.
  */
-export function handleGetWorkspaceAffected(
+export async function handleGetWorkspaceAffected(
   cache: SessionState,
   args: GetWorkspaceAffectedArgs,
-): TextResponse {
+): Promise<TextResponse> {
   const { root, file } = args;
-  const wg = cache.requireWorkspace(root);
+  const wg = await cache.ensureFreshWorkspace(root);
   const affected = wg.getAffectedAcrossPackages(file);
   return text({ file, affected, count: affected.length });
 }
@@ -460,9 +485,12 @@ export function handleClearCache(cache: SessionState, args: ClearCacheArgs): Tex
  * @param args - `root` selects the graph; `type` is the exact exported name to look up (omit for full inventory).
  * @returns TextResponse with either a full type inventory or a focused `TypeQueryResult`.
  */
-export function handleGetTypeGraph(cache: SessionState, args: GetTypeGraphArgs): TextResponse {
+export async function handleGetTypeGraph(
+  cache: SessionState,
+  args: GetTypeGraphArgs,
+): Promise<TextResponse> {
   const { root, type } = args;
-  const graph = cache.require(root);
+  const graph = await cache.ensureFresh(root);
   const typeGraph = buildTypeGraph(graph);
   if (type) {
     return text(queryTypeGraph(typeGraph, type));
@@ -479,12 +507,12 @@ export function handleGetTypeGraph(cache: SessionState, args: GetTypeGraphArgs):
  * @param args - `root` selects the graph; `paths` filters to specific files; `minOutDegree` tunes hub detection.
  * @returns TextResponse with `{ count, modules }` where each module includes its role, description, and exports.
  */
-export function handleGetModuleResponsibility(
+export async function handleGetModuleResponsibility(
   cache: SessionState,
   args: GetModuleResponsibilityArgs,
-): TextResponse {
+): Promise<TextResponse> {
   const { root, paths, minOutDegree } = args;
-  const graph = cache.require(root);
+  const graph = await cache.ensureFresh(root);
   const respGraph = buildResponsibilityGraph(
     graph,
     minOutDegree !== undefined ? { minOutDegree } : undefined,
@@ -506,12 +534,12 @@ export function handleGetModuleResponsibility(
  * @param args - `root` selects the graph; `minOutDegree` sets the minimum internal imports to qualify as a hub.
  * @returns TextResponse with `{ features, unassigned }` where `features` is a plain object keyed by feature name.
  */
-export function handleGetFeatureGraph(
+export async function handleGetFeatureGraph(
   cache: SessionState,
   args: GetFeatureGraphArgs,
-): TextResponse {
+): Promise<TextResponse> {
   const { root, minOutDegree } = args;
-  const graph = cache.require(root);
+  const graph = await cache.ensureFresh(root);
   const featureGraph = buildFeatureGraph(
     graph,
     minOutDegree !== undefined ? { minOutDegree } : undefined,
@@ -528,9 +556,12 @@ export function handleGetFeatureGraph(
  * @param args - `root` selects the graph; `function` is the exact name of the function to look up.
  * @returns TextResponse with `{ functionName, definedIn, callers, callees }`.
  */
-export function handleGetCallGraph(cache: SessionState, args: GetCallGraphArgs): TextResponse {
+export async function handleGetCallGraph(
+  cache: SessionState,
+  args: GetCallGraphArgs,
+): Promise<TextResponse> {
   const { root, function: functionName } = args;
-  const graph = cache.require(root);
+  const graph = await cache.ensureFresh(root);
   return text(queryCallGraph(graph, functionName));
 }
 
@@ -543,9 +574,12 @@ export function handleGetCallGraph(cache: SessionState, args: GetCallGraphArgs):
  * @param args - `root` selects the graph; `entryPoints` are the public entry files (auto-detected when omitted).
  * @returns TextResponse with `{ entryPoints, publicExports, internalFiles, unreachableFromEntry, testFiles }`.
  */
-export function handleGetApiSurface(cache: SessionState, args: GetApiSurfaceArgs): TextResponse {
+export async function handleGetApiSurface(
+  cache: SessionState,
+  args: GetApiSurfaceArgs,
+): Promise<TextResponse> {
   const { root, entryPoints } = args;
-  const graph = cache.require(root);
+  const graph = await cache.ensureFresh(root);
   const eps = entryPoints?.length ? entryPoints : detectAllEntryPoints(graph, root);
   if (eps.length === 0) {
     throw new Error(

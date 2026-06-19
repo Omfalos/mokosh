@@ -1,16 +1,17 @@
 # Product Requirements Document (PRD) - Mokosh 🌊
 
 ## 1. Product Overview
-**Mokosh** is a high-performance, AST-powered dependency graph generator designed specifically for modern frontend projects. It identifies and maps relationships between JavaScript, TypeScript, CSS, and SCSS files.
+**Mokosh** is a high-performance, AST-powered dependency graph generator for multi-language projects. It identifies and maps relationships across JavaScript, TypeScript, Python, Go, CSS, SCSS, Stylus, CoffeeScript, LiveScript, Lua, and Gherkin files — in a single traversable graph.
 
 ### 1.1 Problem Statement
-AI models (LLMs) and developers often struggle to understand complex codebases, especially when trying to trace how a change in one file affects the rest of the system. Traditional tools are either too heavy, too slow, or don't provide a way to programmatically traverse the dependency graph.
+AI models and developers often struggle to understand complex codebases, especially when tracing how a change in one file affects the rest of the system. Understanding blast radius, surfacing affected tests, and giving an AI assistant precise file-level context all require a queryable dependency graph. Most existing approaches are either too heavy, too slow, require a cloud service, or are limited to a single language.
 
 ### 1.2 Solution
 Mokosh provides a lightweight, fast, and extensible tool that:
-- Generates a full in-memory import map.
-- Supports both code (JS/TS) and style (CSS/SCSS) dependencies.
-- Offers a programmable API for dependency traversal.
+- Builds a full in-memory import graph from your local filesystem — no network required.
+- Supports 10+ languages with a unified graph model.
+- Offers a programmable API and CLI for dependency traversal, impact analysis, and unused-file detection.
+- Exposes an MCP server so AI assistants can query the graph directly without any custom integration work.
 - Integrates with Git to propose relevant test tags for modified files.
 
 ---

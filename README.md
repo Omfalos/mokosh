@@ -6,6 +6,15 @@ Mokosh is a lightweight, AST-powered dependency graph generator for modern web a
 
 Designed for performance and RAG (Retrieval-Augmented Generation) workflows, Mokosh enables you to visualize your project structure, traverse dependencies, and even propose test tags based on code changes.
 
+## Why Mokosh?
+
+- **Runs entirely on your machine.** No accounts, no servers, no data sent anywhere. Your source code stays local at all times.
+- **Works offline.** The graph is built from your filesystem — no network required during analysis.
+- **Integrates in minutes via MCP.** Drop it into any AI assistant that supports the Model Context Protocol and start querying your codebase immediately.
+- **Spans 10+ languages in one graph.** TypeScript, Python, Go, CSS, SCSS, Lua, Gherkin, and more — all in a single traversable dependency graph.
+- **AI-ready output.** Slim query mode, token-efficient responses, and structured tags are designed to fit naturally into LLM context windows.
+- **No vendor lock-in.** Open tool, open format. Run it in CI, in a local script, or as an MCP server — your choice.
+
 ## Features
 
 - **Multi-Language Support**: Robust extraction from:
