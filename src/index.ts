@@ -1,14 +1,104 @@
 /** Public library API: createImportMap, createWorkspaceGraph, and getAllProjectFiles. */
+
+// Config
 export { applyConfig, loadMokoshConfig, type MokoshConfig } from "./config";
-export * from "./const";
+
+// Constants
+export { DEFAULT_EXTENSIONS, DEFAULT_IGNORE_DIRS, type ScanOptions } from "./const";
+
+// Coverage
 export { loadCoverageMap } from "./coverage";
-export * from "./exporters";
-export * from "./git";
-export * from "./graph";
-export * from "./parser";
+
+// Exporters
+export { type GraphExporter, MermaidExporter, toMermaid } from "./exporters";
+// Graph analysis utilities
+export {
+  type ApiSurface,
+  buildApiSurface,
+  detectAllEntryPoints,
+  detectEntryPoint,
+  type ExportKind,
+  type PublicExport,
+} from "./graph/api-surface";
+export { queryCallGraph } from "./graph/call-graph";
+export type {
+  CalleeEntry,
+  CallerEntry,
+  FunctionCallInfo,
+} from "./graph/call-graph/types";
+export {
+  buildChangeImpactCache,
+  type ChangeImpactCache,
+  computeGraphHash,
+  isChangeImpactCacheValid,
+  loadChangeImpactCache,
+  queryChangeImpact,
+  saveChangeImpactCache,
+} from "./graph/change-impact-cache";
+export {
+  detectFeatures,
+  type FeatureDetectionOptions,
+  type FeatureInfo,
+} from "./graph/features";
+export {
+  buildFeatureGraph,
+  type FeatureDomain,
+  type FeatureGraph,
+  type FeatureGraphOptions,
+} from "./graph/features/feature-graph";
+// Core graph classes
+export { Graph } from "./graph/model";
+export { buildResponsibilityGraph } from "./graph/responsibility";
+export type {
+  ModuleResponsibility,
+  ModuleRole,
+  ResponsibilityGraph,
+} from "./graph/responsibility/types";
+export {
+  buildTypeGraph,
+  queryTypeGraph,
+  type TypeEdge,
+  type TypeGraph,
+  type TypeKind,
+  type TypeNode,
+  type TypeQueryResult,
+} from "./graph/type-graph";
+// Monorepo detection + extension point
+export { detectMonorepo } from "./graph/workspace";
+export { type MonorepoDetector, registerMonorepoDetector } from "./graph/workspace/registry";
+export type { MonorepoLayout, WorkspacePackage } from "./graph/workspace/types";
+export { type SerializedWorkspaceGraph, WorkspaceGraph } from "./graph/workspace-model";
+export {
+  registerConfigMatcher,
+  registerTestLibrary,
+  registerTestPattern,
+} from "./parser/classify";
+// Parser extension points
+export { registerParser } from "./parser/registry";
+// Query
 export { filterGraph, type NodeQuery, parseQuery } from "./query";
-export * from "./tags";
-export * from "./types";
+// Tags
+export {
+  type ProposeTagsOptions,
+  proposeAffectedTests,
+  proposeTags,
+  type TestNodeIdentifier,
+} from "./tags";
+export type {
+  DependencyGraph,
+  SerializedGraph,
+  TraversalOptions,
+  TraversalVisitor,
+} from "./types/graph";
+// Core data types
+export type {
+  CallEdge,
+  ExportedSymbol,
+  FileNode,
+  ImportEdge,
+  StructuredTag,
+} from "./types/node";
+export type { FileType, ImportType, NodeCategory, TagKind } from "./types/parse";
 
 import fs from "node:fs";
 import path from "node:path";

@@ -1,6 +1,7 @@
 /** Parses command-line arguments into a structured ParsedArgs object. */
 import path from "node:path";
-import { DEFAULT_CACHE_DIR, DEFAULT_CACHE_FILE, Flag } from "./const";
+import { parseArgs as nodeParseArgs } from "node:util";
+import { DEFAULT_CACHE_DIR, DEFAULT_CACHE_FILE } from "./const";
 
 export interface ParsedArgs {
   rootDir: string;
@@ -35,182 +36,144 @@ export interface ParsedArgs {
 }
 
 /**
- * @description Extracts and resolves the `--root` argument from raw argv, falling back to
+ * @description Extracts and resolves the `--root` argument from raw CLI tokens, falling back to
  *   the current working directory when the flag is absent.
- * @param {string[]} argv - Raw process arguments (everything after `node <script>`).
+ * @param {string[]} cliTokens - Raw process arguments (everything after `node <script>`).
  * @returns {string} Absolute path to use as the project root.
  */
-function resolveRootDir(argv: string[]): string {
-  for (let i = 0; i < argv.length; i++) {
-    if (argv[i] === Flag.Root && argv[i + 1]) {
-      return path.resolve(argv[i + 1] as string);
+function resolveRootDir(cliTokens: string[]): string {
+  for (let i = 0; i < cliTokens.length; i++) {
+    if (cliTokens[i] === "--root" && cliTokens[i + 1]) {
+      return path.resolve(cliTokens[i + 1] as string);
     }
   }
   return process.cwd();
 }
 
 /**
- * @description Parses raw CLI arguments into a structured options object with all paths
+ * @description Parses raw CLI tokens into a structured options object with all paths
  *   resolved to absolute values. `--root` is resolved first because the default cache path
  *   derives from it; every subsequent path argument is resolved relative to that root.
- * @param {string[]} argv - Raw process arguments (everything after `node <script>`).
+ * @param {string[]} cliTokens - Raw process arguments (everything after `node <script>`).
  * @returns {ParsedArgs} A fully populated `ParsedArgs` with boolean flags set and path arguments as absolute paths.
  */
-export function parseArgs(argv: string[]): ParsedArgs {
-  const rootDir = resolveRootDir(argv);
+const OPTIONS = {
+  root: { type: "string" },
+  cache: { type: "string" },
+  config: { type: "string" },
+  query: { type: "string" },
+  file: { type: "string" },
+  type: { type: "string" },
+  paths: { type: "string" },
+  function: { type: "string" },
+  "feature-threshold": { type: "string" },
+  "min-out-degree": { type: "string" },
+  mermaid: { type: "boolean" },
+  "propose-tags": { type: "boolean" },
+  plain: { type: "boolean" },
+  "affected-tests": { type: "boolean" },
+  "detect-features": { type: "boolean" },
+  "find-unused": { type: "boolean" },
+  "exclude-tests": { type: "boolean" },
+  "check-cycles": { type: "boolean" },
+  "find-uncovered": { type: "boolean" },
+  callers: { type: "boolean" },
+  silent: { type: "boolean" },
+  "query-help": { type: "boolean" },
+  help: { type: "boolean" },
+  "type-graph": { type: "boolean" },
+  "module-responsibility": { type: "boolean" },
+  "feature-graph": { type: "boolean" },
+  "call-graph": { type: "boolean" },
+  "api-surface": { type: "boolean" },
+} as const;
+
+const STRING_FLAGS = new Set(
+  Object.entries(OPTIONS)
+    .filter(([, v]) => v.type === "string")
+    .map(([k]) => `--${k}`),
+);
+
+/**
+ * @description Strips unknown flags and dangling string flags (value-expecting flags
+ *   with no value following them) so `nodeParseArgs` never sees ambiguous input.
+ *   Unknown flags are silently dropped; dangling string flags fall back to their defaults.
+ * @param {string[]} cliTokens - Raw CLI tokens to sanitize.
+ * @returns {string[]} A cleaned token list safe to pass to `nodeParseArgs`.
+ */
+function sanitizeTokens(cliTokens: string[]): string[] {
+  const result: string[] = [];
+  for (let i = 0; i < cliTokens.length; i++) {
+    const token = cliTokens[i]!;
+    if (!token.startsWith("--")) {
+      result.push(token);
+    } else if (STRING_FLAGS.has(token)) {
+      const valueToken = cliTokens[i + 1];
+      if (valueToken !== undefined && !valueToken.startsWith("--")) {
+        result.push(token, valueToken);
+        i++;
+      }
+      // dangling string flag — drop it, default applies
+    } else if (token.slice(2) in OPTIONS) {
+      result.push(token); // known boolean flag
+    }
+    // unknown flag — silently drop
+  }
+  return result;
+}
+
+/**
+ * @description Parses raw CLI tokens into a structured options object with all paths
+ *   resolved to absolute values. `--root` is resolved first because the default cache path
+ *   derives from it; every subsequent path argument is resolved relative to that root.
+ * @param {string[]} cliTokens - Raw process arguments (everything after `node <script>`).
+ * @returns {ParsedArgs} A fully populated `ParsedArgs` with boolean flags set and path arguments as absolute paths.
+ */
+export function parseArgs(cliTokens: string[]): ParsedArgs {
+  const rootDir = resolveRootDir(cliTokens);
   const defaultCachePath = path.join(path.resolve(rootDir, DEFAULT_CACHE_DIR), DEFAULT_CACHE_FILE);
 
-  const result: ParsedArgs = {
+  const { values, positionals } = nodeParseArgs({
+    args: sanitizeTokens(cliTokens),
+    allowPositionals: true,
+    options: OPTIONS,
+  });
+
+  const featureThresholdRaw = values["feature-threshold"];
+  const minOutDegreeRaw = values["min-out-degree"];
+  const filterPathsRaw = values["paths"];
+  const cacheValue = values["cache"];
+  const configValue = values["config"];
+
+  return {
     rootDir,
-    cachePath: defaultCachePath,
-    configPath: undefined,
-    mermaid: false,
-    proposeTags: false,
-    plain: false,
-    affectedTests: false,
-    detectFeatures: false,
-    featureThreshold: undefined,
-    findUnused: false,
-    excludeTests: false,
-    checkCycles: false,
-    findUncovered: false,
-    callers: false,
-    file: undefined,
-    silent: false,
-    query: undefined,
-    queryHelp: false,
-    entryPoints: [],
-    help: argv.length === 0 || argv.includes(Flag.Help),
-    typeGraph: false,
-    typeFilter: undefined,
-    moduleResponsibility: false,
-    filterPaths: undefined,
-    minOutDegree: undefined,
-    featureGraph: false,
-    callGraph: false,
-    functionName: undefined,
-    apiSurface: false,
+    cachePath: cacheValue ? path.resolve(rootDir, cacheValue) : defaultCachePath,
+    configPath: configValue ? path.resolve(rootDir, configValue) : undefined,
+    query: values["query"],
+    file: values["file"],
+    typeFilter: values["type"],
+    functionName: values["function"],
+    filterPaths: filterPathsRaw ? filterPathsRaw.split(",").map((p) => p.trim()) : undefined,
+    featureThreshold: featureThresholdRaw ? parseInt(featureThresholdRaw, 10) : undefined,
+    minOutDegree: minOutDegreeRaw ? parseInt(minOutDegreeRaw, 10) : undefined,
+    mermaid: values["mermaid"] ?? false,
+    proposeTags: values["propose-tags"] ?? false,
+    plain: values["plain"] ?? false,
+    affectedTests: values["affected-tests"] ?? false,
+    detectFeatures: values["detect-features"] ?? false,
+    findUnused: values["find-unused"] ?? false,
+    excludeTests: values["exclude-tests"] ?? false,
+    checkCycles: values["check-cycles"] ?? false,
+    findUncovered: values["find-uncovered"] ?? false,
+    callers: values["callers"] ?? false,
+    silent: values["silent"] ?? false,
+    queryHelp: values["query-help"] ?? false,
+    help: cliTokens.length === 0 || (values["help"] ?? false),
+    typeGraph: values["type-graph"] ?? false,
+    moduleResponsibility: values["module-responsibility"] ?? false,
+    featureGraph: values["feature-graph"] ?? false,
+    callGraph: values["call-graph"] ?? false,
+    apiSurface: values["api-surface"] ?? false,
+    entryPoints: positionals,
   };
-
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i];
-    const next = argv[i + 1];
-
-    switch (arg) {
-      case Flag.Root:
-        i++;
-        break;
-      case Flag.Cache:
-        if (next && !next.startsWith("--")) {
-          result.cachePath = path.resolve(rootDir, next);
-          i++;
-        }
-        break;
-      case Flag.Config:
-        if (next) {
-          result.configPath = path.resolve(rootDir, next);
-          i++;
-        }
-        break;
-      case Flag.Query:
-        if (next) {
-          result.query = next;
-          i++;
-        }
-        break;
-      case Flag.FeatureThreshold:
-        if (next) {
-          result.featureThreshold = parseInt(next, 10);
-          i++;
-        }
-        break;
-      case Flag.Mermaid:
-        result.mermaid = true;
-        break;
-      case Flag.ProposeTags:
-        result.proposeTags = true;
-        break;
-      case Flag.Plain:
-        result.plain = true;
-        break;
-      case Flag.AffectedTests:
-        result.affectedTests = true;
-        break;
-      case Flag.DetectFeatures:
-        result.detectFeatures = true;
-        break;
-      case Flag.FindUnused:
-        result.findUnused = true;
-        break;
-      case Flag.ExcludeTests:
-        result.excludeTests = true;
-        break;
-      case Flag.CheckCycles:
-        result.checkCycles = true;
-        break;
-      case Flag.FindUncovered:
-        result.findUncovered = true;
-        break;
-      case Flag.Callers:
-        result.callers = true;
-        break;
-      case Flag.File:
-        if (next) {
-          result.file = next;
-          i++;
-        }
-        break;
-      case Flag.Silent:
-        result.silent = true;
-        break;
-      case Flag.QueryHelp:
-        result.queryHelp = true;
-        break;
-      case Flag.TypeGraph:
-        result.typeGraph = true;
-        break;
-      case Flag.TypeFilter:
-        if (next) {
-          result.typeFilter = next;
-          i++;
-        }
-        break;
-      case Flag.ModuleResponsibility:
-        result.moduleResponsibility = true;
-        break;
-      case Flag.FilterPaths:
-        if (next) {
-          result.filterPaths = next.split(",").map((p) => p.trim());
-          i++;
-        }
-        break;
-      case Flag.MinOutDegree:
-        if (next) {
-          result.minOutDegree = parseInt(next, 10);
-          i++;
-        }
-        break;
-      case Flag.FeatureGraph:
-        result.featureGraph = true;
-        break;
-      case Flag.CallGraph:
-        result.callGraph = true;
-        break;
-      case Flag.FunctionName:
-        if (next) {
-          result.functionName = next;
-          i++;
-        }
-        break;
-      case Flag.ApiSurface:
-        result.apiSurface = true;
-        break;
-      default:
-        if (arg && !arg.startsWith("--")) {
-          result.entryPoints.push(arg);
-        }
-    }
-  }
-
-  return result;
 }

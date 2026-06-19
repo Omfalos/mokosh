@@ -1,11 +1,11 @@
 import path from "node:path";
+import { DefaultGitProvider } from "../git";
 import {
   applyConfig,
   buildApiSurface,
   buildFeatureGraph,
   buildResponsibilityGraph,
   buildTypeGraph,
-  DefaultGitProvider,
   detectAllEntryPoints,
   detectFeatures,
   detectMonorepo,

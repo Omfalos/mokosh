@@ -1,6 +1,6 @@
 /** Shared CLI command utilities: test-file filtering and git-diff resolution. */
 import path from "node:path";
-import { DefaultGitProvider } from "../../index";
+import { DefaultGitProvider } from "../../git";
 
 const TEST_PATTERNS = [".test.", ".spec.", "-test.", "-spec."];
 
