@@ -96,42 +96,42 @@ Separate ticket from #4 because it is a one-line fix independent of the early-re
 
 ## P0 — Pre-publish blockers (architect review, 2026-06-15)
 
-### 12. Public API surface leaks all internals via `export *`
+### 12. Public API surface leaks all internals via `export *` — ✅ Resolved
 
 **File:** `src/index.ts`
 
-**Symptom:** `export * from "./graph"` and `export * from "./parser"` mass-re-export every internal type and function. Anything exported without `@internal` becomes semver-protected at v1. This makes API stabilisation and future refactors extremely painful.
+**Was:** `export * from "./graph"` and `export * from "./parser"` mass-re-exported every internal type and function.
 
-**Fix:**
-- Audit every symbol currently re-exported; tag each as `@public`, `@beta`, or `@internal` in JSDoc.
-- Replace `export *` with explicit named exports for the stable public surface only.
-- Keep internal types accessible for testing via deep imports (`mokosh/internal`) guarded by a `@internal` convention.
+**Fixed:** `src/index.ts` now uses explicit named exports only — no `export *` anywhere. Each symbol is intentionally surfaced.
 
 ---
 
-### 13. Go local-resolution is silently wrong
+### 13. Go local-resolution — ✅ Resolved (2026-06-19)
 
-**File:** `src/graph/lang-resolvers/go.ts`, `README.md`
+**File:** `src/graph/lang-resolvers/go.ts`
 
-**Symptom:** The Go parser treats all imports as external, including intra-project packages. The dependency graph for Go projects contains no local edges — the tool gives confidently wrong structural output without any warning.
+**Was:** The Go parser marked all imports as external. No local edges appeared in the graph.
 
-**Fix (choose one):**
-- **Remove Go from supported languages** until proper resolution is implemented.
-- **Warn loudly**: add `"warning": "Go local package resolution is not supported — all imports are classified as external"` to every `analyze` response when Go files are present.
-- **Implement correctly** via `go list -json ./...` subprocess (noted in roadmap as the right approach).
+**Fixed:** Pure filesystem resolution via `go.mod` parsing (see ADR-007):
+- All non-test `.go` files in the target package directory are returned as edges (one edge per file), accurately reflecting Go's package-scoped import model.
+- `replace` directives (block and single-line form, including version-constrained LHS) are parsed and applied before standard module-prefix resolution.
+
+**Remaining known limitations** (documented in ADR-007; vendor and workspace support deferred):
+- `vendor/` directories: third-party packages stored under `vendor/` are still treated as external.
+- `go.work` workspaces: multi-module workspace files are not read.
 
 ---
 
-### 14. Consolidate overlapping MCP tools
+### 14. Consolidate overlapping MCP tools — ✅ Resolved (2026-06-19)
 
 **File:** `src/mcp/tools.ts`, `src/mcp/handlers.ts`
 
-**Symptom:** `get_affected` and `get_change_impact` do the same traversal with different caching strategies. `propose_tags` and `propose_affected_tests` run the same graph walk and differ only in output format. 20 tools before v1 increases cognitive overhead for AI agents and maintenance surface for maintainers.
+**Was:** `get_affected` and `get_change_impact` did the same traversal with different caching strategies. `propose_tags` and `propose_affected_tests` ran the same graph walk and differed only in output format. 20 tools before v1.
 
-**Fix:**
-- Merge `get_change_impact` into `get_affected` with a `cached: true` parameter.
-- Merge `propose_affected_tests` into `propose_tags` with a `format: "paths" | "tags"` parameter.
-- Target: ~12 tools at v1.
+**Fixed:**
+- Merged `get_change_impact` into `get_affected` via `cached: boolean` parameter (default `false`).
+- Merged `propose_affected_tests` into `propose_tags` via `format: "tags" | "paths"` parameter (default `"tags"`).
+- Tool count reduced from 20 to 18.
 
 ---
 
@@ -164,9 +164,9 @@ Already tracked as **#5** above — promoted to P0 because it produces wrong ans
 | 9 | P3 | `cli/commands/affected-tests.ts`, docs | L |
 | 10 | P3 | `mcp/tools.ts` (descriptions) | XS |
 | 11 | P3 | `mcp/handlers.ts:115` | S |
-| 12 | P0 | `src/index.ts` | L |
-| 13 | P0 | `src/graph/lang-resolvers/go.ts`, `README.md` | M |
-| 14 | P0 | `src/mcp/tools.ts`, `src/mcp/handlers.ts` | M |
+| 12 | ✅ Done | `src/index.ts` — all `export *` replaced with explicit named exports | L |
+| 13 | ✅ Done | `src/graph/lang-resolvers/go.ts` — pure-FS fix; see ADR-007 | M |
+| 14 | ✅ Done | `src/mcp/tools.ts`, `src/mcp/handlers.ts` — merged get_change_impact→get_affected (cached param), propose_affected_tests→propose_tags (format param) | M |
 | 15 | P0 | `src/mcp/cache.ts`, all handlers | M |
 | 16 | P0 | `README.md`, `docs/prd.md` | S |
 

@@ -69,13 +69,13 @@ Priority ranking based on ecosystem size and inbound interest:
 
 | Language | Parser strategy | Priority |
 |----------|----------------|----------|
-| Go | `go/packages` via subprocess + JSON output | High |
+| Go | Pure filesystem via `go.mod` (implemented); vendor + `go.work` deferred — see ADR-007 | ✅ Shipped |
 | Ruby | Ripper AST via subprocess or `@lezer/ruby` | Medium |
 | Java / Kotlin | `javap` / IntelliJ indexing protocol | Low (complex) |
 | Rust | `cargo metadata` JSON output | Medium |
 | C# | Roslyn `dotnet-script` subprocess | Low |
 
-Go and Rust can be prototyped quickly using their native metadata commands (`go list -json`, `cargo metadata`) rather than full AST parsers — returning import paths with no symbol-level detail. Ship coarse-grained support first, refine later.
+Rust can be prototyped quickly using `cargo metadata` JSON output rather than a full AST parser — returning import paths with no symbol-level detail. Ship coarse-grained support first, refine later. Go is already implemented via pure filesystem resolution (see ADR-007).
 
 Each new language follows the existing four-step pattern in `CLAUDE.md` (create lang file, register, add extension to constants, add to FileType enum).
 

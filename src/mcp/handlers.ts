@@ -35,7 +35,7 @@ export type GetWorkspacePackagesArgs = { root: string };
 export type GetWorkspaceAffectedArgs = { root: string; file: string };
 export type GetDependenciesArgs = { root: string; file: string; depth?: number };
 export type GetDependentsArgs = { root: string; file: string };
-export type GetAffectedArgs = { root: string; file: string; testsOnly?: boolean };
+export type GetAffectedArgs = { root: string; file: string; testsOnly?: boolean; cached?: boolean };
 export type GetCallersArgs = {
   root: string;
   file: string;
@@ -44,11 +44,11 @@ export type GetCallersArgs = {
 };
 export type FindUnusedArgs = { root: string; entryPoints: string[] };
 export type FindUncoveredArgs = { root: string; coverageThreshold?: number };
-export type ProposeTagsArgs = { root: string; changedFiles?: string[]; featureThreshold?: number };
-export type ProposeAffectedTestsArgs = {
+export type ProposeTagsArgs = {
   root: string;
   changedFiles?: string[];
   featureThreshold?: number;
+  format?: "tags" | "paths";
 };
 export type DetectFeaturesArgs = {
   root: string;
@@ -64,7 +64,6 @@ export type QueryArgs = {
 };
 
 export type ClearCacheArgs = { root: string };
-export type GetChangeImpactArgs = { root: string; file: string; testsOnly?: boolean };
 export type GetTypeGraphArgs = { root: string; type?: string };
 export type GetModuleResponsibilityArgs = { root: string; paths?: string[]; minOutDegree?: number };
 export type GetFeatureGraphArgs = { root: string; minOutDegree?: number };
@@ -80,11 +79,9 @@ export type ToolArgs =
   | FindUnusedArgs
   | FindUncoveredArgs
   | ProposeTagsArgs
-  | ProposeAffectedTestsArgs
   | DetectFeaturesArgs
   | QueryArgs
   | ClearCacheArgs
-  | GetChangeImpactArgs
   | GetTypeGraphArgs
   | GetModuleResponsibilityArgs
   | GetFeatureGraphArgs
@@ -191,13 +188,23 @@ export function handleGetDependents(cache: SessionState, args: GetDependentsArgs
 
 /**
  * @description Full incoming traversal from `file` upward — returns every file whose behaviour
- *   could change if `file` changes (blast-radius analysis). Requires a prior `analyze` call.
+ *   could change if `file` changes (blast-radius analysis). Set `cached=true` to use a pre-computed
+ *   O(1) impact cache instead of graph traversal — faster on repeated calls for the same root.
+ *   Requires a prior `analyze` call.
  * @param cache - Session state holding the cached graph for `root`.
- * @param args - `root` selects the graph; `file` is the changed node; `testsOnly` restricts results to test/spec files.
+ * @param args - `root` selects the graph; `file` is the changed node; `testsOnly` restricts results to test/spec files; `cached` switches to the impact cache.
  * @returns TextResponse with `{ file, affected, count }` listing all transitively impacted files.
  */
 export function handleGetAffected(cache: SessionState, args: GetAffectedArgs) {
-  const { root, file, testsOnly = false } = args;
+  const { root, file, testsOnly = false, cached = false } = args;
+  if (cached) {
+    const impactCache = cache.getOrBuildChangeImpact(root);
+    const allAffected = queryChangeImpact(impactCache, file);
+    const affected = testsOnly
+      ? allAffected.filter((p) => cache.require(root).nodes.get(p)?.category === "test")
+      : allAffected;
+    return text({ file, affected, count: affected.length });
+  }
   const graph = cache.require(root);
   const affected: string[] = [];
   graph.traverse(
@@ -292,47 +299,33 @@ export function handleFindUncovered(cache: SessionState, args: FindUncoveredArgs
 }
 
 /**
- * @description Backward-traverses from each changed file to collect tags from all transitively
- *   dependent test files. Feature hub files short-circuit traversal and emit a `feature:<name>` tag
- *   to prevent tag explosion. Requires a prior `analyze` call.
+ * @description Backward-traverses from each changed file to propose what to run.
+ *   format='tags' (default) collects tags from transitively dependent test files for CI tag-filtering.
+ *   format='paths' returns test file paths ready to pipe to a test runner.
+ *   Feature hub files short-circuit traversal and emit a `feature:<name>` tag to prevent explosion.
+ *   Requires a prior `analyze` call.
  * @param cache - Session state holding the cached graph for `root`.
- * @param args - `root` selects the graph; `changedFiles` overrides git diff detection; `featureThreshold` tunes hub sensitivity.
- * @returns TextResponse with `{ changedFiles, proposedTags }` — tags suitable for CI test filtering.
+ * @param args - `root` selects the graph; `changedFiles` overrides git diff detection; `featureThreshold` tunes hub sensitivity; `format` controls output shape.
+ * @returns TextResponse with `{ changedFiles, proposedTags }` for tags or `{ changedFiles, affectedTests, count }` for paths.
  */
 export function handleProposeTags(cache: SessionState, args: ProposeTagsArgs) {
-  const { root, changedFiles, featureThreshold } = args;
+  const { root, changedFiles, featureThreshold, format = "tags" } = args;
   const graph = cache.require(root);
   const files =
     changedFiles ??
     new DefaultGitProvider()
       .getChangedFiles()
       .map((f) => path.relative(root, path.resolve(root, f)));
-  const tags = proposeTags(graph, files, {
-    ...(featureThreshold !== undefined && { featureDetection: { minOutDegree: featureThreshold } }),
-  });
+  const opts =
+    featureThreshold !== undefined
+      ? { featureDetection: { minOutDegree: featureThreshold } }
+      : undefined;
+  if (format === "paths") {
+    const affectedTests = proposeAffectedTests(graph, files, opts);
+    return text({ changedFiles: files, affectedTests, count: affectedTests.length });
+  }
+  const tags = proposeTags(graph, files, opts);
   return text({ changedFiles: files, proposedTags: tags });
-}
-
-/**
- * @description Returns paths of test files transitively affected by the changed files, suitable
- *   for piping directly into a test runner. Feature hubs act as traversal boundaries to prevent
- *   over-selection. Requires a prior `analyze` call.
- * @param cache - Session state holding the cached graph for `root`.
- * @param args - `root` selects the graph; `changedFiles` overrides git diff detection; `featureThreshold` tunes hub sensitivity.
- * @returns TextResponse with `{ changedFiles, affectedTests, count }` listing test file paths to run.
- */
-export function handleProposeAffectedTests(cache: SessionState, args: ProposeAffectedTestsArgs) {
-  const { root, changedFiles, featureThreshold } = args;
-  const graph = cache.require(root);
-  const files =
-    changedFiles ??
-    new DefaultGitProvider()
-      .getChangedFiles()
-      .map((f) => path.relative(root, path.resolve(root, f)));
-  const affectedTests = proposeAffectedTests(graph, files, {
-    ...(featureThreshold !== undefined && { featureDetection: { minOutDegree: featureThreshold } }),
-  });
-  return text({ changedFiles: files, affectedTests, count: affectedTests.length });
 }
 
 /**
@@ -457,27 +450,6 @@ export function handleClearCache(cache: SessionState, args: ClearCacheArgs): Tex
       ? "Cache cleared. Call analyze to rebuild."
       : "No cache was present for this root.",
   });
-}
-
-/**
- * @description Returns all files transitively affected by a change to `file` using a pre-computed
- *   O(1) lookup cache. The cache is built lazily on first call and reused for the session.
- *   Call `clear_cache` after editing source files to invalidate it. Requires a prior `analyze` call.
- * @param cache - Session state holding the graph and lazy change-impact cache.
- * @param args - `root` selects the graph; `file` is the changed file; `testsOnly` filters to test files only.
- * @returns TextResponse with `{ file, affected, count }` listing all transitively impacted files.
- */
-export function handleGetChangeImpact(
-  cache: SessionState,
-  args: GetChangeImpactArgs,
-): TextResponse {
-  const { root, file, testsOnly = false } = args;
-  const impactCache = cache.getOrBuildChangeImpact(root);
-  const allAffected = queryChangeImpact(impactCache, file);
-  const affected = testsOnly
-    ? allAffected.filter((p) => cache.require(root).nodes.get(p)?.category === "test")
-    : allAffected;
-  return text({ file, affected, count: affected.length });
 }
 
 /**

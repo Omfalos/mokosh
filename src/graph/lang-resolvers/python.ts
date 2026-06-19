@@ -18,21 +18,21 @@ export class PythonLangResolver implements LangResolver {
    * @param {string} specifier - Bare module name, e.g. `"mypackage.sub"`.
    * @param {string} rootDir - Absolute project root used as the search base.
    * @param {Function} _resolveLocal - Generic resolver callback (unused for Python).
-   * @returns {ResolvedImport | null} Local file path, or `null` if no match is found.
+   * @returns {ResolvedImport[] | null} Single-element array with the local file, or `null` if no match is found.
    */
   resolve(
     _currentFile: string,
     specifier: string,
     rootDir: string,
     _resolveLocal: (currentFile: string, specifier: string) => ResolvedImport | null,
-  ): ResolvedImport | null {
+  ): ResolvedImport[] | null {
     const pyPath = specifier.replace(/\./g, path.sep);
 
     const pyFile = path.join(rootDir, `${pyPath}.py`);
-    if (isFile(pyFile)) return { path: pyFile, isExternal: false };
+    if (isFile(pyFile)) return [{ path: pyFile, isExternal: false }];
 
     const initFile = path.join(rootDir, pyPath, "__init__.py");
-    if (isFile(initFile)) return { path: initFile, isExternal: false };
+    if (isFile(initFile)) return [{ path: initFile, isExternal: false }];
 
     return null;
   }

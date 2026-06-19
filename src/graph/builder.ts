@@ -333,23 +333,29 @@ export class GraphBuilder {
     const resolvedImports: ImportEdge[] = [];
 
     for (const imp of imports) {
-      const resolved = this.resolver.resolve(filePath, imp.rawSpecifier);
-      if (!resolved) continue;
+      const results = this.resolver.resolveAll(filePath, imp.rawSpecifier);
+      if (results.length === 0) continue;
 
-      imp.toPath = resolved.isExternal ? resolved.path : path.relative(this.rootDir, resolved.path);
-      imp.isExternal = resolved.isExternal;
-      if (resolved.isWorkspace) {
-        imp.isWorkspace = true;
-        imp.workspacePackage = resolved.workspacePackage;
+      for (const resolved of results) {
+        const edge: ImportEdge = {
+          ...imp,
+          toPath: resolved.isExternal ? resolved.path : path.relative(this.rootDir, resolved.path),
+          isExternal: resolved.isExternal,
+        };
+
+        if (resolved.isWorkspace) {
+          edge.isWorkspace = true;
+          edge.workspacePackage = resolved.workspacePackage;
+        }
+
+        if (resolved.isExternal) {
+          this.attachLockfileVersion(edge);
+        } else {
+          await this.processFile(resolved.path);
+        }
+
+        resolvedImports.push(edge);
       }
-
-      if (resolved.isExternal) {
-        this.attachLockfileVersion(imp);
-      } else {
-        await this.processFile(resolved.path);
-      }
-
-      resolvedImports.push(imp);
     }
 
     return resolvedImports;

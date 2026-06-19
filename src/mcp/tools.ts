@@ -60,7 +60,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "get_affected",
     description:
-      "Get all files transitively affected if a given file changes — full incoming traversal upward. Use before a refactor to understand blast radius. Set testsOnly=true to get only test files.",
+      "Get all files transitively affected if a given file changes — full incoming traversal upward. Use before a refactor to understand blast radius. Set testsOnly=true to get only test files. Set cached=true to use a pre-computed O(1) lookup cache instead of graph traversal — faster on repeated calls for the same root.",
     inputSchema: {
       type: "object",
       properties: {
@@ -69,6 +69,11 @@ export const TOOL_DEFINITIONS = [
         testsOnly: {
           type: "boolean",
           description: "Return only test/spec files (default: false)",
+        },
+        cached: {
+          type: "boolean",
+          description:
+            "Use a pre-computed impact cache for O(1) lookup instead of graph traversal. Cache is built lazily on first use and reused for the session (default: false).",
         },
       },
       required: ["root", "file"],
@@ -125,7 +130,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "propose_tags",
     description:
-      "Propose test tags to run based on changed files. Pass changedFiles explicitly or omit to use git diff. Returns tags that cover all affected tests.",
+      "Propose what to run based on changed files. Pass changedFiles explicitly or omit to use git diff. format='tags' (default) returns test tags for CI tag-filtering; format='paths' returns test file paths ready to pipe directly to a test runner (e.g. vitest). Feature hubs act as traversal boundaries in both modes.",
     inputSchema: {
       type: "object",
       properties: {
@@ -140,26 +145,11 @@ export const TOOL_DEFINITIONS = [
           description:
             "Min importers for a file to be treated as a feature hub (default: 5). A hub short-circuits traversal and emits a feature:<name> tag instead of all downstream tags.",
         },
-      },
-      required: ["root"],
-    },
-  },
-  {
-    name: "propose_affected_tests",
-    description:
-      "Return the file paths of test files affected by changed files. Pass changedFiles explicitly or omit to use git diff. Output is a list of paths ready to pass directly to a test runner (e.g. vitest). Feature hubs act as traversal boundaries — tests beyond a hub are excluded.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        root: { type: "string" },
-        changedFiles: {
-          type: "array",
-          items: { type: "string" },
-          description: "Changed files relative to root. Omit to read from git diff.",
-        },
-        featureThreshold: {
-          type: "number",
-          description: "Min importers for a file to be treated as a feature hub (default: 5).",
+        format: {
+          type: "string",
+          enum: ["tags", "paths"],
+          description:
+            "Output format: 'tags' returns test tag names for CI filtering (default); 'paths' returns test file paths to pipe to a test runner.",
         },
       },
       required: ["root"],
@@ -240,26 +230,6 @@ export const TOOL_DEFINITIONS = [
           type: "string",
           description:
             "Monorepo-root-relative path of the changed file (e.g. 'packages/shared/src/utils.ts')",
-        },
-      },
-      required: ["root", "file"],
-    },
-  },
-  {
-    name: "get_change_impact",
-    description:
-      "Return all files transitively affected if a given file changes, using a pre-computed cache for O(1) lookup. Equivalent to get_affected but avoids graph traversal on repeated calls — the cache is built lazily on first use and reused for the session. Requires a prior analyze() call. Call clear_cache to invalidate when source files change.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        root: { type: "string", description: "Absolute path to the project root" },
-        file: {
-          type: "string",
-          description: "Project-relative path of the changed file (e.g. 'src/types/node.ts')",
-        },
-        testsOnly: {
-          type: "boolean",
-          description: "Return only test/spec files (default: false)",
         },
       },
       required: ["root", "file"],

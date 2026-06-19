@@ -12,18 +12,29 @@ import {
 export type { ResolvedImport };
 
 /**
- * @description Contract for resolving an import specifier to an absolute file path
+ * @description Contract for resolving an import specifier to one or more absolute file paths
  *   given the file that contains the import.
  */
 export interface PathResolver {
   /**
    * @description Resolves an import specifier to an absolute path and whether it is
-   *   outside the project root.
+   *   outside the project root. Returns the first result when multiple files are possible
+   *   (e.g. a Go package directory). Use `resolveAll` to get every file.
    * @param currentFile - Absolute path of the file containing the import statement.
    * @param specifier - The raw import specifier string (e.g. `"./utils"` or `"lodash"`).
    * @returns Resolved path and external flag, or `null` if resolution fails.
    */
   resolve(currentFile: string, specifier: string): ResolvedImport | null;
+
+  /**
+   * @description Resolves an import specifier to all matching local files. For most languages
+   *   this is identical to `resolve` (one file). For Go packages it returns every non-test
+   *   `.go` file in the target directory. Returns an empty array if resolution fails.
+   * @param currentFile - Absolute path of the file containing the import statement.
+   * @param specifier - The raw import specifier string.
+   * @returns Array of resolved imports (may be empty).
+   */
+  resolveAll(currentFile: string, specifier: string): ResolvedImport[];
 }
 
 /** @description Configuration options for `DefaultResolver`, used to support monorepo and alias-aware resolution. */
@@ -75,6 +86,42 @@ export class DefaultResolver implements PathResolver {
   }
 
   /**
+   * @description Resolves a specifier to all matching files. For most languages this returns
+   *   a single-element array (or empty on failure). For Go packages it returns one entry per
+   *   non-test `.go` file in the target directory.
+   * @param currentFile - Absolute path of the file containing the import.
+   * @param specifier - The raw import specifier to resolve.
+   * @returns Array of resolved imports; empty if resolution fails.
+   */
+  public resolveAll(currentFile: string, specifier: string): ResolvedImport[] {
+    // 1. Path aliases → always single result
+    const aliased = this.resolvePathAlias(specifier);
+    if (aliased) return [aliased];
+
+    // 2. Relative / absolute local paths → always single result
+    if (specifier.startsWith(".") || specifier.startsWith("/")) {
+      const r = this.resolveLocalPath(currentFile, specifier);
+      return r ? [r] : [];
+    }
+
+    // 3. Language-specific — may return multiple files (e.g. Go packages)
+    const resolveLocal = (cf: string, spec: string) => this.resolveLocalPath(cf, spec);
+    for (const lr of this.langResolvers) {
+      if (lr.extensions.some((ext) => currentFile.endsWith(ext))) {
+        const locals = lr.resolve(currentFile, specifier, this.rootDir, resolveLocal);
+        if (locals) return locals;
+      }
+    }
+
+    // 4. Workspace package
+    const workspace = this.resolveWorkspaceImport(specifier);
+    if (workspace) return [workspace];
+
+    // 5. External
+    return [{ path: specifier, isExternal: true }];
+  }
+
+  /**
    * @description Resolves a specifier by trying path aliases first, then relative/absolute
    *   local paths, then Lua dot-notation, and finally treating the specifier as an external module.
    * @param currentFile - Absolute path of the file containing the import.
@@ -95,8 +142,8 @@ export class DefaultResolver implements PathResolver {
     const resolveLocal = (cf: string, spec: string) => this.resolveLocalPath(cf, spec);
     for (const lr of this.langResolvers) {
       if (lr.extensions.some((ext) => currentFile.endsWith(ext))) {
-        const local = lr.resolve(currentFile, specifier, this.rootDir, resolveLocal);
-        if (local) return local;
+        const locals = lr.resolve(currentFile, specifier, this.rootDir, resolveLocal);
+        if (locals) return locals[0] ?? null;
       }
     }
 

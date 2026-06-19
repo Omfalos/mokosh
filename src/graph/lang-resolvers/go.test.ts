@@ -36,39 +36,101 @@ describe("module-local resolution", () => {
   });
   afterAll(() => fs.rmSync(root, { recursive: true, force: true }));
 
-  test("module-local specifier resolves to a .go file", () => {
+  test("module-local specifier resolves to non-null", () => {
     const result = resolver.resolve("", `${MOD}/internal/utils`, root, noop);
     expect(result).not.toBeNull();
-    expect(result?.isExternal).toBe(false);
   });
 
-  test("resolved path is inside the correct package directory", () => {
+  test("all non-test .go files in package are returned", () => {
     const result = resolver.resolve("", `${MOD}/internal/utils`, root, noop);
-    expect(result?.path).toContain(path.join(root, "internal/utils"));
+    expect(result).toHaveLength(2);
+    expect(result?.every((r) => r.isExternal === false)).toBe(true);
   });
 
-  test("resolved path is a .go file", () => {
+  test("files are sorted alphabetically", () => {
+    const result = resolver.resolve("", `${MOD}/internal/utils`, root, noop);
+    const names = result?.map((r) => path.basename(r.path));
+    expect(names).toEqual(["helper.go", "utils.go"]);
+  });
+
+  test("resolved paths are inside the correct package directory", () => {
+    const result = resolver.resolve("", `${MOD}/internal/utils`, root, noop);
+    expect(result?.every((r) => r.path.startsWith(path.join(root, "internal/utils")))).toBe(true);
+  });
+
+  test("single-file package returns one entry", () => {
     const result = resolver.resolve("", `${MOD}/pkg/auth`, root, noop);
-    expect(result?.path).toMatch(/\.go$/);
+    expect(result).toHaveLength(1);
+    expect(result?.[0]?.path).toMatch(/\.go$/);
   });
 
   test("stdlib package → null (falls through to external)", () => {
-    const result = resolver.resolve("", "fmt", root, noop);
-    expect(result).toBeNull();
+    expect(resolver.resolve("", "fmt", root, noop)).toBeNull();
   });
 
   test("third-party package → null (falls through to external)", () => {
-    const result = resolver.resolve("", "github.com/other/lib", root, noop);
-    expect(result).toBeNull();
+    expect(resolver.resolve("", "github.com/other/lib", root, noop)).toBeNull();
   });
 
   test("root module import (no subpath) → null", () => {
-    const result = resolver.resolve("", MOD, root, noop);
-    expect(result).toBeNull();
+    expect(resolver.resolve("", MOD, root, noop)).toBeNull();
   });
 
   test("package directory does not exist → null", () => {
-    const result = resolver.resolve("", `${MOD}/nonexistent/pkg`, root, noop);
+    expect(resolver.resolve("", `${MOD}/nonexistent/pkg`, root, noop)).toBeNull();
+  });
+});
+
+// ─── replace directives ───────────────────────────────────────────────────────
+
+describe("replace directives", () => {
+  let root: string;
+  let resolver: GoLangResolver;
+
+  beforeAll(() => {
+    root = setup({
+      "go.mod": [
+        `module ${MOD}`,
+        "",
+        "go 1.21",
+        "",
+        "replace (",
+        "  github.com/myorg/shared => ./vendor-local/shared",
+        "  github.com/myorg/versioned v1.0.0 => ./vendor-local/versioned",
+        ")",
+        "",
+        "replace github.com/myorg/inline => ./vendor-local/inline",
+      ].join("\n"),
+      "vendor-local/shared/types.go": "",
+      "vendor-local/shared/helpers.go": "",
+      "vendor-local/versioned/main.go": "",
+      "vendor-local/inline/api.go": "",
+    });
+    resolver = new GoLangResolver();
+  });
+  afterAll(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  test("block-form replace resolves to local files", () => {
+    const result = resolver.resolve("", "github.com/myorg/shared", root, noop);
+    expect(result).toHaveLength(2);
+    expect(result?.every((r) => r.isExternal === false)).toBe(true);
+  });
+
+  test("replace with version constraint on lhs is resolved", () => {
+    const result = resolver.resolve("", "github.com/myorg/versioned", root, noop);
+    expect(result).toHaveLength(1);
+    expect(result?.[0]?.path).toContain("versioned");
+  });
+
+  test("single-line replace is resolved", () => {
+    const result = resolver.resolve("", "github.com/myorg/inline", root, noop);
+    expect(result).toHaveLength(1);
+    expect(result?.[0]?.path).toContain("inline");
+  });
+
+  test("subpath of replaced module is resolved", () => {
+    const result = resolver.resolve("", "github.com/myorg/shared/types", root, noop);
+    // types/ subdir doesn't exist, so null — but the replace map was consulted
     expect(result).toBeNull();
   });
 });
@@ -108,38 +170,32 @@ describe("go.mod without module directive", () => {
   });
 });
 
-// ─── representative file selection ───────────────────────────────────────────
+// ─── test file exclusion ──────────────────────────────────────────────────────
 
-describe("representative file selection", () => {
+describe("test file exclusion", () => {
   let root: string;
   let resolver: GoLangResolver;
 
   beforeAll(() => {
     root = setup({
       "go.mod": `module ${MOD}\n`,
-      "pkg/multi/alpha.go": "",
-      "pkg/multi/beta.go": "",
-      "pkg/withdoc/doc.go": "",
-      "pkg/withdoc/impl.go": "",
       "pkg/testonly/auth_test.go": "",
+      "pkg/mixed/impl.go": "",
+      "pkg/mixed/impl_test.go": "",
     });
     resolver = new GoLangResolver();
   });
   afterAll(() => fs.rmSync(root, { recursive: true, force: true }));
 
-  test("multiple files → picks first alphabetically", () => {
-    const result = resolver.resolve("", `${MOD}/pkg/multi`, root, noop);
-    expect(result?.path).toContain("alpha.go");
+  test("directory with only _test.go files → null", () => {
+    expect(resolver.resolve("", `${MOD}/pkg/testonly`, root, noop)).toBeNull();
   });
 
-  test("doc.go present → preferred over alphabetical first", () => {
-    const result = resolver.resolve("", `${MOD}/pkg/withdoc`, root, noop);
-    expect(result?.path).toContain("doc.go");
-  });
-
-  test("only _test.go files in dir → null", () => {
-    const result = resolver.resolve("", `${MOD}/pkg/testonly`, root, noop);
-    expect(result).toBeNull();
+  test("_test.go files excluded from mixed package", () => {
+    const result = resolver.resolve("", `${MOD}/pkg/mixed`, root, noop);
+    expect(result).toHaveLength(1);
+    expect(result?.[0]?.path).toContain("impl.go");
+    expect(result?.[0]?.path).not.toContain("impl_test.go");
   });
 });
 

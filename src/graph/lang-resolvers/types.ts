@@ -31,5 +31,5 @@ export interface LangResolver {
     specifier: string,
     rootDir: string,
     resolveLocal: (currentFile: string, specifier: string) => ResolvedImport | null,
-  ): ResolvedImport | null;
+  ): ResolvedImport[] | null;
 }

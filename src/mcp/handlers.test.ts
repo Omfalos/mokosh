@@ -12,7 +12,6 @@ import {
   handleGetDependents,
   handleGetWorkspaceAffected,
   handleGetWorkspacePackages,
-  handleProposeAffectedTests,
   handleProposeTags,
   handleQuery,
 } from "./handlers";
@@ -209,10 +208,10 @@ describe("handleProposeTags", () => {
   });
 });
 
-describe("handleProposeAffectedTests", () => {
+describe("handleProposeTags with format='paths'", () => {
   test("returns test file paths affected by changed files", async () => {
     const data = parse(
-      handleProposeAffectedTests(makeCache(), { root: ROOT, changedFiles: ["src/a.ts"] }),
+      handleProposeTags(makeCache(), { root: ROOT, changedFiles: ["src/a.ts"], format: "paths" }),
     ) as { affectedTests: string[]; count: number };
 
     expect(data.affectedTests).toContain("src/a.test.ts");

@@ -24,14 +24,14 @@ export class LuaLangResolver implements LangResolver {
     specifier: string,
     rootDir: string,
     resolveLocal: (currentFile: string, specifier: string) => ResolvedImport | null,
-  ): ResolvedImport | null {
+  ): ResolvedImport[] | null {
     const luaSpecifier = specifier.replace(/\./g, path.sep);
     const searchBases = [rootDir, path.join(rootDir, "lib")];
 
     for (const base of searchBases) {
       if (!fs.existsSync(base)) continue;
       const resolved = resolveLocal(path.join(base, "_dummy.lua"), luaSpecifier);
-      if (resolved) return resolved;
+      if (resolved) return [resolved];
     }
 
     return null;
