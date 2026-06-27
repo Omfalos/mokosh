@@ -7,6 +7,7 @@ export * from "./features/feature-graph";
 export * from "./model";
 export * from "./resolver";
 export * from "./responsibility";
+export * from "./symbol-traversal";
 export * from "./type-graph";
 export * from "./workspace";
 export * from "./workspace-model";

@@ -113,9 +113,10 @@ describe("mokosh MCP server", () => {
 
       const data = parseText(
         await client.callTool({ name: "get_dependencies", arguments: { root, file: "main.js" } }),
-      ) as { dependencies: string[] };
-      expect(data.dependencies).toContain("a.js");
-      expect(data.dependencies).not.toContain("b.js");
+      ) as { dependencies: Array<{ path: string; symbols?: string[] }> };
+      const paths = data.dependencies.map((d) => d.path);
+      expect(paths).toContain("a.js");
+      expect(paths).not.toContain("b.js");
     });
 
     test("returns full transitive tree when depth > 1", async () => {
@@ -132,9 +133,10 @@ describe("mokosh MCP server", () => {
           name: "get_dependencies",
           arguments: { root, file: "main.js", depth: 10 },
         }),
-      ) as { dependencies: string[] };
-      expect(data.dependencies).toContain("a.js");
-      expect(data.dependencies).toContain("b.js");
+      ) as { dependencies: Array<{ path: string; symbols?: string[] }> };
+      const paths = data.dependencies.map((d) => d.path);
+      expect(paths).toContain("a.js");
+      expect(paths).toContain("b.js");
     });
   });
 
@@ -149,8 +151,8 @@ describe("mokosh MCP server", () => {
 
       const data = parseText(
         await client.callTool({ name: "get_dependents", arguments: { root, file: "a.js" } }),
-      ) as { dependents: string[] };
-      expect(data.dependents).toContain("main.js");
+      ) as { dependents: Array<{ path: string; symbols?: string[] }> };
+      expect(data.dependents.map((d) => d.path)).toContain("main.js");
     });
   });
 

@@ -21,6 +21,7 @@ import {
   queryCallGraph,
   queryChangeImpact,
   queryTypeGraph,
+  SymbolTraversalContext,
 } from "../index";
 import type { SessionState } from "./cache";
 import type { TextResponse } from "./utils";
@@ -35,7 +36,13 @@ export type GetWorkspacePackagesArgs = { root: string };
 export type GetWorkspaceAffectedArgs = { root: string; file: string };
 export type GetDependenciesArgs = { root: string; file: string; depth?: number };
 export type GetDependentsArgs = { root: string; file: string };
-export type GetAffectedArgs = { root: string; file: string; testsOnly?: boolean; cached?: boolean };
+export type GetAffectedArgs = {
+  root: string;
+  file: string;
+  testsOnly?: boolean;
+  cached?: boolean;
+  changedSymbols?: string[];
+};
 export type GetCallersArgs = {
   root: string;
   file: string;
@@ -159,11 +166,15 @@ export async function handleGetDependencies(
 ): Promise<TextResponse> {
   const { root, file, depth = 1 } = args;
   const graph = await cache.ensureFresh(root);
-  const deps: string[] = [];
+  const deps: Array<{ path: string; symbols?: string[] }> = [];
   graph.traverse(
     file,
-    (node) => {
-      if (node.path !== file) deps.push(node.path);
+    (node, _depth, parentPath) => {
+      if (node.path === file) return true;
+      const edge = parentPath
+        ? graph.nodes.get(parentPath)?.imports.find((i) => i.toPath === node.path)
+        : undefined;
+      deps.push({ path: node.path, ...(edge?.symbols ? { symbols: edge.symbols } : {}) });
       return true;
     },
     { direction: "outgoing", maxDepth: depth },
@@ -184,11 +195,13 @@ export async function handleGetDependents(
 ): Promise<TextResponse> {
   const { root, file } = args;
   const graph = await cache.ensureFresh(root);
-  const dependents: string[] = [];
+  const dependents: Array<{ path: string; symbols?: string[] }> = [];
   graph.traverse(
     file,
     (node) => {
-      if (node.path !== file) dependents.push(node.path);
+      if (node.path === file) return true;
+      const edge = node.imports.find((i) => i.toPath === file);
+      dependents.push({ path: node.path, ...(edge?.symbols ? { symbols: edge.symbols } : {}) });
       return true;
     },
     { direction: "incoming", maxDepth: 1 },
@@ -209,7 +222,7 @@ export async function handleGetAffected(
   cache: SessionState,
   args: GetAffectedArgs,
 ): Promise<TextResponse> {
-  const { root, file, testsOnly = false, cached = false } = args;
+  const { root, file, testsOnly = false, cached = false, changedSymbols } = args;
   const graph = await cache.ensureFresh(root);
   if (cached) {
     const impactCache = cache.getOrBuildChangeImpact(root);
@@ -219,11 +232,13 @@ export async function handleGetAffected(
       : allAffected;
     return text({ file, affected, count: affected.length });
   }
+  const ctx = changedSymbols ? new SymbolTraversalContext(file, changedSymbols) : null;
   const affected: string[] = [];
   graph.traverse(
     file,
-    (node) => {
+    (node, _depth, parentPath) => {
       if (node.path === file) return true;
+      if (ctx && parentPath && !ctx.updateAffectedSymbols(node, parentPath)) return false;
       const isTest = node.category === "test" || node.tags.some((t) => t.name === "test");
       if (!testsOnly || isTest) affected.push(node.path);
       return true;

@@ -54,6 +54,7 @@ export type {
   ModuleRole,
   ResponsibilityGraph,
 } from "./graph/responsibility/types";
+export { SymbolTraversalContext } from "./graph/symbol-traversal";
 export {
   buildTypeGraph,
   queryTypeGraph,

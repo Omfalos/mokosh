@@ -34,7 +34,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "get_dependencies",
     description:
-      "Get files that a given file imports (outgoing traversal). depth=1 returns immediate imports; omit for the full transitive tree.",
+      "Get files that a given file imports (outgoing traversal). depth=1 returns immediate imports; omit for the full transitive tree. Each result includes the specific symbols imported from that file (when known).",
     inputSchema: {
       type: "object",
       properties: {
@@ -47,7 +47,8 @@ export const TOOL_DEFINITIONS = [
   },
   {
     name: "get_dependents",
-    description: "Get files that directly import a given file (one-hop incoming edges).",
+    description:
+      "Get files that directly import a given file (one-hop incoming edges). Each result includes the specific symbols that dependent file imports from this file (when known).",
     inputSchema: {
       type: "object",
       properties: {
@@ -60,7 +61,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "get_affected",
     description:
-      "Get all files transitively affected if a given file changes — full incoming traversal upward. Use before a refactor to understand blast radius. Set testsOnly=true to get only test files. Set cached=true to use a pre-computed O(1) lookup cache instead of graph traversal — faster on repeated calls for the same root.",
+      "Get all files transitively affected if a given file changes — full incoming traversal upward. Use before a refactor to understand blast radius. Set testsOnly=true to get only test files. Set cached=true to use a pre-computed O(1) lookup cache instead of graph traversal — faster on repeated calls for the same root. Pass changedSymbols to restrict blast-radius to files that actually import those symbols — omit to treat the whole file as changed.",
     inputSchema: {
       type: "object",
       properties: {
@@ -74,6 +75,12 @@ export const TOOL_DEFINITIONS = [
           type: "boolean",
           description:
             "Use a pre-computed impact cache for O(1) lookup instead of graph traversal. Cache is built lazily on first use and reused for the session (default: false).",
+        },
+        changedSymbols: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Restrict blast-radius to files that import at least one of these symbols. Omit to treat the whole file as changed (conservative, same as before).",
         },
       },
       required: ["root", "file"],
