@@ -23,8 +23,9 @@ List every file you plan to change.
 
 ### 2. Get the blast radius (one call per target)
 
+The MCP server automatically manages the graph state and reacts to changes. Call:
+
 ```
-analyze({ root: "<abs-root>", entryPoints: ["src/index.ts"] })
 get_affected({ root: "<abs-root>", file: "<relative-path>" })
 ```
 

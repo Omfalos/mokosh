@@ -1,8 +1,13 @@
 /** Proposes semantic test tags and affected test files from git diff and the dependency graph. */
 
 import type { Graph } from "../graph";
-import { detectFeatures, type FeatureDetectionOptions, type FeatureInfo } from "../graph";
-import type { ExportedSymbol, FileNode, ImportEdge } from "../types/node";
+import {
+  detectFeatures,
+  type FeatureDetectionOptions,
+  type FeatureInfo,
+  SymbolTraversalContext,
+} from "../graph";
+import type { FileNode } from "../types/node";
 import { DefaultTestNodeIdentifier, type TestNodeIdentifier } from "./identifier";
 
 /** @description Options for `proposeTags` and `proposeAffectedTests`, allowing callers to override the test-node identifier and feature-detection behaviour. */
@@ -57,7 +62,10 @@ function traverseAffected(
     const startNode = graph.nodes.get(changed);
     if (!startNode) continue;
 
-    const context = new TagProposalContext(changed, startNode.exports);
+    const context = new SymbolTraversalContext(changed, [
+      "*",
+      ...startNode.exports.map((e) => e.name),
+    ]);
 
     graph.traverse(
       changed,
@@ -160,59 +168,4 @@ export function proposeAffectedTests(
   );
 
   return Array.from(affectedTests);
-}
-
-/**
- * @description Tracks which exported symbols of each visited node are "affected" by a change.
- *
- * Enables symbol-level pruning during traversal: if a node only imports `foo` and `foo`
- * was not among the changed exports, that node is not considered affected and traversal
- * stops there.
- */
-class TagProposalContext {
-  private affectedSymbols = new Map<string, Set<string>>();
-
-  /**
-   * @param {string} startPath - Relative path of the changed file; seeded with all its exports as affected.
-   * @param {ExportedSymbol[]} exports - Exported symbols of the changed file, used to initialise the affected set.
-   */
-  constructor(startPath: string, exports: ExportedSymbol[]) {
-    this.affectedSymbols.set(startPath, new Set(["*", "default", ...exports.map((e) => e.name)]));
-  }
-
-  /**
-   * @description Checks whether `visitedNode` imports any affected symbol from `childPath` and,
-   * if so, propagates the affected symbol set to `visitedNode` for the next traversal step.
-   *
-   * Both roles live in one method to avoid a second pass over the import edges — the check
-   * and the update read the same edge, so splitting them would duplicate work.
-   * @param {{ path: string; imports: ImportEdge[] }} visitedNode - The node currently being evaluated; its imports are inspected.
-   * @param {string} childPath - The path it was reached from; used to look up the current affected symbols.
-   * @returns {boolean} `true` if at least one imported symbol is affected and traversal should continue; `false` to prune.
-   */
-  public updateAffectedSymbols(
-    visitedNode: { path: string; imports: ImportEdge[] },
-    childPath: string,
-  ): boolean {
-    const currentSymbols = this.affectedSymbols.get(childPath) || new Set();
-
-    const importEdge = visitedNode.imports.find((imp) => imp.toPath === childPath);
-    if (!importEdge) return false;
-
-    const importedSymbols = importEdge.symbols || ["*"];
-    const relevantSymbols = new Set<string>();
-
-    for (const sym of importedSymbols) {
-      if (sym === "*" || currentSymbols.has("*") || currentSymbols.has(sym)) {
-        relevantSymbols.add("*");
-      }
-    }
-
-    if (relevantSymbols.size === 0) return false;
-
-    const existing = this.affectedSymbols.get(visitedNode.path) || new Set();
-    for (const s of relevantSymbols) existing.add(s);
-    this.affectedSymbols.set(visitedNode.path, existing);
-    return true;
-  }
 }

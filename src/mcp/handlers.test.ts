@@ -145,19 +145,20 @@ describe("handleGetDependencies", () => {
     const data = parse(
       await handleGetDependencies(makeCache(), { root: ROOT, file: "src/b.ts" }),
     ) as {
-      dependencies: string[];
+      dependencies: Array<{ path: string; symbols?: string[] }>;
     };
 
-    expect(data.dependencies).toContain("src/a.ts");
-    expect(data.dependencies).not.toContain("src/b.ts");
+    const paths = data.dependencies.map((d) => d.path);
+    expect(paths).toContain("src/a.ts");
+    expect(paths).not.toContain("src/b.ts");
   });
 
   test("does not traverse past leaves even at higher depth", async () => {
     const data = parse(
       await handleGetDependencies(makeCache(), { root: ROOT, file: "src/b.ts", depth: 10 }),
-    ) as { dependencies: string[] };
+    ) as { dependencies: Array<{ path: string; symbols?: string[] }> };
 
-    expect(data.dependencies).toEqual(["src/a.ts"]);
+    expect(data.dependencies.map((d) => d.path)).toEqual(["src/a.ts"]);
   });
 });
 
@@ -166,11 +167,12 @@ describe("handleGetDependents", () => {
     const data = parse(
       await handleGetDependents(makeCache(), { root: ROOT, file: "src/a.ts" }),
     ) as {
-      dependents: string[];
+      dependents: Array<{ path: string; symbols?: string[] }>;
     };
 
-    expect(data.dependents).toContain("src/b.ts");
-    expect(data.dependents).toContain("src/a.test.ts");
+    const paths = data.dependents.map((d) => d.path);
+    expect(paths).toContain("src/b.ts");
+    expect(paths).toContain("src/a.test.ts");
   });
 });
 
