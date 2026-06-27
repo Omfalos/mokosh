@@ -23,7 +23,7 @@ export function queryCallGraph(graph: Graph, functionName: string): FunctionCall
   const callers: CallerEntry[] = [];
 
   for (const node of graph.nodes.values()) {
-    if (node.exports.some((e) => e.name === functionName)) {
+    if (node.exports.some((exportedSym) => exportedSym.name === functionName)) {
       definedIn = node.path;
     }
 

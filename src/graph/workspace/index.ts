@@ -53,7 +53,7 @@ export function detectMonorepo(
     type: detectedTypes[0] as string,
     types: detectedTypes,
     packages,
-    packageMap: new Map(packages.map((p) => [p.name, p])),
+    packageMap: new Map(packages.map((pkg) => [pkg.name, pkg])),
   };
 }
 

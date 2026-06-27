@@ -13,7 +13,7 @@ const TEST_PATH_PATTERNS = [".test.", ".spec.", "-test.", "-spec.", ".stories."]
  */
 function isTestPath(filePath: string): boolean {
   const base = path.basename(filePath).toLowerCase();
-  return TEST_PATH_PATTERNS.some((p) => base.includes(p));
+  return TEST_PATH_PATTERNS.some((pattern) => base.includes(pattern));
 }
 
 /**
@@ -27,7 +27,7 @@ export async function run(ctx: CommandContext): Promise<void> {
   let unusedFiles = graph.findUnusedFiles(allProjectFiles);
 
   if (excludeTests) {
-    unusedFiles = unusedFiles.filter((f) => !isTestPath(f));
+    unusedFiles = unusedFiles.filter((filePath) => !isTestPath(filePath));
   }
 
   console.log(JSON.stringify({ unusedFiles }, null, 2));

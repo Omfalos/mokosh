@@ -32,8 +32,8 @@ export class DefaultGitProvider implements GitProvider {
           const output = execSync(cmd, { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] });
           return output
             .split("\n")
-            .map((f) => f.trim())
-            .filter((f) => f !== "");
+            .map((filePath) => filePath.trim())
+            .filter((filePath) => filePath !== "");
         } catch {
           return [];
         }

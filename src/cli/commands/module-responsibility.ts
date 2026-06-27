@@ -16,7 +16,7 @@ export async function run(ctx: CommandContext): Promise<void> {
   );
 
   if (filterPaths?.length) {
-    const modules = filterPaths.map((p) => respGraph.get(p)).filter(Boolean);
+    const modules = filterPaths.map((modulePath) => respGraph.get(modulePath)).filter(Boolean);
     console.log(JSON.stringify({ count: modules.length, modules }, null, 2));
   } else {
     const modules = Array.from(respGraph.values());

@@ -45,7 +45,7 @@ export function buildResponsibilityGraph(
       path: node.path,
       role: inferRole(node),
       ...(node.description ? { description: node.description } : {}),
-      exports: node.exports.map((e) => e.name),
+      exports: node.exports.map((exportedSym) => exportedSym.name),
       ...(hub ? { featureHub: hub } : {}),
     });
   }

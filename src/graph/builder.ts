@@ -128,7 +128,7 @@ export class GraphBuilder {
         const fullPath = path.join(dir, entry.name);
         if (entry.isDirectory()) {
           if (!ignoreDirs.has(entry.name)) await walk(fullPath);
-        } else if (entry.isFile() && patterns.some((p) => entry.name.includes(p))) {
+        } else if (entry.isFile() && patterns.some((pattern) => entry.name.includes(pattern))) {
           await this.processFile(fullPath);
         }
       }

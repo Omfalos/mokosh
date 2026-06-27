@@ -37,15 +37,22 @@ export function matchNode(
   }
 
   if (query.tags && query.tags.length > 0) {
-    const positive = query.tags.filter((t) => !t.startsWith("!"));
-    const negative = query.tags.filter((t) => t.startsWith("!")).map((t) => t.slice(1));
-    if (positive.length > 0 && !positive.some((t) => node.tags.some((st) => st.name === t)))
+    const positive = query.tags.filter((tag) => !tag.startsWith("!"));
+    const negative = query.tags.filter((tag) => tag.startsWith("!")).map((tag) => tag.slice(1));
+    if (
+      positive.length > 0 &&
+      !positive.some((tag) => node.tags.some((structuredTag) => structuredTag.name === tag))
+    )
       return false;
-    if (negative.some((t) => node.tags.some((st) => st.name === t))) return false;
+    if (negative.some((tag) => node.tags.some((structuredTag) => structuredTag.name === tag)))
+      return false;
   }
 
   if (query.allTags?.length) {
-    if (!query.allTags.every((t) => node.tags.some((st) => st.name === t))) return false;
+    if (
+      !query.allTags.every((tag) => node.tags.some((structuredTag) => structuredTag.name === tag))
+    )
+      return false;
   }
   if (query.importsFile) {
     if (!node.imports.some((imp) => imp.toPath?.includes(query.importsFile as string)))
@@ -53,7 +60,8 @@ export function matchNode(
   }
   if (query.importedBy !== undefined) {
     const importers = reverseIndex?.get(node.path) ?? [];
-    if (!importers.some((p) => p.includes(query.importedBy as string))) return false;
+    if (!importers.some((importerPath) => importerPath.includes(query.importedBy as string)))
+      return false;
   }
   if (query.minImports !== undefined && node.imports.length < query.minImports) return false;
   if (query.maxImports !== undefined && node.imports.length > query.maxImports) return false;
@@ -87,11 +95,11 @@ export function matchNode(
 export function filterGraph(graph: SerializedGraph, query: NodeQuery): SerializedGraph {
   const reverseIndex = new Map<string, string[]>();
   if (query.importedBy !== undefined) {
-    for (const n of graph.nodes) {
-      for (const imp of n.imports) {
+    for (const node of graph.nodes) {
+      for (const imp of node.imports) {
         if (imp.toPath) {
           const arr = reverseIndex.get(imp.toPath) ?? [];
-          arr.push(n.path);
+          arr.push(node.path);
           reverseIndex.set(imp.toPath, arr);
         }
       }
@@ -99,7 +107,7 @@ export function filterGraph(graph: SerializedGraph, query: NodeQuery): Serialize
   }
 
   const filteredNodes = graph.nodes.filter((node) => matchNode(node, query, reverseIndex));
-  const nodePaths = new Set(filteredNodes.map((n) => n.path));
+  const nodePaths = new Set(filteredNodes.map((node) => node.path));
 
   const resultNodes = filteredNodes.map((node) => ({
     ...node,
@@ -107,11 +115,13 @@ export function filterGraph(graph: SerializedGraph, query: NodeQuery): Serialize
   }));
 
   if (query.sort) {
-    resultNodes.sort((a, b) => {
-      if (query.sort === "size") return b.size - a.size;
-      if (query.sort === "imports") return b.imports.length - a.imports.length;
-      if (query.sort === "commitCount90d") return (b.commitCount90d ?? 0) - (a.commitCount90d ?? 0);
-      if (query.sort === "exportUsage") return (b.avgExportUsage ?? 0) - (a.avgExportUsage ?? 0);
+    resultNodes.sort((nodeA, nodeB) => {
+      if (query.sort === "size") return nodeB.size - nodeA.size;
+      if (query.sort === "imports") return nodeB.imports.length - nodeA.imports.length;
+      if (query.sort === "commitCount90d")
+        return (nodeB.commitCount90d ?? 0) - (nodeA.commitCount90d ?? 0);
+      if (query.sort === "exportUsage")
+        return (nodeB.avgExportUsage ?? 0) - (nodeA.avgExportUsage ?? 0);
       return 0;
     });
   }

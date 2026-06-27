@@ -145,7 +145,7 @@ export class WorkspaceGraph {
   static deserialize(data: SerializedWorkspaceGraph): WorkspaceGraph {
     const wg = new WorkspaceGraph(data.monorepoRoot, data.type);
     for (const { pkg, nodes } of data.packages) {
-      const nodeMap = new Map(nodes.map((n) => [n.path, n]));
+      const nodeMap = new Map(nodes.map((node) => [node.path, node]));
       const graph = new Graph(nodeMap);
       wg.packages.set(pkg.name, {
         graph,

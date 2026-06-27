@@ -103,7 +103,7 @@ export async function run(): Promise<void> {
   const ctx = {
     graph,
     rootDir,
-    entryPoints: resolvedEntryPoints.map((p) => p.replace(rootDir + "/", "")),
+    entryPoints: resolvedEntryPoints.map((entryPath) => entryPath.replace(rootDir + "/", "")),
     scanOptions,
     rawConfig: config.rawConfig,
     featureThreshold,

@@ -111,7 +111,9 @@ function parseYarnClassic(content: string): LockFileData {
   const result: LockFileData = { dependencies: {} };
 
   for (const block of content.split(/\n\n+/)) {
-    const lines = block.split("\n").filter((l) => l.trim().length > 0 && !l.trim().startsWith("#"));
+    const lines = block
+      .split("\n")
+      .filter((line) => line.trim().length > 0 && !line.trim().startsWith("#"));
     if (lines.length < 2) continue;
 
     const header = lines[0];
@@ -120,7 +122,7 @@ function parseYarnClassic(content: string): LockFileData {
     const names = parseYarnDescriptors(header);
     if (names.length === 0) continue;
 
-    const versionLine = lines.find((l) => l.trim().startsWith('version "'));
+    const versionLine = lines.find((line) => line.trim().startsWith('version "'));
     const version = versionLine?.match(/version "(.*?)"/)?.[1] ?? "";
 
     for (const name of names) {
@@ -233,7 +235,7 @@ export function parsePnpmLock(filePath: string): LockFileData {
  * @returns Parsed lock file data from the first detected lock file, or `null` if none is found.
  */
 export function loadLockFile(rootDir: string): LockFileData | null {
-  const candidates: [string, (p: string) => LockFileData][] = [
+  const candidates: [string, (lockFilePath: string) => LockFileData][] = [
     ["package-lock.json", parsePackageLock],
     ["yarn.lock", parseYarnLock],
     ["pnpm-lock.yaml", parsePnpmLock],

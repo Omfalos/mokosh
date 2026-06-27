@@ -20,6 +20,8 @@ export async function run(ctx: CommandContext): Promise<void> {
     graph.nodes,
     featureThreshold !== undefined ? { minOutDegree: featureThreshold } : undefined,
   );
-  const features = Array.from(featureMap.values()).sort((a, b) => b.outDegree - a.outDegree);
+  const features = Array.from(featureMap.values()).sort(
+    (featureA, featureB) => featureB.outDegree - featureA.outDegree,
+  );
   console.log(JSON.stringify({ features }, null, 2));
 }

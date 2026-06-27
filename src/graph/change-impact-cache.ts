@@ -41,8 +41,8 @@ interface SerializedChangeImpactCache {
  */
 export function computeGraphHash(graph: Graph): string {
   const entries = [...graph.nodes.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([p, n]) => `${p}:${n.mtime}:${n.size}`)
+    .sort(([pathA], [pathB]) => pathA.localeCompare(pathB))
+    .map(([filePath, node]) => `${filePath}:${node.mtime}:${node.size}`)
     .join("|");
 
   // FNV-1a 32-bit — fast, deterministic, good enough for cache invalidation.

@@ -65,7 +65,7 @@ export function detectStylusCategory(content: string, imports: ImportEdge[]): "u
       Parser: new (src: string) => { parse(): { nodes: Array<{ constructor: { name: string } }> } };
     };
     const ast = new stylusLib.Parser(content).parse();
-    const hasNonImport = ast.nodes.some((n) => n.constructor.name !== "Import");
+    const hasNonImport = ast.nodes.some((astNode) => astNode.constructor.name !== "Import");
     return hasNonImport ? "ui" : "barrel";
   } catch {
     // Fallback: strip all import/require lines and check if any content remains.

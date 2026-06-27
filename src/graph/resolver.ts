@@ -100,8 +100,8 @@ export class DefaultResolver implements PathResolver {
 
     // 2. Relative / absolute local paths → always single result
     if (specifier.startsWith(".") || specifier.startsWith("/")) {
-      const r = this.resolveLocalPath(currentFile, specifier);
-      return r ? [r] : [];
+      const resolved = this.resolveLocalPath(currentFile, specifier);
+      return resolved ? [resolved] : [];
     }
 
     // 3. Language-specific — may return multiple files (e.g. Go packages)
@@ -216,9 +216,9 @@ export class DefaultResolver implements PathResolver {
    */
   private tryExtensions(fullPath: string, ext: string, isExternal: boolean): ResolvedImport | null {
     // Try file directly
-    const p = fullPath + ext;
-    if (this.isFile(p)) {
-      return { path: p, isExternal };
+    const candidatePath = fullPath + ext;
+    if (this.isFile(candidatePath)) {
+      return { path: candidatePath, isExternal };
     }
 
     // Try index file in directory (JS/TS convention: index.ts)
@@ -241,12 +241,12 @@ export class DefaultResolver implements PathResolver {
   /**
    * @description Safely checks whether a path refers to a regular file without throwing
    *   on missing entries or permission errors.
-   * @param p - Absolute path to test.
+   * @param filePath - Absolute path to test.
    * @returns `true` if the path exists and is a regular file.
    */
-  private isFile(p: string): boolean {
+  private isFile(filePath: string): boolean {
     try {
-      const stats = fs.statSync(p, { throwIfNoEntry: false });
+      const stats = fs.statSync(filePath, { throwIfNoEntry: false });
       return stats?.isFile() === true;
     } catch {
       return false;

@@ -11,9 +11,9 @@ const TEST_PATTERNS = [".test.", ".spec.", "-test.", "-spec."];
  * @returns {string[]} The subset of paths whose basename identifies them as test files.
  */
 export function getTestFiles(allFiles: string[]): string[] {
-  return allFiles.filter((f) => {
-    const base = path.basename(f).toLowerCase();
-    return TEST_PATTERNS.some((p) => base.includes(p));
+  return allFiles.filter((filePath) => {
+    const base = path.basename(filePath).toLowerCase();
+    return TEST_PATTERNS.some((pattern) => base.includes(pattern));
   });
 }
 

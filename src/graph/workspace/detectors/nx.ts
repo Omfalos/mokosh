@@ -18,7 +18,7 @@ export const nxDetector: MonorepoDetector = {
     const seen = new Set<string>();
     return walkForProjectJsonDirs(rootDir, rootDir, seen, 0)
       .map((pkgRoot) => buildNxPackage(rootDir, pkgRoot, path.join(pkgRoot, "project.json")))
-      .filter((p): p is WorkspacePackage => p !== null);
+      .filter((pkg): pkg is WorkspacePackage => pkg !== null);
   },
 };
 

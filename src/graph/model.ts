@@ -108,7 +108,7 @@ export class Graph {
       direction === "outgoing"
         ? ((this.nodes
             .get(path)
-            ?.imports.map((i) => i.toPath)
+            ?.imports.map((importEdge) => importEdge.toPath)
             .filter(Boolean) as string[]) ?? [])
         : (incoming?.get(path) ?? []),
     );
@@ -150,7 +150,7 @@ export class Graph {
     const callIncoming = direction === "incoming" ? this.getCallIncomingCache() : null;
     this.dfs(startPath, visitor, options, (path) =>
       direction === "outgoing"
-        ? (this.nodes.get(path)?.callEdges?.map((e) => e.toFile) ?? [])
+        ? (this.nodes.get(path)?.callEdges?.map((callEdge) => callEdge.toFile) ?? [])
         : (callIncoming?.get(path) ?? []),
     );
   }
@@ -193,7 +193,7 @@ export class Graph {
     if (!node) return [];
     return node.imports
       .map((imp) => this.nodes.get(imp.toPath))
-      .filter((n): n is FileNode => n !== undefined);
+      .filter((node): node is FileNode => node !== undefined);
   }
 
   /**

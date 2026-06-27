@@ -49,7 +49,7 @@ export class SymbolTraversalContext {
     if (relevantSymbols.size === 0) return false;
 
     const existing = this.affectedSymbols.get(visitedNode.path) || new Set();
-    for (const s of relevantSymbols) existing.add(s);
+    for (const symbol of relevantSymbols) existing.add(symbol);
     this.affectedSymbols.set(visitedNode.path, existing);
     return true;
   }

@@ -184,7 +184,7 @@ function parseGoMod(content: string, rootDir: string): GoModData {
  * @param {Map<string, string>} out - Map to populate with resolved replacements.
  */
 function parseReplaceLine(line: string, rootDir: string, out: Map<string, string>): void {
-  const [lhs, rhs] = line.split("=>").map((s) => s.trim());
+  const [lhs, rhs] = line.split("=>").map((side) => side.trim());
   if (!lhs || !rhs) return;
 
   // Strip optional version from lhs: `github.com/org/repo v1.0.0` → `github.com/org/repo`
@@ -214,9 +214,12 @@ function goFilesInDir(absDir: string): ResolvedImport[] | null {
   }
 
   const files = entries
-    .filter((e) => e.isFile() && e.name.endsWith(".go") && !e.name.endsWith("_test.go"))
-    .map((e): ResolvedImport => ({ path: path.join(absDir, e.name), isExternal: false }))
-    .sort((a, b) => a.path.localeCompare(b.path));
+    .filter(
+      (dirent) =>
+        dirent.isFile() && dirent.name.endsWith(".go") && !dirent.name.endsWith("_test.go"),
+    )
+    .map((dirent): ResolvedImport => ({ path: path.join(absDir, dirent.name), isExternal: false }))
+    .sort((resolvedA, resolvedB) => resolvedA.path.localeCompare(resolvedB.path));
 
   return files.length > 0 ? files : null;
 }

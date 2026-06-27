@@ -177,7 +177,7 @@ function resolveShallowPattern(
   seen: Set<string>,
   packages: WorkspacePackage[],
 ): void {
-  const starIdx = segments.findIndex((s) => s.includes("*"));
+  const starIdx = segments.findIndex((segment) => segment.includes("*"));
   const base = path.join(root, ...segments.slice(0, starIdx));
 
   let entries: fs.Dirent[];

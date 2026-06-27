@@ -14,7 +14,9 @@ export async function run(ctx: CommandContext): Promise<void> {
 
   const changedFiles = resolveChangedFiles(rootDir);
 
-  const hasTestNodes = [...graph.nodes.values()].some((n) => getTestFiles([n.path]).length > 0);
+  const hasTestNodes = [...graph.nodes.values()].some(
+    (node) => getTestFiles([node.path]).length > 0,
+  );
   if (!hasTestNodes) {
     const allFiles = getAllProjectFiles(rootDir, scanOptions);
     graph = await createImportMap(rootDir, getTestFiles(allFiles), graph);

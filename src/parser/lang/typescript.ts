@@ -108,9 +108,9 @@ function makeExportedSymbol(
  */
 function extractJsDoc(node: ts.Node): string | undefined {
   const cmts = ts.getJSDocCommentsAndTags(node);
-  for (const c of cmts) {
-    if (ts.isJSDoc(c) && c.comment) {
-      return ts.getTextOfJSDocComment(c.comment) || undefined;
+  for (const cmtNode of cmts) {
+    if (ts.isJSDoc(cmtNode) && cmtNode.comment) {
+      return ts.getTextOfJSDocComment(cmtNode.comment) || undefined;
     }
   }
   return undefined;
@@ -128,7 +128,7 @@ function extractJsDocFlags(node: ts.Node): string[] | undefined {
   const KNOWN = new Set(["deprecated", "internal", "public", "alpha", "beta"]);
   const flags = ts
     .getJSDocTags(node)
-    .map((t) => t.tagName.text)
+    .map((jsDocTag) => jsDocTag.tagName.text)
     .filter((name) => KNOWN.has(name));
   return flags.length > 0 ? flags : undefined;
 }
@@ -145,7 +145,7 @@ function extractJsDocFlags(node: ts.Node): string[] | undefined {
  */
 function extractSignature(node: ts.Node, sourceFile: ts.SourceFile): string | undefined {
   const printer = ts.createPrinter({ removeComments: true });
-  const print = (n: ts.Node) => printer.printNode(ts.EmitHint.Unspecified, n, sourceFile);
+  const print = (tsNode: ts.Node) => printer.printNode(ts.EmitHint.Unspecified, tsNode, sourceFile);
 
   if (ts.isFunctionDeclaration(node) || ts.isMethodDeclaration(node)) {
     const params = node.parameters.map(print).join(", ");
@@ -199,10 +199,13 @@ function analyzeNode(node: ts.Node, ctx: ParseContext) {
  */
 function updateStatementCounts(node: ts.Node, ctx: ParseContext) {
   if (!ts.isSourceFile(node)) return;
-  const statements = node.statements.filter((s) => !ts.isEmptyStatement(s));
+  const statements = node.statements.filter((statement) => !ts.isEmptyStatement(statement));
   ctx.totalStatements = statements.length;
   ctx.exportStatements = statements.filter(
-    (s) => ts.isExportDeclaration(s) || ts.isExportAssignment(s) || hasExportModifier(s),
+    (statement) =>
+      ts.isExportDeclaration(statement) ||
+      ts.isExportAssignment(statement) ||
+      hasExportModifier(statement),
   ).length;
 }
 
@@ -452,7 +455,7 @@ function determineCategory(filePath: string, ctx: ParseContext): NodeCategory {
   const ext = path.extname(filePath).toLowerCase();
 
   // 1. Explicit test files
-  if (getTestPatterns().some((p) => baseName.includes(p))) {
+  if (getTestPatterns().some((pattern) => baseName.includes(pattern))) {
     return "test";
   }
 
@@ -488,7 +491,8 @@ function determineCategory(filePath: string, ctx: ParseContext): NodeCategory {
 function hasExportModifier(node: ts.Node): boolean {
   return (
     ts.canHaveModifiers(node) &&
-    ts.getModifiers(node)?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) === true
+    ts.getModifiers(node)?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) ===
+      true
   );
 }
 
@@ -620,7 +624,12 @@ function walkCallExpressions(
     const specifier = importSymbolMap.get(callee);
     if (
       specifier &&
-      !result.some((e) => e.from === fnName && e.to === callee && e.toSpecifier === specifier)
+      !result.some(
+        (callEdgeEntry) =>
+          callEdgeEntry.from === fnName &&
+          callEdgeEntry.to === callee &&
+          callEdgeEntry.toSpecifier === specifier,
+      )
     ) {
       result.push({ from: fnName, to: callee, toSpecifier: specifier });
     }

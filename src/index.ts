@@ -153,11 +153,12 @@ export async function createWorkspaceGraph(
 
   const pkgs = options.packages
     ? layout.packages.filter(
-        (p) => options.packages?.includes(p.name) || options.packages?.includes(p.relativeRoot),
+        (pkg) =>
+          options.packages?.includes(pkg.name) || options.packages?.includes(pkg.relativeRoot),
       )
     : layout.packages;
 
-  const workspaceMap = new Map(layout.packages.map((p) => [p.name, p.root]));
+  const workspaceMap = new Map(layout.packages.map((pkg) => [pkg.name, pkg.root]));
   const wg = new WorkspaceGraph(abs, layout.type);
 
   for (const pkg of pkgs) {

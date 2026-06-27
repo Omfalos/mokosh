@@ -85,7 +85,7 @@ export function parseGo(filePath: string, content: string): ParseResult {
     }
   } while (cursor.next());
 
-  const importsTestingPkg = imports.some((i) => i.rawSpecifier === "testing");
+  const importsTestingPkg = imports.some((importEdge) => importEdge.rawSpecifier === "testing");
   const category =
     path.basename(filePath).endsWith("_test.go") || tags.has("test") || importsTestingPkg
       ? "test"

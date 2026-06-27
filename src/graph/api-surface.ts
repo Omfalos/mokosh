@@ -104,21 +104,26 @@ function resolveExportsValue(value: unknown, graph: Graph): string | null {
  */
 function inferExportKind(signature: string | undefined): ExportKind {
   if (!signature) return "unknown";
-  const s = signature.trimStart();
-  if (s.startsWith("interface ")) return "interface";
-  if (s.startsWith("class ")) return "class";
-  if (s.startsWith("enum ")) return "enum";
-  if (s.startsWith("type ")) return "type";
-  if (s.startsWith("namespace ")) return "namespace";
+  const trimmed = signature.trimStart();
+  if (trimmed.startsWith("interface ")) return "interface";
+  if (trimmed.startsWith("class ")) return "class";
+  if (trimmed.startsWith("enum ")) return "enum";
+  if (trimmed.startsWith("type ")) return "type";
+  if (trimmed.startsWith("namespace ")) return "namespace";
   if (
-    s.startsWith("const ") ||
-    s.startsWith("let ") ||
-    s.startsWith("var ") ||
-    s.startsWith("readonly ")
+    trimmed.startsWith("const ") ||
+    trimmed.startsWith("let ") ||
+    trimmed.startsWith("var ") ||
+    trimmed.startsWith("readonly ")
   )
     return "const";
   // Function signatures: leading `(`, async keyword, or contains `=>`
-  if (s.startsWith("(") || s.startsWith("async ") || s.startsWith("function ") || s.includes("=>"))
+  if (
+    trimmed.startsWith("(") ||
+    trimmed.startsWith("async ") ||
+    trimmed.startsWith("function ") ||
+    trimmed.includes("=>")
+  )
     return "function";
   return "unknown";
 }
@@ -324,12 +329,14 @@ export function buildApiSurface(graph: Graph, entryPoints: string[]): ApiSurface
     // Fall back to the entry node's own ExportedSymbol for signature/doc when no better def found
     const entrySymbol = entryPoints
       .flatMap((ep) => graph.nodes.get(ep)?.exports ?? [])
-      .find((s) => s.name === name);
+      .find((exportedSym) => exportedSym.name === name);
     const sym = def?.sym ?? entrySymbol;
 
     const definedIn =
       def?.file ??
-      entryPoints.find((ep) => graph.nodes.get(ep)?.exports.some((s) => s.name === name)) ??
+      entryPoints.find((ep) =>
+        graph.nodes.get(ep)?.exports.some((exportedSym) => exportedSym.name === name),
+      ) ??
       (entryPoints[0] as string);
 
     const entry: PublicExport = { name, definedIn, kind: inferExportKind(sym?.signature) };
@@ -337,16 +344,18 @@ export function buildApiSurface(graph: Graph, entryPoints: string[]): ApiSurface
     if (sym?.signature) entry.signature = sym.signature;
     publicExports.push(entry);
   }
-  publicExports.sort((a, b) => a.name.localeCompare(b.name));
+  publicExports.sort((exportA, exportB) => exportA.name.localeCompare(exportB.name));
 
   // --- 5. Partition all graph nodes ---
-  const isTestNode = (p: string) => graph.nodes.get(p)?.category === "test";
+  const isTestNode = (filePath: string) => graph.nodes.get(filePath)?.category === "test";
 
-  const internalFiles = [...reachable].filter((p) => !entryPoints.includes(p) && !isTestNode(p));
+  const internalFiles = [...reachable].filter(
+    (filePath) => !entryPoints.includes(filePath) && !isTestNode(filePath),
+  );
 
-  const notReachable = [...graph.nodes.keys()].filter((p) => !reachable.has(p));
-  const unreachableFromEntry = notReachable.filter((p) => !isTestNode(p));
-  const testFiles = notReachable.filter((p) => isTestNode(p));
+  const notReachable = [...graph.nodes.keys()].filter((filePath) => !reachable.has(filePath));
+  const unreachableFromEntry = notReachable.filter((filePath) => !isTestNode(filePath));
+  const testFiles = notReachable.filter((filePath) => isTestNode(filePath));
 
   return { entryPoints, publicExports, internalFiles, unreachableFromEntry, testFiles };
 }

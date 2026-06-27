@@ -153,7 +153,9 @@ export function parseArgs(cliTokens: string[]): ParsedArgs {
     file: values["file"],
     typeFilter: values["type"],
     functionName: values["function"],
-    filterPaths: filterPathsRaw ? filterPathsRaw.split(",").map((p) => p.trim()) : undefined,
+    filterPaths: filterPathsRaw
+      ? filterPathsRaw.split(",").map((pathStr) => pathStr.trim())
+      : undefined,
     featureThreshold: featureThresholdRaw ? parseInt(featureThresholdRaw, 10) : undefined,
     minOutDegree: minOutDegreeRaw ? parseInt(minOutDegreeRaw, 10) : undefined,
     mermaid: values["mermaid"] ?? false,

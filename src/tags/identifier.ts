@@ -24,6 +24,6 @@ export class DefaultTestNodeIdentifier implements TestNodeIdentifier {
    * @returns {boolean} `true` if the category is `"test"` or any tag is named `"test"`.
    */
   public isTestNode(node: { category: string; tags: StructuredTag[] }): boolean {
-    return node.category === "test" || node.tags.some((t) => t.name === "test");
+    return node.category === "test" || node.tags.some((tag) => tag.name === "test");
   }
 }

@@ -26,8 +26,8 @@ export function parsePython(filePath: string, content: string): ParseResult {
   do {
     switch (cursor.name) {
       case "Comment": {
-        const m = content.slice(cursor.from, cursor.to).match(/#\s*@tag\s+([a-zA-Z0-9_-]+)/);
-        if (m?.[1]) tags.add(m[1]);
+        const tagMatch = content.slice(cursor.from, cursor.to).match(/#\s*@tag\s+([a-zA-Z0-9_-]+)/);
+        if (tagMatch?.[1]) tags.add(tagMatch[1]);
         break;
       }
       case "ImportStatement": {
@@ -39,9 +39,10 @@ export function parsePython(filePath: string, content: string): ParseResult {
       case "FunctionDefinition":
       case "ClassDefinition": {
         // Only top-level — parent must be Script or a DecoratedStatement directly under Script
-        const p = cursor.node.parent;
+        const parentNode = cursor.node.parent;
         const isTopLevel =
-          p?.name === "Script" || (p?.name === "DecoratedStatement" && p.parent?.name === "Script");
+          parentNode?.name === "Script" ||
+          (parentNode?.name === "DecoratedStatement" && parentNode.parent?.name === "Script");
         if (isTopLevel) {
           const nameNode = cursor.node.getChild("VariableName");
           if (nameNode) exports.push({ name: content.slice(nameNode.from, nameNode.to) });
@@ -146,23 +147,26 @@ function extractFromImport(node: SyntaxNode, src: string, filePath: string): Imp
  */
 function extractBareImport(node: SyntaxNode, src: string, filePath: string): ImportEdge[] {
   const edges: ImportEdge[] = [];
-  let c: SyntaxNode | null = node.firstChild?.nextSibling ?? null; // skip "import" keyword
+  let childNode: SyntaxNode | null = node.firstChild?.nextSibling ?? null; // skip "import" keyword
 
-  while (c) {
-    if (c.name === "VariableName") {
+  while (childNode) {
+    if (childNode.name === "VariableName") {
       // Collect possibly dotted module name: os + . + path → "os.path"
-      let modName = src.slice(c.from, c.to);
-      while (c.nextSibling?.name === "." && c.nextSibling.nextSibling?.name === "VariableName") {
-        c = c.nextSibling.nextSibling as SyntaxNode;
-        modName += `.${src.slice(c.from, c.to)}`;
+      let modName = src.slice(childNode.from, childNode.to);
+      while (
+        childNode.nextSibling?.name === "." &&
+        childNode.nextSibling.nextSibling?.name === "VariableName"
+      ) {
+        childNode = childNode.nextSibling.nextSibling as SyntaxNode;
+        modName += `.${src.slice(childNode.from, childNode.to)}`;
       }
       // Skip optional `as alias`
-      if (c.nextSibling?.name === "as") {
-        c = c.nextSibling.nextSibling ?? c.nextSibling;
+      if (childNode.nextSibling?.name === "as") {
+        childNode = childNode.nextSibling.nextSibling ?? childNode.nextSibling;
       }
       edges.push(makeEdge(filePath, modName, ["*"], true));
     }
-    c = c.nextSibling;
+    childNode = childNode.nextSibling;
   }
 
   return edges;
@@ -173,18 +177,18 @@ function extractBareImport(node: SyntaxNode, src: string, filePath: string): Imp
  */
 function collectImportedNames(start: SyntaxNode | null, src: string): string[] {
   const names: string[] = [];
-  let c: SyntaxNode | null = start;
-  while (c) {
-    if (c.name === "*") {
+  let childNode: SyntaxNode | null = start;
+  while (childNode) {
+    if (childNode.name === "*") {
       names.push("*");
-    } else if (c.name === "VariableName") {
-      names.push(src.slice(c.from, c.to));
+    } else if (childNode.name === "VariableName") {
+      names.push(src.slice(childNode.from, childNode.to));
       // Skip `as alias` if present
-      if (c.nextSibling?.name === "as") {
-        c = c.nextSibling.nextSibling ?? c.nextSibling;
+      if (childNode.nextSibling?.name === "as") {
+        childNode = childNode.nextSibling.nextSibling ?? childNode.nextSibling;
       }
     }
-    c = c.nextSibling;
+    childNode = childNode.nextSibling;
   }
   return names;
 }

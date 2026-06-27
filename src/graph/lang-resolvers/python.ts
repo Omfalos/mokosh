@@ -40,12 +40,12 @@ export class PythonLangResolver implements LangResolver {
 
 /**
  * @description Safely checks whether a path refers to a regular file without throwing on missing entries.
- * @param {string} p - Absolute path to test.
+ * @param {string} filePath - Absolute path to test.
  * @returns {boolean} `true` if the path exists and is a regular file.
  */
-function isFile(p: string): boolean {
+function isFile(filePath: string): boolean {
   try {
-    return fs.statSync(p, { throwIfNoEntry: false })?.isFile() === true;
+    return fs.statSync(filePath, { throwIfNoEntry: false })?.isFile() === true;
   } catch {
     return false;
   }

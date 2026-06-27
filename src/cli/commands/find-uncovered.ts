@@ -13,12 +13,12 @@ export async function run(ctx: CommandContext): Promise<void> {
   const threshold = featureThreshold ?? rawConfig.coverageThreshold ?? 80;
 
   const uncovered = [...graph.nodes.values()]
-    .filter((n) => n.category !== "test" && n.category !== "config")
-    .filter((n) => (n.coveragePct ?? 0) < threshold)
-    .map((n) => ({ file: n.path, coveragePct: n.coveragePct ?? null }));
+    .filter((node) => node.category !== "test" && node.category !== "config")
+    .filter((node) => (node.coveragePct ?? 0) < threshold)
+    .map((node) => ({ file: node.path, coveragePct: node.coveragePct ?? null }));
 
   if (plain) {
-    console.log(uncovered.map((u) => u.file).join("\n"));
+    console.log(uncovered.map((uncoveredEntry) => uncoveredEntry.file).join("\n"));
   } else {
     console.log(JSON.stringify({ threshold, uncovered, count: uncovered.length }, null, 2));
   }

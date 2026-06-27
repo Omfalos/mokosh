@@ -32,7 +32,7 @@ export function enrichLibraryTags(imports: ImportEdge[], tags: StructuredTag[]):
       const libName = imp.rawSpecifier.startsWith("@")
         ? imp.rawSpecifier.split("/").slice(0, 2).join("/")
         : imp.rawSpecifier.split("/")[0];
-      if (libName && !tags.some((t) => t.name === libName)) {
+      if (libName && !tags.some((existingTag) => existingTag.name === libName)) {
         tags.push({ name: libName, kind: "import" });
       }
     }
@@ -60,8 +60,8 @@ export function enrichTestedBy(nodes: Map<string, FileNode>): void {
   }
 }
 
-function round4(n: number): number {
-  return Math.round(n * 10000) / 10000;
+function round4(value: number): number {
+  return Math.round(value * 10000) / 10000;
 }
 /**
  * @description Computes a `exportUsageRatio` for each internal import edge and aggregates
@@ -94,7 +94,7 @@ export function enrichExportUsage(nodes: Map<string, FileNode>): void {
     }
 
     if (ratios.length > 0) {
-      node.avgExportUsage = round4(ratios.reduce((s, r) => s + r, 0) / ratios.length);
+      node.avgExportUsage = round4(ratios.reduce((sum, ratio) => sum + ratio, 0) / ratios.length);
       node.maxExportUsage = Math.max(...ratios);
     }
   }
@@ -113,7 +113,7 @@ export function enrichTestNodeTags(nodes: Map<string, FileNode>): void {
     for (const imp of node.imports) {
       if (!imp.toPath || imp.isExternal) continue;
       const tag = path.basename(imp.toPath, path.extname(imp.toPath)).replace(/\.(test|spec)$/, "");
-      if (tag && !node.tags.some((t) => t.name === tag)) {
+      if (tag && !node.tags.some((existingTag) => existingTag.name === tag)) {
         node.tags.push({ name: tag, kind: "import" });
       }
     }

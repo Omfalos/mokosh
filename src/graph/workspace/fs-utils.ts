@@ -15,12 +15,12 @@ export function exists(root: string, name: string): boolean {
 
 /**
  * @description Returns `true` when `p` is an existing directory. Never throws.
- * @param {string} p - Absolute path to test.
+ * @param {string} filePath - Absolute path to test.
  * @returns {boolean} `true` if the path exists and is a directory.
  */
-export function isDirectory(p: string): boolean {
+export function isDirectory(filePath: string): boolean {
   try {
-    return fs.statSync(p, { throwIfNoEntry: false })?.isDirectory() === true;
+    return fs.statSync(filePath, { throwIfNoEntry: false })?.isDirectory() === true;
   } catch {
     return false;
   }
@@ -28,12 +28,12 @@ export function isDirectory(p: string): boolean {
 
 /**
  * @description Returns `true` when `p` is an existing regular file. Never throws.
- * @param {string} p - Absolute path to test.
+ * @param {string} filePath - Absolute path to test.
  * @returns {boolean} `true` if the path exists and is a regular file.
  */
-export function isFile(p: string): boolean {
+export function isFile(filePath: string): boolean {
   try {
-    return fs.statSync(p, { throwIfNoEntry: false })?.isFile() === true;
+    return fs.statSync(filePath, { throwIfNoEntry: false })?.isFile() === true;
   } catch {
     return false;
   }

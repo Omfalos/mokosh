@@ -64,7 +64,7 @@ function traverseAffected(
 
     const context = new SymbolTraversalContext(changed, [
       "*",
-      ...startNode.exports.map((e) => e.name),
+      ...startNode.exports.map((exportedSym) => exportedSym.name),
     ]);
 
     graph.traverse(

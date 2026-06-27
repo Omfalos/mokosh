@@ -145,8 +145,8 @@ export async function handleAnalyze(cache: SessionState, args: AnalyzeArgs) {
   cache.storeLastAnalyze(root, { kind: "single", entryPoints: resolvedEntries, coverageMap });
   cache.startWatching(root);
   const serialized = graph.serialize();
-  const categories = serialized.nodes.reduce<Record<string, number>>((acc, n) => {
-    acc[n.category] = (acc[n.category] ?? 0) + 1;
+  const categories = serialized.nodes.reduce<Record<string, number>>((acc, node) => {
+    acc[node.category] = (acc[node.category] ?? 0) + 1;
     return acc;
   }, {});
   const cycles = graph.findCycles();
@@ -172,7 +172,7 @@ export async function handleGetDependencies(
     (node, _depth, parentPath) => {
       if (node.path === file) return true;
       const edge = parentPath
-        ? graph.nodes.get(parentPath)?.imports.find((i) => i.toPath === node.path)
+        ? graph.nodes.get(parentPath)?.imports.find((importEdge) => importEdge.toPath === node.path)
         : undefined;
       deps.push({ path: node.path, ...(edge?.symbols ? { symbols: edge.symbols } : {}) });
       return true;
@@ -200,7 +200,7 @@ export async function handleGetDependents(
     file,
     (node) => {
       if (node.path === file) return true;
-      const edge = node.imports.find((i) => i.toPath === file);
+      const edge = node.imports.find((importEdge) => importEdge.toPath === file);
       dependents.push({ path: node.path, ...(edge?.symbols ? { symbols: edge.symbols } : {}) });
       return true;
     },
@@ -228,7 +228,7 @@ export async function handleGetAffected(
     const impactCache = cache.getOrBuildChangeImpact(root);
     const allAffected = queryChangeImpact(impactCache, file);
     const affected = testsOnly
-      ? allAffected.filter((p) => graph.nodes.get(p)?.category === "test")
+      ? allAffected.filter((filePath) => graph.nodes.get(filePath)?.category === "test")
       : allAffected;
     return text({ file, affected, count: affected.length });
   }
@@ -239,7 +239,7 @@ export async function handleGetAffected(
     (node, _depth, parentPath) => {
       if (node.path === file) return true;
       if (ctx && parentPath && !ctx.updateAffectedSymbols(node, parentPath)) return false;
-      const isTest = node.category === "test" || node.tags.some((t) => t.name === "test");
+      const isTest = node.category === "test" || node.tags.some((tag) => tag.name === "test");
       if (!testsOnly || isTest) affected.push(node.path);
       return true;
     },
@@ -272,8 +272,8 @@ export async function handleGetCallers(
       };
       if (withEdgeDetail) {
         entry.edges = (node.callEdges ?? [])
-          .filter((e) => e.toFile === file)
-          .map((e) => ({ from: e.from, to: e.to }));
+          .filter((callEdge) => callEdge.toFile === file)
+          .map((callEdge) => ({ from: callEdge.from, to: callEdge.to }));
       }
       callers.push(entry);
       return true;
@@ -317,7 +317,7 @@ export async function handleFindUncovered(
   const config = cache.getConfig(root);
   const threshold = coverageThreshold ?? config?.coverageThreshold ?? 80;
 
-  const hasCoverageData = [...graph.nodes.values()].some((n) => n.coveragePct !== undefined);
+  const hasCoverageData = [...graph.nodes.values()].some((node) => node.coveragePct !== undefined);
   if (!hasCoverageData) {
     return text({
       error:
@@ -326,9 +326,9 @@ export async function handleFindUncovered(
   }
 
   const uncovered = [...graph.nodes.values()]
-    .filter((n) => n.category !== "test" && n.category !== "config")
-    .filter((n) => n.coveragePct !== undefined && n.coveragePct < threshold)
-    .map((n) => ({ file: n.path, coveragePct: n.coveragePct as number }));
+    .filter((node) => node.category !== "test" && node.category !== "config")
+    .filter((node) => node.coveragePct !== undefined && node.coveragePct < threshold)
+    .map((node) => ({ file: node.path, coveragePct: node.coveragePct as number }));
   return text({ threshold, uncovered, count: uncovered.length });
 }
 
@@ -352,7 +352,7 @@ export async function handleProposeTags(
     changedFiles ??
     new DefaultGitProvider()
       .getChangedFiles()
-      .map((f) => path.relative(root, path.resolve(root, f)));
+      .map((filePath) => path.relative(root, path.resolve(root, filePath)));
   const opts =
     featureThreshold !== undefined
       ? { featureDetection: { minOutDegree: featureThreshold } }
@@ -387,7 +387,9 @@ export async function handleDetectFeatures(
     graph.nodes,
     featureThreshold !== undefined ? { minOutDegree: featureThreshold } : undefined,
   );
-  const features = Array.from(featureMap.values()).sort((a, b) => b.outDegree - a.outDegree);
+  const features = Array.from(featureMap.values()).sort(
+    (featureA, featureB) => featureB.outDegree - featureA.outDegree,
+  );
   return text({ features, count: features.length });
 }
 
@@ -411,22 +413,22 @@ export async function handleQuery(cache: SessionState, args: QueryArgs): Promise
     return text(MermaidExporter.serialize(Graph.deserialize(filtered)));
   }
   if (slim) {
-    const slimNodes = filtered.nodes.map((n) => ({
-      path: n.path,
-      type: n.type,
-      category: n.category,
-      exports: n.exports.map((e) => e.name),
-      tags: n.tags
-        .filter((t) => t.kind === "comment-marker" || t.kind === "import")
-        .map((t) => t.name),
-      importsFiles: n.imports
+    const slimNodes = filtered.nodes.map((node) => ({
+      path: node.path,
+      type: node.type,
+      category: node.category,
+      exports: node.exports.map((exportedSym) => exportedSym.name),
+      tags: node.tags
+        .filter((tag) => tag.kind === "comment-marker" || tag.kind === "import")
+        .map((tag) => tag.name),
+      importsFiles: node.imports
         .filter((imp) => !imp.isExternal && imp.toPath)
         .map((imp) => imp.toPath as string),
-      ...(n.description !== undefined && { description: n.description }),
-      ...(n.testedBy !== undefined && { testedBy: n.testedBy }),
-      ...(n.coveragePct !== undefined && { coveragePct: n.coveragePct }),
-      ...(n.avgExportUsage !== undefined && { avgExportUsage: n.avgExportUsage }),
-      ...(n.maxExportUsage !== undefined && { maxExportUsage: n.maxExportUsage }),
+      ...(node.description !== undefined && { description: node.description }),
+      ...(node.testedBy !== undefined && { testedBy: node.testedBy }),
+      ...(node.coveragePct !== undefined && { coveragePct: node.coveragePct }),
+      ...(node.avgExportUsage !== undefined && { avgExportUsage: node.avgExportUsage }),
+      ...(node.maxExportUsage !== undefined && { maxExportUsage: node.maxExportUsage }),
     }));
     return text({ nodes: slimNodes, cycles: filtered.cycles });
   }
@@ -533,7 +535,7 @@ export async function handleGetModuleResponsibility(
     minOutDegree !== undefined ? { minOutDegree } : undefined,
   );
   if (paths?.length) {
-    const modules = paths.map((p) => respGraph.get(p)).filter(Boolean);
+    const modules = paths.map((modulePath) => respGraph.get(modulePath)).filter(Boolean);
     return text({ count: modules.length, modules });
   }
   const modules = Array.from(respGraph.values());
