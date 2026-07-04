@@ -1,10 +1,25 @@
 {
-  "name": "mokosh",
+  "name": "@omfalos/mokosh",
   "version": "0.0.1",
   "description": "A high-performance, AST-powered dependency graph generator for frontend projects, optimized for AI context and smart test selection.",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Omfalos/mokosh.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Omfalos/mokosh/issues"
+  },
+  "homepage": "https://github.com/Omfalos/mokosh#readme",
   "bin": {
     "mokosh": "./dist/cli.js",
     "mokosh-mcp": "./dist/mcp.js"
@@ -15,12 +30,13 @@
   "scripts": {
     "test": "vitest run",
     "build": "tsup",
+    "build:prod": "NODE_ENV=production tsup",
     "lint": "biome lint ./src",
     "typecheck": "tsc --noEmit",
     "format": "biome format --write ./src",
     "check": "biome check --write ./src",
     "example": "tsx example/run-example.ts",
-    "prepublishOnly": "npm run build",
+    "prepublishOnly": "npm run build:prod",
     "prepare": "husky"
   },
   "keywords": [
@@ -33,9 +49,15 @@
     "test-impact-analysis",
     "mermaid"
   ],
-  "author": "Mokosh Contributors",
-  "license": "ISC",
+  "author": "Omfalos",
+  "license": "MIT",
   "type": "commonjs",
+  "engines": {
+    "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "lint-staged": {
     "src/**/*.{ts,tsx,js,jsx,json}": [
       "biome check --write"

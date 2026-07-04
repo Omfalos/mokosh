@@ -7,6 +7,7 @@ export default defineConfig({
   splitting: false,
   sourcemap: true,
   clean: true,
-  minify: true,
+  minify: process.env.NODE_ENV === "production",
+  skipNodeModulesBundle: true,
   outDir: "dist",
 });
