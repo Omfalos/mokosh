@@ -1,7 +1,12 @@
 /** Parses JavaScript and TypeScript source files using the TypeScript Compiler API to extract imports, exports, tags, category, and complexity. */
 import path from "node:path";
 import ts from "typescript";
-import type { ExportedSymbol, ImportEdge, StructuredTag } from "../../types/node";
+import type {
+  ExportedSymbol,
+  FunctionComplexity,
+  ImportEdge,
+  StructuredTag,
+} from "../../types/node";
 import type { FileType, ImportType, NodeCategory } from "../../types/parse";
 import { getBarrelThreshold, getTestLibraries, getTestPatterns, isConfigFile } from "../classify";
 import { computeComplexity } from "../complexity";
@@ -64,6 +69,7 @@ export function parseCodeFile(filePath: string, content: string, fileType: FileT
   const firstStatement = sourceFile.statements[0];
   const description = firstStatement ? extractJsDoc(firstStatement) : undefined;
   const { complexity, cognitiveComplexity } = computeComplexity(sourceFile);
+  const functions = collectFunctionComplexity(sourceFile);
 
   return {
     imports,
@@ -73,8 +79,73 @@ export function parseCodeFile(filePath: string, content: string, fileType: FileT
     rawCallEdges: context.rawCallEdges ?? [],
     complexity,
     cognitiveComplexity,
+    ...(functions.length > 0 ? { functions } : {}),
     ...(description !== undefined ? { description } : {}),
   };
+}
+
+/**
+ * @description Walks the entire source file and records per-function complexity for every named
+ *   function-like declaration: function declarations, const-assigned arrow/function expressions,
+ *   and class methods/constructors/accessors (named `ClassName.member`). Anonymous inline
+ *   callbacks are skipped since they have no stable name to key results on.
+ * @param sourceFile - The TypeScript source file AST to walk.
+ * @returns Per-function complexity entries, in traversal order.
+ */
+function collectFunctionComplexity(sourceFile: ts.SourceFile): FunctionComplexity[] {
+  const results: FunctionComplexity[] = [];
+
+  const record = (name: string, node: ts.Node): void => {
+    const { complexity, cognitiveComplexity } = computeComplexity(node);
+    const line = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
+    results.push({ name, line, complexity, cognitiveComplexity });
+  };
+
+  const visit = (node: ts.Node, className: string | undefined): void => {
+    if (ts.isFunctionDeclaration(node) && node.name && node.body) {
+      record(node.name.text, node);
+    } else if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.initializer &&
+      (ts.isArrowFunction(node.initializer) || ts.isFunctionExpression(node.initializer))
+    ) {
+      record(node.name.text, node.initializer);
+    } else if (
+      className &&
+      ts.isMethodDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.body
+    ) {
+      record(`${className}.${node.name.text}`, node);
+    } else if (className && ts.isConstructorDeclaration(node) && node.body) {
+      record(`${className}.constructor`, node);
+    } else if (
+      className &&
+      ts.isGetAccessorDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.body
+    ) {
+      record(`${className}.get ${node.name.text}`, node);
+    } else if (
+      className &&
+      ts.isSetAccessorDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.body
+    ) {
+      record(`${className}.set ${node.name.text}`, node);
+    }
+
+    if (ts.isClassDeclaration(node) && node.name) {
+      const nextClassName = node.name.text;
+      ts.forEachChild(node, (child) => visit(child, nextClassName));
+      return;
+    }
+    ts.forEachChild(node, (child) => visit(child, className));
+  };
+
+  visit(sourceFile, undefined);
+  return results;
 }
 
 /**

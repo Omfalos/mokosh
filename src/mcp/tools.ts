@@ -135,6 +135,31 @@ export const TOOL_DEFINITIONS = [
     },
   },
   {
+    name: "find_complex_functions",
+    description:
+      "Find individual functions/methods above a cognitive (or cyclomatic) complexity threshold, sorted worst-first. Requires a prior analyze() call. TypeScript/JavaScript only.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        root: { type: "string", description: "Absolute path to the project root" },
+        metric: {
+          type: "string",
+          enum: ["cognitiveComplexity", "complexity"],
+          description: "Which score to threshold/sort on (default: cognitiveComplexity)",
+        },
+        threshold: {
+          type: "number",
+          description: "Minimum score to include (default: 10)",
+        },
+        limit: {
+          type: "number",
+          description: "Max results to return, worst-first (default: 20)",
+        },
+      },
+      required: ["root"],
+    },
+  },
+  {
     name: "propose_tags",
     description:
       "Propose what to run based on changed files. Pass changedFiles explicitly or omit to use git diff. format='tags' (default) returns test tags for CI tag-filtering; format='paths' returns test file paths ready to pipe directly to a test runner (e.g. vitest). Feature hubs act as traversal boundaries in both modes.",

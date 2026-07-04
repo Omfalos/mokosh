@@ -149,6 +149,23 @@ Find non-test files whose line coverage is below a threshold. Requires a prior `
 
 ---
 
+### `find_complex_functions`
+
+Scan every file's per-function complexity breakdown and return functions/methods at or above a threshold, sorted worst-first. TypeScript/JavaScript only.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `root` | `string` | yes | |
+| `metric` | `"cognitiveComplexity" \| "complexity"` | no | Which score to threshold/sort on (default: `cognitiveComplexity`) |
+| `threshold` | `number` | no | Minimum score to include (default: `10`) |
+| `limit` | `number` | no | Max results to return, worst-first (default: `20`) |
+
+**Returns:** `{ metric, threshold, functions: Array<{ file, name, line, complexity, cognitiveComplexity }>, count: number }`
+
+**Requires:** a prior `analyze` call for the same `root`.
+
+---
+
 ### `propose_tags`
 
 Backward-traverses from each changed file to find affected test files, then returns their tags. Feature hub files (high out-degree) short-circuit the traversal and emit a `feature:<name>` tag to prevent tag explosion.

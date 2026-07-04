@@ -276,8 +276,16 @@ export class GraphBuilder {
     parsed: Awaited<ReturnType<typeof parseFile>>,
     callEdges: CallEdge[],
   ): FileNode {
-    const { imports, exports, tags, category, description, complexity, cognitiveComplexity } =
-      parsed;
+    const {
+      imports,
+      exports,
+      tags,
+      category,
+      description,
+      complexity,
+      cognitiveComplexity,
+      functions,
+    } = parsed;
     return {
       path: relativePath,
       type: getFileType(filePath),
@@ -291,6 +299,7 @@ export class GraphBuilder {
       ...(callEdges.length > 0 ? { callEdges } : {}),
       ...(complexity !== undefined ? { complexity } : {}),
       ...(cognitiveComplexity !== undefined ? { cognitiveComplexity } : {}),
+      ...(functions !== undefined ? { functions } : {}),
     };
   }
 

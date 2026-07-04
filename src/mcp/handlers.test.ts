@@ -6,6 +6,7 @@ import type { SessionState } from "./cache";
 import {
   handleAnalyze,
   handleDetectFeatures,
+  handleFindComplexFunctions,
   handleFindUnused,
   handleGetAffected,
   handleGetDependencies,
@@ -310,6 +311,93 @@ describe("handleFindUnused", {
     expect(data.unusedFiles).toContain("src/orphan.ts");
     expect(data.unusedFiles).not.toContain("src/a.ts");
     expect(data.count).toBe(data.unusedFiles.length);
+  });
+});
+
+describe("handleFindComplexFunctions", {
+  tags: [
+    "Graph",
+    "SerializedGraph",
+    "SessionState",
+    "cache",
+    "graph",
+    "handleFindComplexFunctions",
+    "handlers",
+  ],
+}, () => {
+  function makeComplexityCache(): SessionState {
+    const graph = Graph.deserialize({
+      nodes: [
+        {
+          path: "src/a.ts",
+          type: "typescript",
+          category: "logic",
+          tags: [],
+          imports: [],
+          exports: [],
+          mtime: 0,
+          size: 0,
+          functions: [
+            { name: "simple", line: 1, complexity: 1, cognitiveComplexity: 2 },
+            { name: "gnarly", line: 10, complexity: 5, cognitiveComplexity: 15 },
+          ],
+        },
+        {
+          path: "src/b.ts",
+          type: "typescript",
+          category: "logic",
+          tags: [],
+          imports: [],
+          exports: [],
+          mtime: 0,
+          size: 0,
+          functions: [{ name: "medium", line: 4, complexity: 2, cognitiveComplexity: 11 }],
+        },
+      ],
+    });
+    return {
+      ensureFresh: vi.fn().mockResolvedValue(graph),
+    } as unknown as SessionState;
+  }
+
+  test("filters by threshold and sorts worst-first", async () => {
+    const data = parse(
+      await handleFindComplexFunctions(makeComplexityCache(), { root: ROOT, threshold: 10 }),
+    ) as {
+      metric: string;
+      threshold: number;
+      functions: Array<{ file: string; name: string; cognitiveComplexity: number }>;
+      count: number;
+    };
+
+    expect(data.functions.map((f) => f.name)).toEqual(["gnarly", "medium"]);
+    expect(data.functions[0]?.file).toBe("src/a.ts");
+    expect(data.count).toBe(2);
+  });
+
+  test("respects limit", async () => {
+    const data = parse(
+      await handleFindComplexFunctions(makeComplexityCache(), {
+        root: ROOT,
+        threshold: 0,
+        limit: 1,
+      }),
+    ) as { functions: unknown[]; count: number };
+
+    expect(data.functions).toHaveLength(1);
+    expect(data.count).toBe(1);
+  });
+
+  test("supports the complexity metric", async () => {
+    const data = parse(
+      await handleFindComplexFunctions(makeComplexityCache(), {
+        root: ROOT,
+        metric: "complexity",
+        threshold: 5,
+      }),
+    ) as { functions: Array<{ name: string }> };
+
+    expect(data.functions.map((f) => f.name)).toEqual(["gnarly"]);
   });
 });
 

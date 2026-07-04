@@ -1,5 +1,11 @@
 import type ts from "typescript";
-import type { ExportedSymbol, ImportEdge, NodeCategory, StructuredTag } from "../types";
+import type {
+  ExportedSymbol,
+  FunctionComplexity,
+  ImportEdge,
+  NodeCategory,
+  StructuredTag,
+} from "../types";
 
 export interface RawCallEdge {
   from: string;
@@ -31,4 +37,6 @@ export interface ParseResult {
   complexity?: number;
   /** Cognitive complexity — nesting-aware difficulty score (undefined for non-TS/JS files). */
   cognitiveComplexity?: number;
+  /** Per-function complexity breakdown (undefined for non-TS/JS files). */
+  functions?: FunctionComplexity[];
 }

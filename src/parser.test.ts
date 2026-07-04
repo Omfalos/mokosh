@@ -296,3 +296,52 @@ describe("call edge collection", { tags: ["parseFile", "parseImports", "parser"]
     expect(result.rawCallEdges ?? []).toHaveLength(0);
   });
 });
+
+describe("function complexity", { tags: ["parseFile", "parser"] }, () => {
+  test("assigns non-zero cognitive complexity to a function with branching", async () => {
+    const content = `
+      function process(items) {
+        if (items.length > 0) {
+          for (const item of items) {
+            if (item.active) console.log(item);
+          }
+        }
+      }
+    `;
+    const result = await parseFile("process.ts", content);
+    const fn = result.functions?.find((f) => f.name === "process");
+    expect(fn).toBeDefined();
+    expect(fn?.cognitiveComplexity).toBeGreaterThan(0);
+  });
+
+  test("names class methods as ClassName.method", async () => {
+    const content = `
+      class Widget {
+        render() { if (this.visible) return true; return false; }
+      }
+    `;
+    const result = await parseFile("widget.ts", content);
+    expect(result.functions?.some((f) => f.name === "Widget.render")).toBe(true);
+  });
+
+  test("picks up a nested const-assigned arrow function", async () => {
+    const content = `
+      function outer() {
+        const helper = (x) => { if (x) return 1; return 0; };
+        return helper(true);
+      }
+    `;
+    const result = await parseFile("outer.ts", content);
+    expect(result.functions?.some((f) => f.name === "outer")).toBe(true);
+    expect(result.functions?.some((f) => f.name === "helper")).toBe(true);
+  });
+
+  test("does not produce an entry for an anonymous inline callback", async () => {
+    const content = `
+      export const doubled = [1, 2, 3].map((x) => x + 1);
+    `;
+    const result = await parseFile("doubled.ts", content);
+    expect((result.functions ?? []).some((f) => f.name === "x")).toBe(false);
+    expect((result.functions ?? []).length).toBe(0);
+  });
+});

@@ -13,10 +13,11 @@ import ts from "typescript";
  *   and increase the depth for their children. Chained `else if` gets +1 (no nesting bonus).
  *   A bare `else` gets +1. Logical operators and ternaries each add +1 without nesting.
  *   Nested functions (lambdas, inner functions) add `1 + depth` and increase nesting.
- * @param sourceFile - The TypeScript AST root node to analyse.
+ * @param node - The AST root node to analyse — a whole `ts.SourceFile` for file-level totals, or
+ *   any function-like node to score it in isolation (nesting depth resets to 0 at `node`).
  * @returns `{ complexity, cognitiveComplexity }` — both integers, minimum 1 / 0 respectively.
  */
-export function computeComplexity(sourceFile: ts.SourceFile): {
+export function computeComplexity(node: ts.Node): {
   complexity: number;
   cognitiveComplexity: number;
 } {
@@ -118,8 +119,8 @@ export function computeComplexity(sourceFile: ts.SourceFile): {
     ts.forEachChild(node, (child) => walkCognitive(child, depth, false));
   }
 
-  walkCyclomatic(sourceFile);
-  walkCognitive(sourceFile, 0, false);
+  walkCyclomatic(node);
+  walkCognitive(node, 0, false);
 
   return { complexity, cognitiveComplexity };
 }

@@ -52,6 +52,12 @@ export type GetCallersArgs = {
 };
 export type FindUnusedArgs = { root: string; entryPoints: string[] };
 export type FindUncoveredArgs = { root: string; coverageThreshold?: number };
+export type FindComplexFunctionsArgs = {
+  root: string;
+  metric?: "cognitiveComplexity" | "complexity";
+  threshold?: number;
+  limit?: number;
+};
 export type ProposeTagsArgs = {
   root: string;
   changedFiles?: string[];
@@ -87,6 +93,7 @@ export type ToolArgs =
   | GetCallersArgs
   | FindUnusedArgs
   | FindUncoveredArgs
+  | FindComplexFunctionsArgs
   | ProposeTagsArgs
   | DetectFeaturesArgs
   | QueryArgs
@@ -333,6 +340,41 @@ export async function handleFindUncovered(
     .filter((node) => node.coveragePct !== undefined && node.coveragePct < threshold)
     .map((node) => ({ file: node.path, coveragePct: node.coveragePct as number }));
   return text({ threshold, uncovered, count: uncovered.length });
+}
+
+/**
+ * @description Scans every file's per-function complexity breakdown and returns functions/methods
+ *   at or above the given threshold, sorted worst-first. TypeScript/JavaScript only — files
+ *   without a `functions` breakdown contribute no results.
+ * @param cache - Session state holding the cached graph.
+ * @param args - `root` selects the graph; `metric` picks which score to threshold/sort on
+ *   (default `cognitiveComplexity`); `threshold` is the minimum score to include (default 10);
+ *   `limit` caps the number of results returned (default 20).
+ * @returns TextResponse with `{ metric, threshold, functions, count }`.
+ */
+export async function handleFindComplexFunctions(
+  cache: SessionState,
+  args: FindComplexFunctionsArgs,
+): Promise<TextResponse> {
+  const { root, metric = "cognitiveComplexity", threshold = 10, limit = 20 } = args;
+  const graph = await cache.ensureFresh(root);
+
+  const functions = [...graph.nodes.values()]
+    .flatMap((node) =>
+      (node.functions ?? [])
+        .filter((fn) => fn[metric] >= threshold)
+        .map((fn) => ({
+          file: node.path,
+          name: fn.name,
+          line: fn.line,
+          complexity: fn.complexity,
+          cognitiveComplexity: fn.cognitiveComplexity,
+        })),
+    )
+    .sort((a, b) => b[metric] - a[metric])
+    .slice(0, limit);
+
+  return text({ metric, threshold, functions, count: functions.length });
 }
 
 /**

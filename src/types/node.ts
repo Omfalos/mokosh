@@ -35,6 +35,13 @@ export interface CallEdge {
   toFile: string;
 }
 
+export interface FunctionComplexity {
+  name: string;
+  line: number;
+  complexity: number;
+  cognitiveComplexity: number;
+}
+
 export interface GraphNode {
   path: string;
   type: FileType;
@@ -62,4 +69,6 @@ export interface FileNode extends GraphNode {
   complexity?: number;
   /** Cognitive complexity — nesting-penalised difficulty score. Higher values indicate harder-to-read code. Only present for TypeScript/JavaScript files. */
   cognitiveComplexity?: number;
+  /** Per-function complexity breakdown. Covers named function declarations, const-assigned arrow/function expressions, and class methods/constructors/accessors — anonymous inline callbacks are not included. Only present for TypeScript/JavaScript files. */
+  functions?: FunctionComplexity[];
 }
