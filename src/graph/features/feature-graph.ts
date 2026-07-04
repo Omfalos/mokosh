@@ -38,10 +38,10 @@ export interface FeatureGraph {
 export interface FeatureGraphOptions extends FeatureDetectionOptions {
   /**
    * Comparator used to pick the "best" hub when a file is reachable from
-   * multiple hubs. Return a negative number when `a` should win over `b`.
+   * multiple hubs. Return a negative number when `left` should win over `right`.
    * @default ascending out-degree (most-specific hub wins)
    */
-  hubComparator?: (a: FeatureInfo, b: FeatureInfo) => number;
+  hubComparator?: (left: FeatureInfo, right: FeatureInfo) => number;
   /**
    * Override the hub-detection function. Defaults to `detectFeatures`.
    * Inject a custom implementation for testing or alternative hub strategies.
@@ -52,7 +52,8 @@ export interface FeatureGraphOptions extends FeatureDetectionOptions {
   ) => Map<string, FeatureInfo>;
 }
 
-const DEFAULT_HUB_COMPARATOR = (a: FeatureInfo, b: FeatureInfo) => a.outDegree - b.outDegree;
+const DEFAULT_HUB_COMPARATOR = (left: FeatureInfo, right: FeatureInfo) =>
+  left.outDegree - right.outDegree;
 
 /**
  * @param graph - The import graph to cluster.
@@ -87,7 +88,7 @@ function assignFilesToHubs(
   nodes: Map<string, FileNode>,
   hubs: Map<string, FeatureInfo>,
   reachable: Map<string, Set<string>>,
-  comparator: (a: FeatureInfo, b: FeatureInfo) => number,
+  comparator: (left: FeatureInfo, right: FeatureInfo) => number,
 ): Map<string, string> {
   const fileToHub = new Map<string, string>();
   for (const [filePath] of nodes) {

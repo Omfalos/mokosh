@@ -48,7 +48,7 @@ export class GraphAnalyzer {
       });
     }
 
-    return results.sort((a, b) => b.maxExportUsage - a.maxExportUsage);
+    return results.sort((left, right) => right.maxExportUsage - left.maxExportUsage);
   }
 
   /**

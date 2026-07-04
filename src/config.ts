@@ -39,12 +39,25 @@ export interface MokoshConfig {
    */
   tagApplier?: {
     /**
-     * The test framework whose tag format to use.
+     * Fallback test framework whose tag format to use for TS/JS files. Each file's actual
+     * framework is auto-detected from its imports (`@playwright/test`, `cypress`,
+     * `@jest/globals`, `vitest`), so a single repo can mix frameworks and each file is tagged
+     * in its own native format. This value is only used when a file has no detectable
+     * framework import (e.g. `globals: true` configs with no explicit import).
      * - `"vitest"` — injects `{ tags: [...] }` in describe/test/it options (default)
      * - `"playwright"` — injects `{ tag: ["@name"] }` with `@` prefix convention
      * - `"cypress"` — injects `{ tags: ["@name"] }` for use with `@cypress/grep`
+     * - `"jest"` — writes a `/** @group name *\/` docblock for use with `jest-runner-groups`
      */
     framework?: TagFramework;
+    /**
+     * Path-glob pattern (project-relative, e.g. `"tests/e2e/**"`) to fallback framework. Checked
+     * in object key order, first match wins, before falling back further to `framework`. Only
+     * consulted when a file's own imports don't reveal a framework — lets different directories
+     * default to different frameworks (e.g. e2e tests using Playwright globals, unit tests using
+     * Jest globals) instead of sharing one project-wide default.
+     */
+    frameworkOverrides?: Record<string, TagFramework>;
   };
   /** Path to the Istanbul/v8 `coverage-summary.json` file, relative to the project root. When set, `coveragePct` is populated on each node after the graph is built. */
   coverageReportPath?: string;

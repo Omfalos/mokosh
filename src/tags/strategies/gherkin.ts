@@ -9,7 +9,9 @@ const BLOCK_REGEX = /# <mokosh-tags>[\s\S]*?# <\/mokosh-tags>\n*/;
 const EXISTING_TAG_REGEX = /^@([a-zA-Z0-9_-]+)/gm;
 
 function buildBlock(tags: string[]): string {
-  return ["# <mokosh-tags>", ...tags.map((t) => `@${t}`), "# </mokosh-tags>"].join("\n") + "\n\n";
+  return (
+    ["# <mokosh-tags>", ...tags.map((tag) => `@${tag}`), "# </mokosh-tags>"].join("\n") + "\n\n"
+  );
 }
 
 function readManualTags(content: string): Set<string> {
@@ -33,7 +35,7 @@ export class GherkinStrategy implements TagApplierStrategy {
   apply(_absPath: string, source: string, tags: string[]): string {
     const manualContent = source.replace(BLOCK_REGEX, "");
     const manualTags = readManualTags(manualContent);
-    const netNewTags = tags.filter((t) => !manualTags.has(t));
+    const netNewTags = tags.filter((tag) => !manualTags.has(tag));
 
     const newBlock = netNewTags.length > 0 ? buildBlock(netNewTags) : "";
 

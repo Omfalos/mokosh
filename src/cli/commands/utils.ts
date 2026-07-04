@@ -26,5 +26,5 @@ export function getTestFiles(allFiles: string[]): string[] {
 export function resolveChangedFiles(rootDir: string): string[] {
   return new DefaultGitProvider()
     .getChangedFiles()
-    .map((f) => path.relative(rootDir, path.resolve(rootDir, f)));
+    .map((filePath) => path.relative(rootDir, path.resolve(rootDir, filePath)));
 }

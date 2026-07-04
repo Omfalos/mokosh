@@ -22,7 +22,7 @@ const MOKOSH_BUILD_TAG_RE = /^\/\/go:build mokosh_[^\n]+\n/m;
 const PACKAGE_LINE_RE = /^package\s+\S+/m;
 
 function buildBuildTag(tags: string[]): string {
-  const constraints = tags.map((t) => `mokosh_${t}`).join(" || ");
+  const constraints = tags.map((tag) => `mokosh_${tag}`).join(" || ");
   return `//go:build ${constraints}\n`;
 }
 
@@ -32,10 +32,10 @@ function readExistingTags(source: string): string[] | null {
   const line = match[0]!;
   const re = /mokosh_([a-zA-Z0-9_-]+)/g;
   const tags: string[] = [];
-  let m = re.exec(line);
-  while (m !== null) {
-    if (m[1]) tags.push(m[1]);
-    m = re.exec(line);
+  let tagMatch = re.exec(line);
+  while (tagMatch !== null) {
+    if (tagMatch[1]) tags.push(tagMatch[1]);
+    tagMatch = re.exec(line);
   }
   return tags;
 }

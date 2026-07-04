@@ -1,6 +1,6 @@
 /** Tag applier strategy interface — one implementation per testing framework. */
 
-export type TagFramework = "vitest" | "playwright" | "cypress";
+export type TagFramework = "vitest" | "playwright" | "cypress" | "jest";
 
 /**
  * @description A strategy that knows how to inject or remove tag metadata in a specific

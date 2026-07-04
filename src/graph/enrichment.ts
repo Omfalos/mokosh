@@ -116,13 +116,21 @@ export function enrichTestNodeTags(nodes: Map<string, FileNode>): void {
       if (!imp.toPath || imp.isExternal) continue;
 
       const tag = path.basename(imp.toPath, path.extname(imp.toPath)).replace(/\.(test|spec)$/, "");
-      if (tag && !node.tags.some((t) => t.name === tag && t.kind === "import")) {
+      if (
+        tag &&
+        !node.tags.some((existingTag) => existingTag.name === tag && existingTag.kind === "import")
+      ) {
         node.tags.push({ name: tag, kind: "import" });
       }
 
       if (imp.symbols && !imp.symbols.includes("*")) {
         for (const sym of imp.symbols) {
-          if (sym && !node.tags.some((t) => t.name === sym && t.kind === "import")) {
+          if (
+            sym &&
+            !node.tags.some(
+              (existingTag) => existingTag.name === sym && existingTag.kind === "import",
+            )
+          ) {
             node.tags.push({ name: sym, kind: "import" });
           }
         }
@@ -132,7 +140,12 @@ export function enrichTestNodeTags(nodes: Map<string, FileNode>): void {
       if (!sourceNode || sourceNode.category === "test") continue;
       for (const sourceTag of sourceNode.tags) {
         if (sourceTag.kind !== "comment-marker") continue;
-        if (!node.tags.some((t) => t.name === sourceTag.name && t.kind === "comment-marker")) {
+        if (
+          !node.tags.some(
+            (existingTag) =>
+              existingTag.name === sourceTag.name && existingTag.kind === "comment-marker",
+          )
+        ) {
           node.tags.push({ name: sourceTag.name, kind: "comment-marker" });
         }
       }

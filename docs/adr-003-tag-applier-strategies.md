@@ -61,10 +61,12 @@ src/tags/strategies/
   vitest.ts         — { tags: [...] } in describe/test/it (Vitest 4)
   playwright.ts     — { tag: ["@name"] } in test.describe/test (Playwright)
   cypress.ts        — { tags: ["@name"] } for @cypress/grep
+  jest.ts           — /** @group name */ docblock for jest-runner-groups
   pytest.ts         — pytestmark = [pytest.mark.name, ...] at module level
   go.ts             — //go:build mokosh_name || ... before package declaration
   gherkin.ts        — # <mokosh-tags> block with @tagname lines
-  index.ts          — createStrategies(framework), getStrategyForFile()
+  index.ts          — createStrategies(defaultFramework), detectFrameworkFromImports(),
+                       getStrategyForFile()
 ```
 
 ---
@@ -95,15 +97,27 @@ Two orthogonal axes determine which strategy is used:
 | `.py` | `PytestStrategy` | `pytestmark = [pytest.mark.tag, ...]` module variable |
 | `*_test.go` | `GoStrategy` | `//go:build mokosh_tag \|\| ...` before `package` declaration |
 
-**Framework** — determined by `tagApplier.framework` in `mokosh.config.*`, applies to TS/JS files (`.ts`, `.tsx`, `.js`, `.jsx`, `.mts`, `.cts`, `.mjs`, `.cjs`):
+**Framework** — determined **per file** by import-specifier detection for TS/JS files
+(`.ts`, `.tsx`, `.js`, `.jsx`, `.mts`, `.cts`, `.mjs`, `.cjs`). `AutoFrameworkStrategy` parses
+each file's top-level imports and matches them against a marker table; `tagApplier.framework` in
+`mokosh.config.*` is used only as a fallback when no marker import is found (e.g. a file relying
+on `globals: true` with no explicit test-library import):
 
-| Config value | Strategy | Format | CI filter |
-|---|---|---|---|
-| `"vitest"` (default) | `VitestStrategy` | `{ tags: ["tag"] }` in describe/test/it options | `vitest run --include-tags tag` |
-| `"playwright"` | `PlaywrightStrategy` | `{ tag: ["@tag"] }` with `@` prefix | `playwright test --grep @tag` |
-| `"cypress"` | `CypressStrategy` | `{ tags: ["@tag"] }` for `@cypress/grep` | `cypress run --env grepTags=@tag` |
+| Import specifier | Framework | Strategy | Format | CI filter |
+|---|---|---|---|---|
+| `@playwright/test` | Playwright | `PlaywrightStrategy` | `{ tag: ["@tag"] }` with `@` prefix | `playwright test --grep @tag` |
+| `cypress` | Cypress | `CypressStrategy` | `{ tags: ["@tag"] }` for `@cypress/grep` | `cypress run --env grepTags=@tag` |
+| `@jest/globals` | Jest | `JestStrategy` | `/** @group tag */` docblock (`jest-runner-groups`) | `jest --group=tag` |
+| `vitest` | Vitest | `VitestStrategy` | `{ tags: ["tag"] }` in describe/test/it options | `vitest run --include-tags tag` |
+| *(none found)* | `tagApplier.framework` default (`"vitest"` if unset) | — | — | — |
 
-Language strategies are checked first in the ordered list; the framework strategy is always last. Since language strategies have narrow `canHandle` predicates (exact extensions), there is no ambiguity.
+This means a single repo can mix Jest unit tests, Playwright/Cypress e2e tests, and Vitest tests,
+and each file is tagged in its own framework's native format in one `--apply-tags` run — no
+per-project `framework` choice required.
+
+Language strategies are checked first in the ordered list; `AutoFrameworkStrategy` is always
+last and handles any remaining TS/JS file. Since language strategies have narrow `canHandle`
+predicates (exact extensions), there is no ambiguity.
 
 ---
 
@@ -120,6 +134,10 @@ Playwright uses the singular key `tag` (not `tags`) with the `@` prefix conventi
 ### Cypress — `{ tags: ["@tag"] }` for `@cypress/grep`
 
 `@cypress/grep` is a first-party Cypress plugin that adds tag-based test selection. It uses the same `tags` key as Vitest but with the `@` prefix convention shared with Playwright. Requires `npm install --save-dev @cypress/grep` and a setup import in `cypress/support/e2e.ts`.
+
+### Jest — `/** @group tag */` docblock
+
+Jest has no built-in tag/grep mechanism. `jest-runner-groups` is the de-facto community standard: it reads a `@group` docblock pragma above a test file's imports and filters with `jest --group=tag`. The strategy writes/updates a single docblock at the top of the file; removing all tags removes the block entirely. Requires `npm install --save-dev jest-runner-groups` and `runner: "jest-runner-groups"` in the Jest config.
 
 ### pytest — `pytestmark` module variable
 
@@ -149,12 +167,26 @@ Legacy `// <mokosh-tags>` comment blocks (from the pre-strategy implementation) 
 // mokosh.config.json
 {
   "tagApplier": {
-    "framework": "playwright"
+    "framework": "playwright",
+    "frameworkOverrides": {
+      "tests/e2e/**": "playwright",
+      "tests/unit/**": "jest"
+    }
   }
 }
 ```
 
-When `tagApplier` is absent, the default is `{ framework: "vitest" }`. Language strategies (Python, Go, Gherkin) require no configuration — they are active whenever files with the relevant extension exist in the graph.
+`tagApplier.framework` is a fallback, not a project-wide switch: it only applies to TS/JS files
+where import-specifier detection finds no known framework import. When `tagApplier` is absent,
+the fallback is `"vitest"`. Language strategies (Python, Go, Gherkin) require no configuration —
+they are active whenever files with the relevant extension exist in the graph.
+
+`tagApplier.frameworkOverrides` narrows that fallback by path: it maps glob patterns
+(project-relative, matched in object key order, first match wins) to a framework, and is
+consulted after import detection but before the scalar `framework` default. This covers repos
+where different directories use different frameworks purely via `globals: true` (no explicit
+import in either) — e.g. Playwright e2e tests under `tests/e2e/` and Jest unit tests under
+`tests/unit/`, neither of which can be told apart by import scanning alone.
 
 ---
 
@@ -162,11 +194,12 @@ When `tagApplier` is absent, the default is `{ framework: "vitest" }`. Language 
 
 **Positive**
 - Each strategy is a small, independently testable unit with no shared mutable state.
-- Adding support for a new framework (e.g. Jest with `jest-circus` tags) requires one new file in `src/tags/strategies/` and one line in `FRAMEWORK_STRATEGIES` in `index.ts` — no changes to the applier or any consumer.
+- Adding support for a new framework requires one new file in `src/tags/strategies/` (implementing `TagApplierStrategy`), one line in `FRAMEWORK_STRATEGIES`, and one marker entry in `FRAMEWORK_IMPORT_MARKERS` in `index.ts` — no changes to the applier or any consumer. Jest (`jest-runner-groups` `@group` docblocks) was added this way.
 - Native test-framework tag semantics are preserved: reporters, IDE integrations, and coverage tools that are tag-aware can use the annotations directly.
-- CI filtering uses the framework's own flag (`--include-tags`, `--grep`, `-m`) rather than a string-match workaround.
+- CI filtering uses the framework's own flag (`--include-tags`, `--grep`, `-m`, `--group`) rather than a string-match workaround.
+- Per-file import detection means a project mixing Jest, Vitest, Playwright, and Cypress tests in the same repo is tagged correctly in one `--apply-tags` run — no single `framework` choice required, and no path-convention configuration to maintain.
 
 **Negative**
 - Vitest 4 requires `strictTags: false` in `vitest.config.ts` to allow tags that are not pre-declared in the config. This is a one-line opt-in but is a non-default Vitest setting.
 - Go's `//go:build` approach changes compilation units, not just test selection. A file tagged `//go:build mokosh_auth` is excluded from the default `go test ./...` run unless `-tags mokosh_auth` is passed. Teams should understand this trade-off; the alternative (a comment-only approach mokosh reads but Go ignores) would require a separate mokosh config mechanism to map tags to `-run` patterns.
-- The TS/JS framework must be declared in `mokosh.config.*`. A project mixing Vitest and Playwright tests in the same repo cannot use a single `framework` value — in that case, file-path conventions (e.g. `*.pw.ts` for Playwright) are the recommended approach, handled by contributing a path-aware strategy.
+- Detection relies on a static import-specifier scan of top-level imports. A file that uses a framework purely via globals (`globals: true`, no explicit import) falls back to `tagApplier.frameworkOverrides` (if its path matches a configured glob) or otherwise `tagApplier.framework` — the scalar default still applies project-wide unless `frameworkOverrides` narrows it by path.

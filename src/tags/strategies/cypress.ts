@@ -23,11 +23,11 @@ import type { TagApplierStrategy } from "./types";
 
 function toCypressLiteral(tags: string[]): string {
   // @cypress/grep convention: prefix each tag with '@'
-  return toArrayLiteral(tags.map((t) => `@${t}`));
+  return toArrayLiteral(tags.map((tag) => `@${tag}`));
 }
 
 function normaliseExisting(raw: string[]): string[] {
-  return raw.map((t) => (t.startsWith("@") ? t.slice(1) : t));
+  return raw.map((tag) => (tag.startsWith("@") ? tag.slice(1) : tag));
 }
 
 export class CypressStrategy implements TagApplierStrategy {
@@ -53,11 +53,11 @@ export class CypressStrategy implements TagApplierStrategy {
     }
 
     const replacements = calls.flatMap((call) => {
-      const r =
+      const replacement =
         tags.length === 0
           ? buildRemoveReplacement(call, "tags", sf)
           : buildInjectReplacement(call, "tags", toCypressLiteral(sortedTags), sf);
-      return r ? [r] : [];
+      return replacement ? [replacement] : [];
     });
 
     return replacements.length > 0 ? applyReplacements(source, replacements) : source;

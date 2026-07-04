@@ -109,7 +109,8 @@ export async function applyTags(
 ): Promise<ApplyTagsResult> {
   const config = loadMokoshConfig(rootDir);
   const framework = config.tagApplier?.framework ?? "vitest";
-  const strategies = createStrategies(framework);
+  const frameworkOverrides = config.tagApplier?.frameworkOverrides ?? {};
+  const strategies = createStrategies(framework, frameworkOverrides, rootDir);
 
   const result: ApplyTagsResult = { updated: 0, unchanged: 0, errors: 0, files: [] };
 

@@ -19,12 +19,12 @@ import type { TagApplierStrategy } from "./types";
 
 function toPlaywrightLiteral(tags: string[]): string {
   // Playwright tag convention: prefix each name with '@'
-  return toArrayLiteral(tags.map((t) => `@${t}`));
+  return toArrayLiteral(tags.map((tag) => `@${tag}`));
 }
 
 function normaliseExisting(raw: string[]): string[] {
   // Strip @ prefix so we can compare against unprefixed computed tags
-  return raw.map((t) => (t.startsWith("@") ? t.slice(1) : t));
+  return raw.map((tag) => (tag.startsWith("@") ? tag.slice(1) : tag));
 }
 
 export class PlaywrightStrategy implements TagApplierStrategy {
@@ -51,11 +51,11 @@ export class PlaywrightStrategy implements TagApplierStrategy {
     }
 
     const replacements = calls.flatMap((call) => {
-      const r =
+      const replacement =
         tags.length === 0
           ? buildRemoveReplacement(call, "tag", sf)
           : buildInjectReplacement(call, "tag", toPlaywrightLiteral(sortedTags), sf);
-      return r ? [r] : [];
+      return replacement ? [replacement] : [];
     });
 
     return replacements.length > 0 ? applyReplacements(source, replacements) : source;

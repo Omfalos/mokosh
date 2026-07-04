@@ -20,7 +20,7 @@ const PYTESTMARK_RE = /^pytestmark\s*=\s*.+$/m;
 const PYTEST_IMPORT_RE = /^import pytest\s*$/m;
 
 function buildPytestmark(tags: string[]): string {
-  const marks = tags.map((t) => `pytest.mark.${t}`).join(", ");
+  const marks = tags.map((tag) => `pytest.mark.${tag}`).join(", ");
   return tags.length === 1 ? `pytestmark = pytest.mark.${tags[0]}` : `pytestmark = [${marks}]`;
 }
 
@@ -31,10 +31,10 @@ function readExistingMarks(source: string): string[] | null {
   // Extract names from pytest.mark.<name>
   const marks: string[] = [];
   const re = /pytest\.mark\.([a-zA-Z0-9_-]+)/g;
-  let m = re.exec(line);
-  while (m !== null) {
-    if (m[1]) marks.push(m[1]);
-    m = re.exec(line);
+  let markMatch = re.exec(line);
+  while (markMatch !== null) {
+    if (markMatch[1]) marks.push(markMatch[1]);
+    markMatch = re.exec(line);
   }
   return marks;
 }

@@ -49,11 +49,13 @@ export function readArrayProp(
   for (const arg of call.arguments) {
     if (!ts.isObjectLiteralExpression(arg)) continue;
     const prop = arg.properties.find(
-      (p): p is ts.PropertyAssignment =>
-        ts.isPropertyAssignment(p) && ts.isIdentifier(p.name) && p.name.text === propName,
+      (candidate): candidate is ts.PropertyAssignment =>
+        ts.isPropertyAssignment(candidate) &&
+        ts.isIdentifier(candidate.name) &&
+        candidate.name.text === propName,
     );
     if (!prop || !ts.isArrayLiteralExpression(prop.initializer)) continue;
-    return prop.initializer.elements.filter(ts.isStringLiteral).map((e) => e.text);
+    return prop.initializer.elements.filter(ts.isStringLiteral).map((element) => element.text);
   }
   return null;
 }
@@ -83,8 +85,8 @@ export function buildInjectReplacement(
     if (!ts.isObjectLiteralExpression(arg)) continue;
 
     const existingProp = arg.properties.find(
-      (p): p is ts.PropertyAssignment =>
-        ts.isPropertyAssignment(p) && ts.isIdentifier(p.name) && p.name.text === propName,
+      (prop): prop is ts.PropertyAssignment =>
+        ts.isPropertyAssignment(prop) && ts.isIdentifier(prop.name) && prop.name.text === propName,
     );
 
     if (existingProp) {
@@ -132,8 +134,8 @@ export function buildRemoveReplacement(
     if (!ts.isObjectLiteralExpression(arg)) continue;
 
     const idx = arg.properties.findIndex(
-      (p): p is ts.PropertyAssignment =>
-        ts.isPropertyAssignment(p) && ts.isIdentifier(p.name) && p.name.text === propName,
+      (prop): prop is ts.PropertyAssignment =>
+        ts.isPropertyAssignment(prop) && ts.isIdentifier(prop.name) && prop.name.text === propName,
     );
     if (idx < 0) continue;
 
@@ -155,17 +157,17 @@ export function buildRemoveReplacement(
 
 /** Applies a list of replacements to a source string in reverse-position order. */
 export function applyReplacements(source: string, replacements: Replacement[]): string {
-  const sorted = [...replacements].sort((a, b) => b.start - a.start);
+  const sorted = [...replacements].sort((left, right) => right.start - left.start);
   let result = source;
-  for (const r of sorted) {
-    result = result.slice(0, r.start) + r.text + result.slice(r.end);
+  for (const replacement of sorted) {
+    result = result.slice(0, replacement.start) + replacement.text + result.slice(replacement.end);
   }
   return result;
 }
 
 /** Serialises a list of string tag names to an inline array literal: `["a", "b"]`. */
 export function toArrayLiteral(tags: string[]): string {
-  return `[${tags.map((t) => JSON.stringify(t)).join(", ")}]`;
+  return `[${tags.map((tag) => JSON.stringify(tag)).join(", ")}]`;
 }
 
 export const TS_EXTENSIONS = new Set([
