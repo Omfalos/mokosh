@@ -3,7 +3,7 @@ import { parseGo } from "./go";
 
 // ─── grouped import blocks ────────────────────────────────────────────────────
 
-describe("grouped import block", () => {
+describe("grouped import block", { tags: ["go", "parseGo"] }, () => {
   test("single package in group", () => {
     const { imports } = parseGo("main.go", `import (\n  "fmt"\n)`);
     expect(imports).toHaveLength(1);
@@ -40,7 +40,7 @@ describe("grouped import block", () => {
 
 // ─── single-line imports ──────────────────────────────────────────────────────
 
-describe("single-line import", () => {
+describe("single-line import", { tags: ["go", "parseGo"] }, () => {
   test("bare import", () => {
     const { imports } = parseGo("main.go", `import "fmt"`);
     expect(imports).toHaveLength(1);
@@ -67,7 +67,7 @@ describe("single-line import", () => {
 
 // ─── mixed single + grouped ───────────────────────────────────────────────────
 
-describe("mixed single and grouped imports", () => {
+describe("mixed single and grouped imports", { tags: ["go", "parseGo"] }, () => {
   test("single-line and group together are not double-counted", () => {
     const src = `import "path/filepath"\n\nimport (\n  "fmt"\n  "os"\n)`;
     const { imports } = parseGo("main.go", src);
@@ -78,7 +78,7 @@ describe("mixed single and grouped imports", () => {
 
 // ─── edge metadata ────────────────────────────────────────────────────────────
 
-describe("edge metadata", () => {
+describe("edge metadata", { tags: ["go", "parseGo"] }, () => {
   test("fromPath matches provided filePath", () => {
     const { imports } = parseGo("/app/main.go", `import "fmt"`);
     expect(imports[0]?.fromPath).toBe("/app/main.go");
@@ -104,7 +104,7 @@ describe("edge metadata", () => {
 
 // ─── exported symbols ─────────────────────────────────────────────────────────
 
-describe("exported symbols", () => {
+describe("exported symbols", { tags: ["go", "parseGo"] }, () => {
   test("exported func → exported symbol", () => {
     const { exports } = parseGo("main.go", `func HandleRequest() {}`);
     expect(exports).toContainEqual({ name: "HandleRequest" });
@@ -145,7 +145,7 @@ describe("exported symbols", () => {
 
 // ─── @tag markers ─────────────────────────────────────────────────────────────
 
-describe("@tag markers", () => {
+describe("@tag markers", { tags: ["go", "parseGo"] }, () => {
   test("// @tag name → collected as comment-marker", () => {
     const { tags } = parseGo("main.go", `// @tag auth`);
     expect(tags).toContainEqual({ name: "auth", kind: "comment-marker" });
@@ -167,7 +167,7 @@ describe("@tag markers", () => {
 
 // ─── category detection ───────────────────────────────────────────────────────
 
-describe("category", () => {
+describe("category", { tags: ["go", "parseGo"] }, () => {
   test("_test.go suffix → test", () => {
     const { category } = parseGo("auth_test.go", `import "testing"`);
     expect(category).toBe("test");
@@ -197,7 +197,7 @@ describe("category", () => {
 
 // ─── build tags ───────────────────────────────────────────────────────────────
 
-describe("build tags (//go:build)", () => {
+describe("build tags (//go:build)", { tags: ["go", "parseGo"] }, () => {
   test("single tag extracted", () => {
     const { tags } = parseGo("main.go", `//go:build integration`);
     expect(tags).toContainEqual({ name: "integration", kind: "comment-marker" });
@@ -244,7 +244,7 @@ describe("build tags (//go:build)", () => {
   });
 });
 
-describe("build tags (// +build legacy)", () => {
+describe("build tags (// +build legacy)", { tags: ["go", "parseGo"] }, () => {
   test("single legacy tag extracted", () => {
     const { tags } = parseGo("main.go", `// +build integration`);
     expect(tags).toContainEqual({ name: "integration", kind: "comment-marker" });

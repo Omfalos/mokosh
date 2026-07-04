@@ -3,7 +3,7 @@ import { parseStyleFile } from "./style/index";
 
 // ─── CSS ─────────────────────────────────────────────────────────────────────
 
-describe("CSS", () => {
+describe("CSS", { tags: ["parseStyleFile"] }, () => {
   test("@import → static", () => {
     const { imports } = parseStyleFile("a.css", `@import "./base.css";`);
     expect(imports).toHaveLength(1);
@@ -41,14 +41,14 @@ describe("CSS", () => {
 
 // ─── SCSS / Sass ──────────────────────────────────────────────────────────────
 
-describe("SCSS @import", () => {
+describe("SCSS @import", { tags: ["parseStyleFile"] }, () => {
   test("@import → static (regression)", () => {
     const { imports } = parseStyleFile("a.scss", `@import "variables";`);
     expect(imports[0]).toMatchObject({ rawSpecifier: "variables", type: "static" });
   });
 });
 
-describe("SCSS @use", () => {
+describe("SCSS @use", { tags: ["parseStyleFile"] }, () => {
   test("basic @use → static, no symbols", () => {
     const { imports } = parseStyleFile("a.scss", `@use 'sass:math';`);
     expect(imports).toHaveLength(1);
@@ -82,7 +82,7 @@ describe("SCSS @use", () => {
   });
 });
 
-describe("SCSS @forward", () => {
+describe("SCSS @forward", { tags: ["parseStyleFile"] }, () => {
   test("basic @forward → re-export", () => {
     const { imports } = parseStyleFile("a.scss", `@forward './buttons';`);
     expect(imports[0]).toMatchObject({ rawSpecifier: "./buttons", type: "re-export" });
@@ -99,7 +99,7 @@ describe("SCSS @forward", () => {
   });
 });
 
-describe("SCSS mixed @import + @use", () => {
+describe("SCSS mixed @import + @use", { tags: ["parseStyleFile"] }, () => {
   test("both @import and @use edges are collected", () => {
     const content = `@import "variables";\n@use 'sass:math';`;
     const { imports } = parseStyleFile("a.scss", content);
@@ -109,7 +109,7 @@ describe("SCSS mixed @import + @use", () => {
   });
 });
 
-describe("SCSS barrel detection", () => {
+describe("SCSS barrel detection", { tags: ["parseStyleFile"] }, () => {
   test("only @forward lines → barrel", () => {
     const content = `@forward './variables';\n@forward './mixins';`;
     const { category } = parseStyleFile("_index.scss", content);
@@ -136,7 +136,7 @@ describe("SCSS barrel detection", () => {
 
 // ─── Less ─────────────────────────────────────────────────────────────────────
 
-describe("Less", () => {
+describe("Less", { tags: ["parseStyleFile"] }, () => {
   test("standard @import → static", () => {
     const { imports } = parseStyleFile("a.less", `@import "variables.less";`);
     expect(imports[0]).toMatchObject({ rawSpecifier: "variables.less", type: "static" });
@@ -176,7 +176,7 @@ describe("Less", () => {
 
 // ─── Stylus ───────────────────────────────────────────────────────────────────
 
-describe("Stylus", () => {
+describe("Stylus", { tags: ["parseStyleFile"] }, () => {
   test("import 'file' → static", () => {
     const { imports } = parseStyleFile("a.styl", `import 'variables'`);
     expect(imports[0]).toMatchObject({ rawSpecifier: "variables", type: "static" });
@@ -212,7 +212,7 @@ describe("Stylus", () => {
 
 // ─── isExternal classification ────────────────────────────────────────────────
 
-describe("isExternal classification", () => {
+describe("isExternal classification", { tags: ["parseStyleFile"] }, () => {
   test("CSS @import ~ prefix → isExternal", () => {
     const { imports } = parseStyleFile("a.css", `@import "~bootstrap/css/bootstrap.css";`);
     expect(imports[0]).toMatchObject({
@@ -249,7 +249,7 @@ describe("isExternal classification", () => {
 
 // ─── url() asset references ───────────────────────────────────────────────────
 
-describe("url() asset references", () => {
+describe("url() asset references", { tags: ["parseStyleFile"] }, () => {
   test("CSS background url() → extracted as static edge", () => {
     const { imports } = parseStyleFile("a.css", `.icon { background: url('./icon.svg'); }`);
     expect(imports).toHaveLength(1);

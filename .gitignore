@@ -27,3 +27,4 @@ example_ext/
 coverage/
 .idea/
 .claude/settings.local.json
+.mcp.json

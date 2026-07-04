@@ -19,4 +19,5 @@ export interface CommandContext {
   filterPaths: string[] | undefined;
   minOutDegree: number | undefined;
   functionName: string | undefined;
+  dryRun: boolean;
 }

@@ -42,7 +42,7 @@ function makeGraphWithOutDegree(
   return nodes;
 }
 
-describe("detectFeatures", () => {
+describe("detectFeatures", { tags: ["FileNode", "detectFeatures", "node"] }, () => {
   test("returns empty map for empty graph", () => {
     expect(detectFeatures(new Map())).toEqual(new Map());
   });

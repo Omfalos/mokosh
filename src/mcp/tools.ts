@@ -343,4 +343,24 @@ export const TOOL_DEFINITIONS = [
       required: ["root"],
     },
   },
+  {
+    name: "apply_tags",
+    description:
+      "Write @tag annotations into test file source code based on the dependency graph. Tags of kind 'import' (filename-derived) and 'comment-marker' (domain semantic, propagated from source files) are written as an idempotent block. Re-running is safe: the existing block is replaced in place. Tags already present in the file are excluded from the block to avoid duplication. Supports TypeScript/JavaScript (// <mokosh-tags> block with // @tag lines) and Gherkin .feature files (# <mokosh-tags> block with @tagname lines). Use dryRun=true to preview changes without writing to disk. Requires a prior analyze() call.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        root: {
+          type: "string",
+          description: "Absolute path to the project root.",
+        },
+        dryRun: {
+          type: "boolean",
+          description:
+            "When true, computes which files would change but does not write to disk (default: false).",
+        },
+      },
+      required: ["root"],
+    },
+  },
 ] as const;

@@ -2,6 +2,7 @@ import path from "node:path";
 import { DefaultGitProvider } from "../git";
 import {
   applyConfig,
+  applyTags,
   buildApiSurface,
   buildFeatureGraph,
   buildResponsibilityGraph,
@@ -76,6 +77,7 @@ export type GetModuleResponsibilityArgs = { root: string; paths?: string[]; minO
 export type GetFeatureGraphArgs = { root: string; minOutDegree?: number };
 export type GetCallGraphArgs = { root: string; function: string };
 export type GetApiSurfaceArgs = { root: string; entryPoints?: string[] };
+export type ApplyTagsArgs = { root: string; dryRun?: boolean };
 
 export type ToolArgs =
   | AnalyzeArgs
@@ -93,7 +95,8 @@ export type ToolArgs =
   | GetModuleResponsibilityArgs
   | GetFeatureGraphArgs
   | GetCallGraphArgs
-  | GetApiSurfaceArgs;
+  | GetApiSurfaceArgs
+  | ApplyTagsArgs;
 
 // ---------------------------------------------------------------------------
 // Handlers
@@ -604,4 +607,23 @@ export async function handleGetApiSurface(
     );
   }
   return text(buildApiSurface(graph, eps));
+}
+
+/**
+ * @description Writes `@tag` annotations into every test file reachable from the cached graph.
+ *   Only `"import"` and `"comment-marker"` kind tags are written. Tags already present in the
+ *   file are excluded from the generated block to avoid duplication. The block is idempotent:
+ *   re-running replaces the existing block in place. Supports both TypeScript/JavaScript and
+ *   Gherkin `.feature` files with format-appropriate block syntax. Requires a prior `analyze` call.
+ * @param {SessionState} cache - Session state holding the cached graph for `root`.
+ * @param {ApplyTagsArgs} args - `root` selects the graph; `dryRun` previews changes without disk writes.
+ * @returns {Promise<TextResponse>} TextResponse with `ApplyTagsResult`: aggregate counts and per-file status.
+ */
+export async function handleApplyTags(
+  cache: SessionState,
+  args: ApplyTagsArgs,
+): Promise<TextResponse> {
+  const graph = await cache.ensureFresh(args.root);
+  const result = await applyTags(graph, args.root, { dryRun: args.dryRun ?? false });
+  return text(result);
 }

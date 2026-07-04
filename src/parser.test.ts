@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { parseFile, parseImports } from "./parser";
 
-describe("parseImports", () => {
+describe("parseImports", { tags: ["parseFile", "parseImports", "parser"] }, () => {
   test("parseImports - static imports", async () => {
     const content = `
       import { a } from './a';
@@ -246,7 +246,7 @@ require './b'`;
   });
 });
 
-describe("call edge collection", () => {
+describe("call edge collection", { tags: ["parseFile", "parseImports", "parser"] }, () => {
   test("collects call edges from top-level exported functions", async () => {
     const content = `
       import { parseFile } from './parser';

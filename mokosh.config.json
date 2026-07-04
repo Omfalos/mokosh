@@ -2,5 +2,6 @@
   "entryPoints": ["src/index.ts", "src/cli.ts", "src/mcp.ts"],
   "ignoreDirs": ["dist", "example", "docs"],
   "gitStats": true,
-  "coverageThreshold": 80
+  "coverageThreshold": 80,
+  "coverageReportPath": "coverage/coverage-summary.json"
 }

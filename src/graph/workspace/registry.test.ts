@@ -4,7 +4,16 @@ import type { MonorepoDetector } from "./registry";
 import { getMonorepoDetectors, registerMonorepoDetector } from "./registry";
 import type { WorkspacePackage } from "./types";
 
-describe("registry", () => {
+describe("registry", {
+  tags: [
+    "MonorepoDetector",
+    "WorkspacePackage",
+    "detectMonorepo",
+    "getMonorepoDetectors",
+    "registerMonorepoDetector",
+    "registry",
+  ],
+}, () => {
   test("getMonorepoDetectors returns built-in detectors registered at module load", () => {
     const types = getMonorepoDetectors().map((d) => d.type);
     expect(types).toContain("pnpm");
@@ -24,7 +33,16 @@ describe("registry", () => {
   });
 });
 
-describe("detectMonorepo with injected detectors (DIP)", () => {
+describe("detectMonorepo with injected detectors (DIP)", {
+  tags: [
+    "MonorepoDetector",
+    "WorkspacePackage",
+    "detectMonorepo",
+    "getMonorepoDetectors",
+    "registerMonorepoDetector",
+    "registry",
+  ],
+}, () => {
   const pkg: WorkspacePackage = {
     name: "@test/pkg",
     root: "/tmp/pkg",

@@ -26,7 +26,20 @@ afterEach(() => {
 
 // ─── pnpm ─────────────────────────────────────────────────────────────────────
 
-describe("pnpmDetector", () => {
+describe("pnpmDetector", {
+  tags: [
+    "npm",
+    "npmDetector",
+    "nx",
+    "nxDetector",
+    "pnpm",
+    "pnpmDetector",
+    "turborepo",
+    "turborepoDetector",
+    "yarn",
+    "yarnDetector",
+  ],
+}, () => {
   test("returns null when pnpm-workspace.yaml is absent", () => {
     expect(pnpmDetector.detect(root)).toBeNull();
   });
@@ -56,7 +69,20 @@ describe("pnpmDetector", () => {
 
 // ─── npm ──────────────────────────────────────────────────────────────────────
 
-describe("npmDetector", () => {
+describe("npmDetector", {
+  tags: [
+    "npm",
+    "npmDetector",
+    "nx",
+    "nxDetector",
+    "pnpm",
+    "pnpmDetector",
+    "turborepo",
+    "turborepoDetector",
+    "yarn",
+    "yarnDetector",
+  ],
+}, () => {
   test("returns null when package.json is absent", () => {
     expect(npmDetector.detect(root)).toBeNull();
   });
@@ -90,7 +116,20 @@ describe("npmDetector", () => {
 
 // ─── yarn ─────────────────────────────────────────────────────────────────────
 
-describe("yarnDetector", () => {
+describe("yarnDetector", {
+  tags: [
+    "npm",
+    "npmDetector",
+    "nx",
+    "nxDetector",
+    "pnpm",
+    "pnpmDetector",
+    "turborepo",
+    "turborepoDetector",
+    "yarn",
+    "yarnDetector",
+  ],
+}, () => {
   test("returns null when yarn.lock is absent", () => {
     expect(yarnDetector.detect(root)).toBeNull();
   });
@@ -117,7 +156,20 @@ describe("yarnDetector", () => {
 
 // ─── nx ───────────────────────────────────────────────────────────────────────
 
-describe("nxDetector", () => {
+describe("nxDetector", {
+  tags: [
+    "npm",
+    "npmDetector",
+    "nx",
+    "nxDetector",
+    "pnpm",
+    "pnpmDetector",
+    "turborepo",
+    "turborepoDetector",
+    "yarn",
+    "yarnDetector",
+  ],
+}, () => {
   test("returns null when nx.json is absent", () => {
     expect(nxDetector.detect(root)).toBeNull();
   });
@@ -172,7 +224,20 @@ describe("nxDetector", () => {
 
 // ─── turborepo ────────────────────────────────────────────────────────────────
 
-describe("turborepoDetector", () => {
+describe("turborepoDetector", {
+  tags: [
+    "npm",
+    "npmDetector",
+    "nx",
+    "nxDetector",
+    "pnpm",
+    "pnpmDetector",
+    "turborepo",
+    "turborepoDetector",
+    "yarn",
+    "yarnDetector",
+  ],
+}, () => {
   test("returns null when turbo.json is absent", () => {
     expect(turborepoDetector.detect(root)).toBeNull();
   });

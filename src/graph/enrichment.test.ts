@@ -26,7 +26,17 @@ function tagNames(tags: StructuredTag[]): string[] {
   return tags.map((t) => t.name);
 }
 
-describe("enrichLibraryTags", () => {
+describe("enrichLibraryTags", {
+  tags: [
+    "FileNode",
+    "ImportEdge",
+    "StructuredTag",
+    "enrichLibraryTags",
+    "enrichTestNodeTags",
+    "enrichment",
+    "node",
+  ],
+}, () => {
   test("adds bare package name as tag", () => {
     const tags: StructuredTag[] = [];
     enrichLibraryTags([makeImport("lodash", true)], tags);
@@ -72,7 +82,17 @@ describe("enrichLibraryTags", () => {
   });
 });
 
-describe("enrichTestNodeTags", () => {
+describe("enrichTestNodeTags", {
+  tags: [
+    "FileNode",
+    "ImportEdge",
+    "StructuredTag",
+    "enrichLibraryTags",
+    "enrichTestNodeTags",
+    "enrichment",
+    "node",
+  ],
+}, () => {
   test("adds basename of local import as tag for test node", () => {
     const node = makeNode("src/config.test.ts", "test", [
       makeImport("./config", false, "src/config.ts"),

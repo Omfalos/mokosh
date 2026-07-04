@@ -24,7 +24,7 @@ afterEach(() => {
 
 // ─── pnpm ─────────────────────────────────────────────────────────────────────
 
-describe("pnpm workspaces", () => {
+describe("pnpm workspaces", { tags: ["WorkspacePackage", "detectMonorepo"] }, () => {
   test("detects pnpm type from pnpm-workspace.yaml", () => {
     write("pnpm-workspace.yaml", "packages:\n  - packages/*\n");
     write("packages/a/package.json", JSON.stringify({ name: "@org/a" }));
@@ -85,7 +85,7 @@ describe("pnpm workspaces", () => {
 
 // ─── npm workspaces ───────────────────────────────────────────────────────────
 
-describe("npm workspaces", () => {
+describe("npm workspaces", { tags: ["WorkspacePackage", "detectMonorepo"] }, () => {
   test("detects npm type from package.json workspaces array", () => {
     write("package.json", JSON.stringify({ name: "root", workspaces: ["packages/*"] }));
     write("packages/ui/package.json", JSON.stringify({ name: "@org/ui" }));
@@ -119,7 +119,7 @@ describe("npm workspaces", () => {
 
 // ─── yarn workspaces ──────────────────────────────────────────────────────────
 
-describe("yarn workspaces", () => {
+describe("yarn workspaces", { tags: ["WorkspacePackage", "detectMonorepo"] }, () => {
   test("detects yarn type when yarn.lock present alongside workspaces", () => {
     write("yarn.lock", "");
     write("package.json", JSON.stringify({ name: "root", workspaces: ["packages/*"] }));
@@ -134,7 +134,7 @@ describe("yarn workspaces", () => {
 
 // ─── Nx ───────────────────────────────────────────────────────────────────────
 
-describe("Nx workspaces", () => {
+describe("Nx workspaces", { tags: ["WorkspacePackage", "detectMonorepo"] }, () => {
   test("detects nx type from nx.json and project.json files", () => {
     write("nx.json", JSON.stringify({ version: 2 }));
     write("apps/web/project.json", JSON.stringify({ name: "web" }));
@@ -206,7 +206,7 @@ describe("Nx workspaces", () => {
 
 // ─── Turborepo ────────────────────────────────────────────────────────────────
 
-describe("Turborepo", () => {
+describe("Turborepo", { tags: ["WorkspacePackage", "detectMonorepo"] }, () => {
   test("detects turborepo type and pnpm alongside it", () => {
     write("turbo.json", JSON.stringify({ pipeline: {} }));
     write("pnpm-workspace.yaml", "packages:\n  - packages/*\n");
@@ -237,7 +237,7 @@ describe("Turborepo", () => {
 
 // ─── none ─────────────────────────────────────────────────────────────────────
 
-describe("no monorepo", () => {
+describe("no monorepo", { tags: ["WorkspacePackage", "detectMonorepo"] }, () => {
   test("returns type none for a plain project directory", () => {
     write("src/index.ts", "");
 
@@ -257,7 +257,7 @@ describe("no monorepo", () => {
 
 // ─── hybrid detection ─────────────────────────────────────────────────────────
 
-describe("hybrid monorepo detection", () => {
+describe("hybrid monorepo detection", { tags: ["WorkspacePackage", "detectMonorepo"] }, () => {
   test("Nx + pnpm: both types reported, packages merged and deduplicated", () => {
     // Nx integrated repo that also uses pnpm workspaces
     write("nx.json", JSON.stringify({ version: 2 }));
@@ -285,7 +285,7 @@ describe("hybrid monorepo detection", () => {
 
 // ─── entry point resolution ───────────────────────────────────────────────────
 
-describe("entry point resolution", () => {
+describe("entry point resolution", { tags: ["WorkspacePackage", "detectMonorepo"] }, () => {
   test("uses src/index.ts when present", () => {
     write("pnpm-workspace.yaml", "packages:\n  - packages/*\n");
     write("packages/a/package.json", JSON.stringify({ name: "@org/a" }));

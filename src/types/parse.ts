@@ -17,4 +17,11 @@ export type ImportType = "static" | "dynamic" | "require" | "re-export" | "side-
 
 export type NodeCategory = "logic" | "ui" | "type-only" | "config" | "test" | "barrel" | "other";
 
-export type TagKind = "function" | "class" | "variable" | "type" | "import" | "comment-marker";
+export type TagKind =
+  | "function"
+  | "class"
+  | "variable"
+  | "type"
+  | "import"
+  | "library"
+  | "comment-marker";

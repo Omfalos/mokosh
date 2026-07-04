@@ -33,7 +33,7 @@ export function enrichLibraryTags(imports: ImportEdge[], tags: StructuredTag[]):
         ? imp.rawSpecifier.split("/").slice(0, 2).join("/")
         : imp.rawSpecifier.split("/")[0];
       if (libName && !tags.some((existingTag) => existingTag.name === libName)) {
-        tags.push({ name: libName, kind: "import" });
+        tags.push({ name: libName, kind: "library" });
       }
     }
   }
@@ -101,20 +101,40 @@ export function enrichExportUsage(nodes: Map<string, FileNode>): void {
 }
 
 /**
- * @description Adds a tag derived from the base filename of each local import to the
- * importing test node. This lets query tools filter for test files by the subject they
- * cover (e.g. a test that imports `graph/builder.ts` receives the tag `builder`).
- * Existing duplicate tags are skipped.
- * @param nodes - The full node map produced by the graph builder; mutated in place.
+ * @description Adds tags derived from each local import to the importing test node.
+ *   Two tag kinds are applied: a filename-derived `import` tag (e.g. a test importing
+ *   `graph/builder.ts` receives the tag `builder`), and any `comment-marker` tags
+ *   propagated from the source node (e.g. `@tag auth` in `auth/service.ts` propagates
+ *   to tests that import it). `function` and `variable` kind tags are intentionally skipped
+ *   as they are too granular for test filtering. Existing duplicate tags are skipped.
+ * @param {Map<string, FileNode>} nodes - The full node map produced by the graph builder; mutated in place.
  */
 export function enrichTestNodeTags(nodes: Map<string, FileNode>): void {
   for (const node of nodes.values()) {
     if (node.category !== "test") continue;
     for (const imp of node.imports) {
       if (!imp.toPath || imp.isExternal) continue;
+
       const tag = path.basename(imp.toPath, path.extname(imp.toPath)).replace(/\.(test|spec)$/, "");
-      if (tag && !node.tags.some((existingTag) => existingTag.name === tag)) {
+      if (tag && !node.tags.some((t) => t.name === tag && t.kind === "import")) {
         node.tags.push({ name: tag, kind: "import" });
+      }
+
+      if (imp.symbols && !imp.symbols.includes("*")) {
+        for (const sym of imp.symbols) {
+          if (sym && !node.tags.some((t) => t.name === sym && t.kind === "import")) {
+            node.tags.push({ name: sym, kind: "import" });
+          }
+        }
+      }
+
+      const sourceNode = nodes.get(imp.toPath);
+      if (!sourceNode || sourceNode.category === "test") continue;
+      for (const sourceTag of sourceNode.tags) {
+        if (sourceTag.kind !== "comment-marker") continue;
+        if (!node.tags.some((t) => t.name === sourceTag.name && t.kind === "comment-marker")) {
+          node.tags.push({ name: sourceTag.name, kind: "comment-marker" });
+        }
       }
     }
   }

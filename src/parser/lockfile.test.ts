@@ -3,7 +3,9 @@ import path from "node:path";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { parsePackageLock, parsePnpmLock, parseYarnLock } from "./lockfile";
 
-describe("LockFileParser", () => {
+describe("LockFileParser", {
+  tags: ["lockfile", "parsePackageLock", "parsePnpmLock", "parseYarnLock"],
+}, () => {
   const tmpDir = path.resolve("./tmp-lock-test");
 
   beforeAll(() => {

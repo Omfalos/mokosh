@@ -9,7 +9,7 @@ vi.mock("node:child_process", () => ({
   execSync: vi.fn(),
 }));
 
-describe("GitProvider", () => {
+describe("GitProvider", { tags: ["DefaultGitProvider", "git"] }, () => {
   const provider = new DefaultGitProvider();
 
   beforeEach(() => {
@@ -130,5 +130,4 @@ describe("GitProvider", () => {
       }
     });
   });
-
 });

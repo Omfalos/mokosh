@@ -23,7 +23,9 @@ function makeNode(p: string, importsFrom: { path: string; symbols?: string[] }[]
   };
 }
 
-describe("SymbolTraversalContext", () => {
+describe("SymbolTraversalContext", {
+  tags: ["FileNode", "SymbolTraversalContext", "node", "symbol-traversal"],
+}, () => {
   describe("constructor seeding", () => {
     test("seeds the start path with provided symbols plus 'default'", () => {
       const ctx = new SymbolTraversalContext("src/a.ts", ["foo"]);

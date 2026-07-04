@@ -9,6 +9,8 @@ Options:
   --propose-tags              Propose test tags based on git diff
   --plain                     Output tags as plain text instead of JSON (use with --propose-tags)
   --affected-tests            List test files affected by git diff
+  --apply-tags                Write @tag annotations into test files from graph tags
+  --dry-run                   Preview tag changes without writing to disk (use with --apply-tags)
   --detect-features           Output files with high out-degree (orchestrators/aggregators)
   --feature-threshold <N>     Min internal imports to be a feature hub (default: 5)
   --find-unused               Find files that are not reachable from entry points

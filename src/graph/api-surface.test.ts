@@ -53,7 +53,19 @@ function makeGraph(nodes: FileNode[]): Graph {
 // buildApiSurface — entry validation
 // ---------------------------------------------------------------------------
 
-describe("buildApiSurface — entry validation", () => {
+describe("buildApiSurface — entry validation", {
+  tags: [
+    "FileNode",
+    "Graph",
+    "ImportEdge",
+    "api-surface",
+    "buildApiSurface",
+    "detectAllEntryPoints",
+    "detectEntryPoint",
+    "model",
+    "node",
+  ],
+}, () => {
   test("throws when entry point is not in graph", () => {
     const graph = makeGraph([]);
     expect(() => buildApiSurface(graph, ["src/index.ts"])).toThrow("Entry point not found");
@@ -77,7 +89,19 @@ describe("buildApiSurface — entry validation", () => {
 // buildApiSurface — publicExports via re-export chain expansion
 // ---------------------------------------------------------------------------
 
-describe("buildApiSurface — export* chain expansion", () => {
+describe("buildApiSurface — export* chain expansion", {
+  tags: [
+    "FileNode",
+    "Graph",
+    "ImportEdge",
+    "api-surface",
+    "buildApiSurface",
+    "detectAllEntryPoints",
+    "detectEntryPoint",
+    "model",
+    "node",
+  ],
+}, () => {
   test("directly declared export is included", () => {
     const graph = makeGraph([
       makeNode("src/index.ts", { exports: [{ name: "foo", signature: "() => void" }] }),
@@ -161,7 +185,19 @@ describe("buildApiSurface — export* chain expansion", () => {
 // buildApiSurface — definedIn resolution
 // ---------------------------------------------------------------------------
 
-describe("buildApiSurface — definedIn resolution", () => {
+describe("buildApiSurface — definedIn resolution", {
+  tags: [
+    "FileNode",
+    "Graph",
+    "ImportEdge",
+    "api-surface",
+    "buildApiSurface",
+    "detectAllEntryPoints",
+    "detectEntryPoint",
+    "model",
+    "node",
+  ],
+}, () => {
   test("resolves to concrete defining file (has signature)", () => {
     const graph = makeGraph([
       makeNode("src/index.ts", {
@@ -216,7 +252,19 @@ describe("buildApiSurface — definedIn resolution", () => {
 // buildApiSurface — kind field
 // ---------------------------------------------------------------------------
 
-describe("buildApiSurface — kind field", () => {
+describe("buildApiSurface — kind field", {
+  tags: [
+    "FileNode",
+    "Graph",
+    "ImportEdge",
+    "api-surface",
+    "buildApiSurface",
+    "detectAllEntryPoints",
+    "detectEntryPoint",
+    "model",
+    "node",
+  ],
+}, () => {
   const cases: Array<[string, string]> = [
     ["interface FileNode", "interface"],
     ["class Graph", "class"],
@@ -249,7 +297,19 @@ describe("buildApiSurface — kind field", () => {
 // buildApiSurface — file partitioning
 // ---------------------------------------------------------------------------
 
-describe("buildApiSurface — file partitioning", () => {
+describe("buildApiSurface — file partitioning", {
+  tags: [
+    "FileNode",
+    "Graph",
+    "ImportEdge",
+    "api-surface",
+    "buildApiSurface",
+    "detectAllEntryPoints",
+    "detectEntryPoint",
+    "model",
+    "node",
+  ],
+}, () => {
   test("internalFiles contains reachable non-test files excluding entry points", () => {
     const graph = makeGraph([
       makeNode("src/index.ts", { imports: [staticEdge("src/index.ts", "src/a.ts")] }),
@@ -317,7 +377,19 @@ describe("buildApiSurface — file partitioning", () => {
 // buildApiSurface — multi-entry support
 // ---------------------------------------------------------------------------
 
-describe("buildApiSurface — multi-entry", () => {
+describe("buildApiSurface — multi-entry", {
+  tags: [
+    "FileNode",
+    "Graph",
+    "ImportEdge",
+    "api-surface",
+    "buildApiSurface",
+    "detectAllEntryPoints",
+    "detectEntryPoint",
+    "model",
+    "node",
+  ],
+}, () => {
   test("unions exports from multiple entry points", () => {
     const graph = makeGraph([
       makeNode("src/index.ts", { exports: [{ name: "createGraph" }] }),
@@ -343,7 +415,19 @@ describe("buildApiSurface — multi-entry", () => {
 // detectEntryPoint
 // ---------------------------------------------------------------------------
 
-describe("detectEntryPoint", () => {
+describe("detectEntryPoint", {
+  tags: [
+    "FileNode",
+    "Graph",
+    "ImportEdge",
+    "api-surface",
+    "buildApiSurface",
+    "detectAllEntryPoints",
+    "detectEntryPoint",
+    "model",
+    "node",
+  ],
+}, () => {
   test("returns null for empty graph with no package.json", () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "api-surface-test-"));
     try {
@@ -409,7 +493,19 @@ describe("detectEntryPoint", () => {
 // detectAllEntryPoints
 // ---------------------------------------------------------------------------
 
-describe("detectAllEntryPoints", () => {
+describe("detectAllEntryPoints", {
+  tags: [
+    "FileNode",
+    "Graph",
+    "ImportEdge",
+    "api-surface",
+    "buildApiSurface",
+    "detectAllEntryPoints",
+    "detectEntryPoint",
+    "model",
+    "node",
+  ],
+}, () => {
   test("returns all sub-path exports from package.json exports map", () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "api-surface-test-"));
     try {

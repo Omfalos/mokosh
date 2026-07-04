@@ -35,7 +35,18 @@ function tag(name: string) {
 
 // ── matchNode ────────────────────────────────────────────────────────────────
 
-describe("matchNode", () => {
+describe("matchNode", {
+  tags: [
+    "FileNode",
+    "ImportEdge",
+    "SerializedGraph",
+    "filter",
+    "filterGraph",
+    "graph",
+    "matchNode",
+    "node",
+  ],
+}, () => {
   const base = makeNode({ path: "src/a.ts" });
 
   describe("category", () => {
@@ -315,7 +326,18 @@ describe("matchNode", () => {
 
 // ── filterGraph ──────────────────────────────────────────────────────────────
 
-describe("filterGraph", () => {
+describe("filterGraph", {
+  tags: [
+    "FileNode",
+    "ImportEdge",
+    "SerializedGraph",
+    "filter",
+    "filterGraph",
+    "graph",
+    "matchNode",
+    "node",
+  ],
+}, () => {
   describe("import edge trimming", () => {
     const graph: SerializedGraph = {
       nodes: [

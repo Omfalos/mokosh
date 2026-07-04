@@ -23,7 +23,9 @@ function makeGraph(nodes: FileNode[]): Graph {
   return new Graph(map);
 }
 
-describe("queryCallGraph", () => {
+describe("queryCallGraph", {
+  tags: ["CallEdge", "FileNode", "Graph", "model", "node", "queryCallGraph"],
+}, () => {
   test("returns null definedIn when function is not exported by any file", () => {
     const graph = makeGraph([makeNode("src/a.ts", ["otherFn"])]);
     const result = queryCallGraph(graph, "missingFn");

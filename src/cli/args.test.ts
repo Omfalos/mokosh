@@ -4,7 +4,7 @@ import { parseArgs } from "./args";
 
 const cwd = process.cwd();
 
-describe("parseArgs", () => {
+describe("parseArgs", { tags: ["args", "parseArgs"] }, () => {
   it("returns help:true when no args given", () => {
     expect(parseArgs([]).help).toBe(true);
   });

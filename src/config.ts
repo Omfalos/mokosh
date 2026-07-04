@@ -7,6 +7,7 @@ import {
   registerTestPattern,
   setBarrelThreshold,
 } from "./parser/classify";
+import type { TagFramework } from "./tags/strategies";
 
 /**
  * @description Top-level configuration for mokosh. All fields are optional; unset fields
@@ -32,6 +33,19 @@ export interface MokoshConfig {
   barrelThreshold?: number;
   /** When true, enriches each node with `commitCount90d` and `lastAuthor` via git log. Only fetched for new/modified files. */
   gitStats?: boolean;
+  /**
+   * Tag-applier configuration for `--apply-tags`. Controls which format is written into
+   * test files. Defaults to `{ framework: "vitest" }` when unset.
+   */
+  tagApplier?: {
+    /**
+     * The test framework whose tag format to use.
+     * - `"vitest"` — injects `{ tags: [...] }` in describe/test/it options (default)
+     * - `"playwright"` — injects `{ tag: ["@name"] }` with `@` prefix convention
+     * - `"cypress"` — injects `{ tags: ["@name"] }` for use with `@cypress/grep`
+     */
+    framework?: TagFramework;
+  };
   /** Path to the Istanbul/v8 `coverage-summary.json` file, relative to the project root. When set, `coveragePct` is populated on each node after the graph is built. */
   coverageReportPath?: string;
   /** Default line-coverage threshold (0–100) used by `find_uncovered`. Defaults to `80` when not specified. */

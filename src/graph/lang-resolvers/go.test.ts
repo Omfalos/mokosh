@@ -21,7 +21,7 @@ function setup(files: Record<string, string>): string {
 
 // ─── module-local resolution ──────────────────────────────────────────────────
 
-describe("module-local resolution", () => {
+describe("module-local resolution", { tags: ["GoLangResolver", "go"] }, () => {
   let root: string;
   let resolver: GoLangResolver;
 
@@ -83,7 +83,7 @@ describe("module-local resolution", () => {
 
 // ─── replace directives ───────────────────────────────────────────────────────
 
-describe("replace directives", () => {
+describe("replace directives", { tags: ["GoLangResolver", "go"] }, () => {
   let root: string;
   let resolver: GoLangResolver;
 
@@ -137,7 +137,7 @@ describe("replace directives", () => {
 
 // ─── missing go.mod ───────────────────────────────────────────────────────────
 
-describe("missing go.mod", () => {
+describe("missing go.mod", { tags: ["GoLangResolver", "go"] }, () => {
   let root: string;
   let resolver: GoLangResolver;
 
@@ -155,7 +155,7 @@ describe("missing go.mod", () => {
 
 // ─── go.mod without module directive ─────────────────────────────────────────
 
-describe("go.mod without module directive", () => {
+describe("go.mod without module directive", { tags: ["GoLangResolver", "go"] }, () => {
   let root: string;
   let resolver: GoLangResolver;
 
@@ -172,7 +172,7 @@ describe("go.mod without module directive", () => {
 
 // ─── test file exclusion ──────────────────────────────────────────────────────
 
-describe("test file exclusion", () => {
+describe("test file exclusion", { tags: ["GoLangResolver", "go"] }, () => {
   let root: string;
   let resolver: GoLangResolver;
 
@@ -201,7 +201,7 @@ describe("test file exclusion", () => {
 
 // ─── module cache ─────────────────────────────────────────────────────────────
 
-describe("module cache", () => {
+describe("module cache", { tags: ["GoLangResolver", "go"] }, () => {
   test("go.mod is read only once per rootDir", () => {
     const root = setup({
       "go.mod": `module ${MOD}\n`,

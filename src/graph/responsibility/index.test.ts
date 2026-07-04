@@ -36,7 +36,9 @@ function makeGraph(nodes: FileNode[]): Graph {
   return new Graph(map);
 }
 
-describe("buildResponsibilityGraph", () => {
+describe("buildResponsibilityGraph", {
+  tags: ["FileNode", "Graph", "buildResponsibilityGraph", "model", "node"],
+}, () => {
   test("returns empty map for empty graph", () => {
     const rg = buildResponsibilityGraph(new Graph(new Map()));
     expect(rg.size).toBe(0);

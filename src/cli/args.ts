@@ -33,6 +33,8 @@ export interface ParsedArgs {
   callGraph: boolean;
   functionName: string | undefined;
   apiSurface: boolean;
+  applyTags: boolean;
+  dryRun: boolean;
 }
 
 /**
@@ -86,6 +88,8 @@ const OPTIONS = {
   "feature-graph": { type: "boolean" },
   "call-graph": { type: "boolean" },
   "api-surface": { type: "boolean" },
+  "apply-tags": { type: "boolean" },
+  "dry-run": { type: "boolean" },
 } as const;
 
 const STRING_FLAGS = new Set(
@@ -176,6 +180,8 @@ export function parseArgs(cliTokens: string[]): ParsedArgs {
     featureGraph: values["feature-graph"] ?? false,
     callGraph: values["call-graph"] ?? false,
     apiSurface: values["api-surface"] ?? false,
+    applyTags: values["apply-tags"] ?? false,
+    dryRun: values["dry-run"] ?? false,
     entryPoints: positionals,
   };
 }

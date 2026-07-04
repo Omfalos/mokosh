@@ -34,7 +34,9 @@ function visitAll(sourceFile: ts.SourceFile, ctx: ParseContext): void {
   visit(sourceFile);
 }
 
-describe("handleTagging", () => {
+describe("handleTagging", {
+  tags: ["ParseContext", "StructuredTag", "handleTagging", "node"],
+}, () => {
   describe("strategy 1 – declaration names", () => {
     test("adds function declaration name as tag", () => {
       const ctx = makeCtx();

@@ -18,7 +18,18 @@ function stubNode(p: string, category: FileNode["category"] = "logic"): FileNode
   };
 }
 
-describe("tags", () => {
+describe("tags", {
+  tags: [
+    "FileNode",
+    "Graph",
+    "createImportMap",
+    "node",
+    "parseFile",
+    "parser",
+    "proposeAffectedTests",
+    "proposeTags",
+  ],
+}, () => {
   test("parseFile - extracts tags from function names", async () => {
     const content = `
       function login() {}
@@ -208,7 +219,18 @@ function makeEdge(fromPath: string, toPath: string) {
   };
 }
 
-describe("proposeAffectedTests", () => {
+describe("proposeAffectedTests", {
+  tags: [
+    "FileNode",
+    "Graph",
+    "createImportMap",
+    "node",
+    "parseFile",
+    "parser",
+    "proposeAffectedTests",
+    "proposeTags",
+  ],
+}, () => {
   test("returns the path of a test that directly imports a changed file", () => {
     const nodes = new Map<string, FileNode>();
     nodes.set("auth.ts", stubNode("auth.ts"));

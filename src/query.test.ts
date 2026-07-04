@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import type { SerializedGraph } from "../src/types/graph";
 import { filterGraph, parseQuery } from "./query";
 
-describe("QueryEngine", () => {
+describe("QueryEngine", { tags: ["SerializedGraph", "filterGraph", "graph", "parseQuery"] }, () => {
   const mockGraph: SerializedGraph = {
     nodes: [
       {

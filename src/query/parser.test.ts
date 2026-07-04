@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { parseQuery } from "./parser";
 
-describe("parseQuery", () => {
+describe("parseQuery", { tags: ["parseQuery", "parser"] }, () => {
   describe("malformed input", () => {
     test("returns empty object for empty string", () => {
       expect(parseQuery("")).toEqual({});

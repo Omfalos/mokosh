@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { getTestFiles } from "./utils";
 
-describe("getTestFiles", () => {
+describe("getTestFiles", { tags: ["getTestFiles"] }, () => {
   it("keeps .test. files", () => {
     expect(getTestFiles(["src/foo.test.ts"])).toEqual(["src/foo.test.ts"]);
   });

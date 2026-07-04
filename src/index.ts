@@ -80,6 +80,9 @@ export { registerParser } from "./parser/registry";
 export { filterGraph, type NodeQuery, parseQuery } from "./query";
 // Tags
 export {
+  type ApplyTagsFileResult,
+  type ApplyTagsResult,
+  applyTags,
   type ProposeTagsOptions,
   proposeAffectedTests,
   proposeTags,

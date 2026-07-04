@@ -20,7 +20,19 @@ afterEach(() => {
 
 // ─── loadMokoshConfig ─────────────────────────────────────────────────────────
 
-describe("loadMokoshConfig", () => {
+describe("loadMokoshConfig", {
+  tags: [
+    "applyConfig",
+    "classify",
+    "config",
+    "getBarrelThreshold",
+    "getTestLibraries",
+    "getTestPatterns",
+    "loadMokoshConfig",
+    "parseFile",
+    "parser",
+  ],
+}, () => {
   test("returns empty object when no config file exists", () => {
     expect(loadMokoshConfig(tmpDir)).toEqual({});
   });
@@ -85,7 +97,19 @@ describe("loadMokoshConfig", () => {
 
 // ─── applyConfig ──────────────────────────────────────────────────────────────
 
-describe("applyConfig", () => {
+describe("applyConfig", {
+  tags: [
+    "applyConfig",
+    "classify",
+    "config",
+    "getBarrelThreshold",
+    "getTestLibraries",
+    "getTestPatterns",
+    "loadMokoshConfig",
+    "parseFile",
+    "parser",
+  ],
+}, () => {
   test("does not throw on empty config", () => {
     expect(() => applyConfig({})).not.toThrow();
   });
@@ -119,7 +143,19 @@ describe("applyConfig", () => {
 
 // ─── Integration: applyConfig + parseFile ────────────────────────────────────
 
-describe("applyConfig integration with parseFile", () => {
+describe("applyConfig integration with parseFile", {
+  tags: [
+    "applyConfig",
+    "classify",
+    "config",
+    "getBarrelThreshold",
+    "getTestLibraries",
+    "getTestPatterns",
+    "loadMokoshConfig",
+    "parseFile",
+    "parser",
+  ],
+}, () => {
   test("custom testPattern causes file to be categorised as test", async () => {
     const unique = `.xspec-${Date.now()}.`;
     applyConfig({ testPatterns: [unique] });

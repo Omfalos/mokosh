@@ -3,6 +3,7 @@ import { applyConfig, Graph } from "../index";
 import { parseArgs } from "./args";
 import { run as runAffectedTests } from "./commands/affected-tests";
 import { run as runApiSurface } from "./commands/api-surface";
+import { run as runApplyTags } from "./commands/apply-tags";
 import { run as runCallGraph } from "./commands/call-graph";
 import { run as runCallers } from "./commands/callers";
 import { run as runCheckCycles } from "./commands/check-cycles";
@@ -64,11 +65,14 @@ export async function run(): Promise<void> {
     callGraph,
     functionName,
     apiSurface,
+    applyTags,
+    dryRun,
   } = parsed;
 
   const autoScan =
     proposeTags ||
     affectedTests ||
+    applyTags ||
     callers ||
     findUncovered ||
     typeGraph ||
@@ -116,10 +120,12 @@ export async function run(): Promise<void> {
     filterPaths,
     minOutDegree,
     functionName,
+    dryRun,
   };
 
   const commands: Array<[boolean, CommandHandler]> = [
     [proposeTags, runProposeTags],
+    [applyTags, runApplyTags],
     [affectedTests, runAffectedTests],
     [detectFeatures, runDetectFeatures],
     [findUnused, runFindUnused],

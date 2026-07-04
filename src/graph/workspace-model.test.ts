@@ -58,7 +58,17 @@ function makeTwoPackageWorkspace(): WorkspaceGraph {
 
 // ─── getPackageForFile ────────────────────────────────────────────────────────
 
-describe("getPackageForFile", () => {
+describe("getPackageForFile", {
+  tags: [
+    "FileNode",
+    "Graph",
+    "WorkspaceGraph",
+    "WorkspacePackage",
+    "model",
+    "node",
+    "workspace-model",
+  ],
+}, () => {
   test("returns the owning package for a file path", () => {
     const wg = makeTwoPackageWorkspace();
     const pkg = wg.getPackageForFile("packages/shared/src/utils.ts");
@@ -79,7 +89,17 @@ describe("getPackageForFile", () => {
 
 // ─── getPackageDependencies ───────────────────────────────────────────────────
 
-describe("getPackageDependencies", () => {
+describe("getPackageDependencies", {
+  tags: [
+    "FileNode",
+    "Graph",
+    "WorkspaceGraph",
+    "WorkspacePackage",
+    "model",
+    "node",
+    "workspace-model",
+  ],
+}, () => {
   test("returns workspace-level dependency map", () => {
     const wg = makeTwoPackageWorkspace();
     const deps = wg.getPackageDependencies();
@@ -100,7 +120,17 @@ describe("getPackageDependencies", () => {
 
 // ─── getAffectedAcrossPackages ────────────────────────────────────────────────
 
-describe("getAffectedAcrossPackages", () => {
+describe("getAffectedAcrossPackages", {
+  tags: [
+    "FileNode",
+    "Graph",
+    "WorkspaceGraph",
+    "WorkspacePackage",
+    "model",
+    "node",
+    "workspace-model",
+  ],
+}, () => {
   test("returns cross-package files affected by a shared utility change", () => {
     const wg = makeTwoPackageWorkspace();
     const affected = wg.getAffectedAcrossPackages("packages/shared/src/utils.ts");
@@ -169,7 +199,17 @@ describe("getAffectedAcrossPackages", () => {
 
 // ─── serialize / deserialize ──────────────────────────────────────────────────
 
-describe("serialize / deserialize", () => {
+describe("serialize / deserialize", {
+  tags: [
+    "FileNode",
+    "Graph",
+    "WorkspaceGraph",
+    "WorkspacePackage",
+    "model",
+    "node",
+    "workspace-model",
+  ],
+}, () => {
   test("round-trips the workspace graph", () => {
     const wg = makeTwoPackageWorkspace();
     const serialized = wg.serialize();

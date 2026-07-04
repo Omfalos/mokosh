@@ -3,7 +3,7 @@ import { parsePython } from "./python";
 
 // ─── import statements ────────────────────────────────────────────────────────
 
-describe("import statement", () => {
+describe("import statement", { tags: ["parsePython", "python"] }, () => {
   test("bare import → static edge with symbol *", () => {
     const { imports } = parsePython("a.py", "import os");
     expect(imports).toHaveLength(1);
@@ -29,7 +29,7 @@ describe("import statement", () => {
 
 // ─── from … import statements ─────────────────────────────────────────────────
 
-describe("from … import", () => {
+describe("from … import", { tags: ["parsePython", "python"] }, () => {
   test("single symbol", () => {
     const { imports } = parsePython("a.py", "from pathlib import Path");
     expect(imports[0]).toMatchObject({ rawSpecifier: "pathlib", symbols: ["Path"] });
@@ -73,7 +73,7 @@ describe("from … import", () => {
 
 // ─── relative imports ─────────────────────────────────────────────────────────
 
-describe("relative imports", () => {
+describe("relative imports", { tags: ["parsePython", "python"] }, () => {
   test("from . import name → one edge per name, specifier is ./name", () => {
     const { imports } = parsePython("a.py", "from . import utils");
     expect(imports).toHaveLength(1);
@@ -111,7 +111,7 @@ describe("relative imports", () => {
 
 // ─── comment handling ─────────────────────────────────────────────────────────
 
-describe("comment handling", () => {
+describe("comment handling", { tags: ["parsePython", "python"] }, () => {
   test("import on a # comment line → ignored", () => {
     const { imports } = parsePython("a.py", "# import os");
     expect(imports).toHaveLength(0);
@@ -127,7 +127,7 @@ describe("comment handling", () => {
 
 // ─── @tag markers ─────────────────────────────────────────────────────────────
 
-describe("@tag markers", () => {
+describe("@tag markers", { tags: ["parsePython", "python"] }, () => {
   test("# @tag name → collected as comment-marker", () => {
     const { tags } = parsePython("a.py", "# @tag auth");
     expect(tags).toContainEqual({ name: "auth", kind: "comment-marker" });
@@ -149,7 +149,7 @@ describe("@tag markers", () => {
 
 // ─── exports (top-level defs) ─────────────────────────────────────────────────
 
-describe("exports", () => {
+describe("exports", { tags: ["parsePython", "python"] }, () => {
   test("top-level def → exported symbol", () => {
     const { exports } = parsePython("a.py", "def calculate(x, y):\n    return x + y");
     expect(exports).toContainEqual({ name: "calculate" });
@@ -175,7 +175,7 @@ describe("exports", () => {
 
 // ─── category detection ───────────────────────────────────────────────────────
 
-describe("category: test", () => {
+describe("category: test", { tags: ["parsePython", "python"] }, () => {
   test("test_ prefix → test", () => {
     const { category } = parsePython("test_auth.py", "import os");
     expect(category).toBe("test");
@@ -207,7 +207,7 @@ describe("category: test", () => {
   });
 });
 
-describe("category: config", () => {
+describe("category: config", { tags: ["parsePython", "python"] }, () => {
   test("conftest.py → config", () => {
     const { category } = parsePython("conftest.py", "import pytest");
     expect(category).toBe("config");
@@ -219,7 +219,7 @@ describe("category: config", () => {
   });
 });
 
-describe("category: logic", () => {
+describe("category: logic", { tags: ["parsePython", "python"] }, () => {
   test("regular module → logic", () => {
     const { category } = parsePython("auth.py", "import os\ndef authenticate(): pass");
     expect(category).toBe("logic");
@@ -233,7 +233,7 @@ describe("category: logic", () => {
 
 // ─── exports (top-level variables) ───────────────────────────────────────────
 
-describe("exports: top-level variables", () => {
+describe("exports: top-level variables", { tags: ["parsePython", "python"] }, () => {
   test("top-level assignment → exported symbol", () => {
     const { exports } = parsePython("a.py", "MY_VAR = 42");
     expect(exports).toContainEqual({ name: "MY_VAR" });
@@ -259,7 +259,7 @@ describe("exports: top-level variables", () => {
 
 // ─── edge metadata ────────────────────────────────────────────────────────────
 
-describe("edge metadata", () => {
+describe("edge metadata", { tags: ["parsePython", "python"] }, () => {
   test("isStyle is always false for Python imports", () => {
     const { imports } = parsePython("a.py", "import os\nfrom pathlib import Path");
     expect(imports.every((i) => i.isStyle === false)).toBe(true);

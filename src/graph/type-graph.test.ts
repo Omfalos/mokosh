@@ -39,7 +39,9 @@ function makeGraph(nodes: FileNode[]): Graph {
   return new Graph(map);
 }
 
-describe("buildTypeGraph", () => {
+describe("buildTypeGraph", {
+  tags: ["FileNode", "Graph", "buildTypeGraph", "model", "node", "queryTypeGraph", "type-graph"],
+}, () => {
   test("returns empty maps for empty graph", () => {
     const tg = buildTypeGraph(new Graph(new Map()));
     expect(tg.types.size).toBe(0);
@@ -140,7 +142,9 @@ describe("buildTypeGraph", () => {
   });
 });
 
-describe("queryTypeGraph", () => {
+describe("queryTypeGraph", {
+  tags: ["FileNode", "Graph", "buildTypeGraph", "model", "node", "queryTypeGraph", "type-graph"],
+}, () => {
   test("returns null type when name not found", () => {
     const graph = makeGraph([
       makeNode("src/types.ts", "type-only", [{ name: "User", signature: "interface User" }]),

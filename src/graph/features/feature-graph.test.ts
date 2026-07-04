@@ -33,7 +33,17 @@ function makeGraph(nodes: FileNode[]): Graph {
   return new Graph(map);
 }
 
-describe("buildFeatureGraph", () => {
+describe("buildFeatureGraph", {
+  tags: [
+    "FeatureDomain",
+    "FileNode",
+    "Graph",
+    "buildFeatureGraph",
+    "feature-graph",
+    "model",
+    "node",
+  ],
+}, () => {
   test("returns empty features and all nodes unassigned when no hub meets threshold", () => {
     const graph = makeGraph([makeNode("src/a.ts", "logic", ["src/b.ts"]), makeNode("src/b.ts")]);
     const result = buildFeatureGraph(graph, { minOutDegree: 5 });

@@ -3,7 +3,7 @@ import path from "node:path";
 import { describe, expect, test } from "vitest";
 import { createImportMap, MermaidExporter } from "./index";
 
-describe("graph", () => {
+describe("graph", { tags: ["MermaidExporter", "createImportMap"] }, () => {
   test("Graph building and Mermaid output", async () => {
     const root = path.join(process.cwd(), "test-example");
     if (!fs.existsSync(root)) fs.mkdirSync(root);

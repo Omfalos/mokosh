@@ -104,7 +104,28 @@ function parse(result: { content: Array<{ type: string; text: string }> }): unkn
   return JSON.parse(result.content[0]?.text ?? "");
 }
 
-describe("handleAnalyze", () => {
+describe("handleAnalyze", {
+  tags: [
+    "Graph",
+    "SerializedGraph",
+    "SessionState",
+    "WorkspaceGraph",
+    "cache",
+    "graph",
+    "handleAnalyze",
+    "handleDetectFeatures",
+    "handleFindUnused",
+    "handleGetAffected",
+    "handleGetDependencies",
+    "handleGetDependents",
+    "handleGetWorkspaceAffected",
+    "handleGetWorkspacePackages",
+    "handleProposeTags",
+    "handleQuery",
+    "handlers",
+    "workspace-model",
+  ],
+}, () => {
   test("returns node count and categories", async () => {
     const cache = makeCache();
     const data = parse(await handleAnalyze(cache, { root: ROOT, entryPoints: ["src/a.ts"] })) as {
@@ -140,7 +161,28 @@ describe("handleAnalyze", () => {
   });
 });
 
-describe("handleGetDependencies", () => {
+describe("handleGetDependencies", {
+  tags: [
+    "Graph",
+    "SerializedGraph",
+    "SessionState",
+    "WorkspaceGraph",
+    "cache",
+    "graph",
+    "handleAnalyze",
+    "handleDetectFeatures",
+    "handleFindUnused",
+    "handleGetAffected",
+    "handleGetDependencies",
+    "handleGetDependents",
+    "handleGetWorkspaceAffected",
+    "handleGetWorkspacePackages",
+    "handleProposeTags",
+    "handleQuery",
+    "handlers",
+    "workspace-model",
+  ],
+}, () => {
   test("returns immediate imports at depth 1", async () => {
     const data = parse(
       await handleGetDependencies(makeCache(), { root: ROOT, file: "src/b.ts" }),
@@ -162,7 +204,28 @@ describe("handleGetDependencies", () => {
   });
 });
 
-describe("handleGetDependents", () => {
+describe("handleGetDependents", {
+  tags: [
+    "Graph",
+    "SerializedGraph",
+    "SessionState",
+    "WorkspaceGraph",
+    "cache",
+    "graph",
+    "handleAnalyze",
+    "handleDetectFeatures",
+    "handleFindUnused",
+    "handleGetAffected",
+    "handleGetDependencies",
+    "handleGetDependents",
+    "handleGetWorkspaceAffected",
+    "handleGetWorkspacePackages",
+    "handleProposeTags",
+    "handleQuery",
+    "handlers",
+    "workspace-model",
+  ],
+}, () => {
   test("returns direct importers of a file", async () => {
     const data = parse(
       await handleGetDependents(makeCache(), { root: ROOT, file: "src/a.ts" }),
@@ -176,7 +239,28 @@ describe("handleGetDependents", () => {
   });
 });
 
-describe("handleGetAffected", () => {
+describe("handleGetAffected", {
+  tags: [
+    "Graph",
+    "SerializedGraph",
+    "SessionState",
+    "WorkspaceGraph",
+    "cache",
+    "graph",
+    "handleAnalyze",
+    "handleDetectFeatures",
+    "handleFindUnused",
+    "handleGetAffected",
+    "handleGetDependencies",
+    "handleGetDependents",
+    "handleGetWorkspaceAffected",
+    "handleGetWorkspacePackages",
+    "handleProposeTags",
+    "handleQuery",
+    "handlers",
+    "workspace-model",
+  ],
+}, () => {
   test("returns all upstream files", async () => {
     const data = parse(await handleGetAffected(makeCache(), { root: ROOT, file: "src/a.ts" })) as {
       affected: string[];
@@ -196,7 +280,28 @@ describe("handleGetAffected", () => {
   });
 });
 
-describe("handleFindUnused", () => {
+describe("handleFindUnused", {
+  tags: [
+    "Graph",
+    "SerializedGraph",
+    "SessionState",
+    "WorkspaceGraph",
+    "cache",
+    "graph",
+    "handleAnalyze",
+    "handleDetectFeatures",
+    "handleFindUnused",
+    "handleGetAffected",
+    "handleGetDependencies",
+    "handleGetDependents",
+    "handleGetWorkspaceAffected",
+    "handleGetWorkspacePackages",
+    "handleProposeTags",
+    "handleQuery",
+    "handlers",
+    "workspace-model",
+  ],
+}, () => {
   test("returns files not reachable from the graph", async () => {
     const data = parse(
       await handleFindUnused(makeCache(), { root: ROOT, entryPoints: ["src/a.ts"] }),
@@ -208,7 +313,28 @@ describe("handleFindUnused", () => {
   });
 });
 
-describe("handleProposeTags", () => {
+describe("handleProposeTags", {
+  tags: [
+    "Graph",
+    "SerializedGraph",
+    "SessionState",
+    "WorkspaceGraph",
+    "cache",
+    "graph",
+    "handleAnalyze",
+    "handleDetectFeatures",
+    "handleFindUnused",
+    "handleGetAffected",
+    "handleGetDependencies",
+    "handleGetDependents",
+    "handleGetWorkspaceAffected",
+    "handleGetWorkspacePackages",
+    "handleProposeTags",
+    "handleQuery",
+    "handlers",
+    "workspace-model",
+  ],
+}, () => {
   test("returns tags from test files affected by changed files", async () => {
     const data = parse(
       await handleProposeTags(makeCache(), { root: ROOT, changedFiles: ["src/a.ts"] }),
@@ -218,7 +344,28 @@ describe("handleProposeTags", () => {
   });
 });
 
-describe("handleProposeTags with format='paths'", () => {
+describe("handleProposeTags with format='paths'", {
+  tags: [
+    "Graph",
+    "SerializedGraph",
+    "SessionState",
+    "WorkspaceGraph",
+    "cache",
+    "graph",
+    "handleAnalyze",
+    "handleDetectFeatures",
+    "handleFindUnused",
+    "handleGetAffected",
+    "handleGetDependencies",
+    "handleGetDependents",
+    "handleGetWorkspaceAffected",
+    "handleGetWorkspacePackages",
+    "handleProposeTags",
+    "handleQuery",
+    "handlers",
+    "workspace-model",
+  ],
+}, () => {
   test("returns test file paths affected by changed files", async () => {
     const data = parse(
       await handleProposeTags(makeCache(), {
@@ -233,7 +380,28 @@ describe("handleProposeTags with format='paths'", () => {
   });
 });
 
-describe("handleDetectFeatures", () => {
+describe("handleDetectFeatures", {
+  tags: [
+    "Graph",
+    "SerializedGraph",
+    "SessionState",
+    "WorkspaceGraph",
+    "cache",
+    "graph",
+    "handleAnalyze",
+    "handleDetectFeatures",
+    "handleFindUnused",
+    "handleGetAffected",
+    "handleGetDependencies",
+    "handleGetDependents",
+    "handleGetWorkspaceAffected",
+    "handleGetWorkspacePackages",
+    "handleProposeTags",
+    "handleQuery",
+    "handlers",
+    "workspace-model",
+  ],
+}, () => {
   test("returns features sorted by out-degree", async () => {
     const data = parse(await handleDetectFeatures(makeCache(), { root: ROOT })) as {
       features: Array<{ path: string; outDegree: number }>;
@@ -250,7 +418,28 @@ describe("handleDetectFeatures", () => {
   });
 });
 
-describe("handleQuery", () => {
+describe("handleQuery", {
+  tags: [
+    "Graph",
+    "SerializedGraph",
+    "SessionState",
+    "WorkspaceGraph",
+    "cache",
+    "graph",
+    "handleAnalyze",
+    "handleDetectFeatures",
+    "handleFindUnused",
+    "handleGetAffected",
+    "handleGetDependencies",
+    "handleGetDependents",
+    "handleGetWorkspaceAffected",
+    "handleGetWorkspacePackages",
+    "handleProposeTags",
+    "handleQuery",
+    "handlers",
+    "workspace-model",
+  ],
+}, () => {
   test("filters nodes by category", async () => {
     const data = parse(
       await handleQuery(makeCache(), { root: ROOT, filter: "category:logic" }),
@@ -357,7 +546,28 @@ function makeWorkspaceCache(wg: WorkspaceGraph): SessionState {
   } as unknown as SessionState;
 }
 
-describe("handleAnalyze (monorepo auto-detection)", () => {
+describe("handleAnalyze (monorepo auto-detection)", {
+  tags: [
+    "Graph",
+    "SerializedGraph",
+    "SessionState",
+    "WorkspaceGraph",
+    "cache",
+    "graph",
+    "handleAnalyze",
+    "handleDetectFeatures",
+    "handleFindUnused",
+    "handleGetAffected",
+    "handleGetDependencies",
+    "handleGetDependents",
+    "handleGetWorkspaceAffected",
+    "handleGetWorkspacePackages",
+    "handleProposeTags",
+    "handleQuery",
+    "handlers",
+    "workspace-model",
+  ],
+}, () => {
   test("routes to workspace build when entryPoints is empty and monorepo is detected", async () => {
     const { detectMonorepo } = await import("../index.js");
     vi.mocked(detectMonorepo).mockReturnValue({
@@ -405,7 +615,28 @@ describe("handleAnalyze (monorepo auto-detection)", () => {
   });
 });
 
-describe("handleGetWorkspacePackages", () => {
+describe("handleGetWorkspacePackages", {
+  tags: [
+    "Graph",
+    "SerializedGraph",
+    "SessionState",
+    "WorkspaceGraph",
+    "cache",
+    "graph",
+    "handleAnalyze",
+    "handleDetectFeatures",
+    "handleFindUnused",
+    "handleGetAffected",
+    "handleGetDependencies",
+    "handleGetDependents",
+    "handleGetWorkspaceAffected",
+    "handleGetWorkspacePackages",
+    "handleProposeTags",
+    "handleQuery",
+    "handlers",
+    "workspace-model",
+  ],
+}, () => {
   test("returns package list with node counts and dependencies", async () => {
     const wg = makeWorkspaceFixture();
     const cache = makeWorkspaceCache(wg);
@@ -431,7 +662,28 @@ describe("handleGetWorkspacePackages", () => {
   });
 });
 
-describe("handleGetWorkspaceAffected", () => {
+describe("handleGetWorkspaceAffected", {
+  tags: [
+    "Graph",
+    "SerializedGraph",
+    "SessionState",
+    "WorkspaceGraph",
+    "cache",
+    "graph",
+    "handleAnalyze",
+    "handleDetectFeatures",
+    "handleFindUnused",
+    "handleGetAffected",
+    "handleGetDependencies",
+    "handleGetDependents",
+    "handleGetWorkspaceAffected",
+    "handleGetWorkspacePackages",
+    "handleProposeTags",
+    "handleQuery",
+    "handlers",
+    "workspace-model",
+  ],
+}, () => {
   test("returns cross-package affected files", async () => {
     const wg = makeWorkspaceFixture();
     const cache = makeWorkspaceCache(wg);

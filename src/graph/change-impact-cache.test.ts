@@ -40,7 +40,22 @@ function makeGraph(nodes: FileNode[]): Graph {
   return new Graph(map);
 }
 
-describe("buildChangeImpactCache", () => {
+describe("buildChangeImpactCache", {
+  tags: [
+    "ChangeImpactCache",
+    "FileNode",
+    "Graph",
+    "buildChangeImpactCache",
+    "change-impact-cache",
+    "computeGraphHash",
+    "isChangeImpactCacheValid",
+    "loadChangeImpactCache",
+    "model",
+    "node",
+    "queryChangeImpact",
+    "saveChangeImpactCache",
+  ],
+}, () => {
   test("returns empty impact map for empty graph", () => {
     const cache = buildChangeImpactCache(new Graph(new Map()));
     expect(cache.impact.size).toBe(0);
@@ -99,14 +114,44 @@ describe("buildChangeImpactCache", () => {
   });
 });
 
-describe("queryChangeImpact", () => {
+describe("queryChangeImpact", {
+  tags: [
+    "ChangeImpactCache",
+    "FileNode",
+    "Graph",
+    "buildChangeImpactCache",
+    "change-impact-cache",
+    "computeGraphHash",
+    "isChangeImpactCacheValid",
+    "loadChangeImpactCache",
+    "model",
+    "node",
+    "queryChangeImpact",
+    "saveChangeImpactCache",
+  ],
+}, () => {
   test("returns empty array for unknown file", () => {
     const cache = buildChangeImpactCache(new Graph(new Map()));
     expect(queryChangeImpact(cache, "src/missing.ts")).toEqual([]);
   });
 });
 
-describe("computeGraphHash", () => {
+describe("computeGraphHash", {
+  tags: [
+    "ChangeImpactCache",
+    "FileNode",
+    "Graph",
+    "buildChangeImpactCache",
+    "change-impact-cache",
+    "computeGraphHash",
+    "isChangeImpactCacheValid",
+    "loadChangeImpactCache",
+    "model",
+    "node",
+    "queryChangeImpact",
+    "saveChangeImpactCache",
+  ],
+}, () => {
   test("same graph produces same hash", () => {
     const graph = makeGraph([makeNode("src/a.ts"), makeNode("src/b.ts", ["src/a.ts"])]);
     expect(computeGraphHash(graph)).toBe(computeGraphHash(graph));
@@ -133,7 +178,22 @@ describe("computeGraphHash", () => {
   });
 });
 
-describe("isChangeImpactCacheValid", () => {
+describe("isChangeImpactCacheValid", {
+  tags: [
+    "ChangeImpactCache",
+    "FileNode",
+    "Graph",
+    "buildChangeImpactCache",
+    "change-impact-cache",
+    "computeGraphHash",
+    "isChangeImpactCacheValid",
+    "loadChangeImpactCache",
+    "model",
+    "node",
+    "queryChangeImpact",
+    "saveChangeImpactCache",
+  ],
+}, () => {
   test("returns true when graph has not changed", () => {
     const graph = makeGraph([makeNode("src/a.ts")]);
     const cache = buildChangeImpactCache(graph);
@@ -157,7 +217,22 @@ describe("isChangeImpactCacheValid", () => {
   });
 });
 
-describe("saveChangeImpactCache + loadChangeImpactCache", () => {
+describe("saveChangeImpactCache + loadChangeImpactCache", {
+  tags: [
+    "ChangeImpactCache",
+    "FileNode",
+    "Graph",
+    "buildChangeImpactCache",
+    "change-impact-cache",
+    "computeGraphHash",
+    "isChangeImpactCacheValid",
+    "loadChangeImpactCache",
+    "model",
+    "node",
+    "queryChangeImpact",
+    "saveChangeImpactCache",
+  ],
+}, () => {
   test("round-trips impact map and graphHash", () => {
     const graph = makeGraph([makeNode("src/a.ts"), makeNode("src/b.ts", ["src/a.ts"])]);
     const cache = buildChangeImpactCache(graph);

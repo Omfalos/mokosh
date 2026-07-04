@@ -18,7 +18,7 @@ function setup(files: Record<string, string>): { root: string; resolver: Default
 
 // ─── TypeScript / JavaScript (existing behaviour unchanged) ──────────────────
 
-describe("TS/JS resolution", () => {
+describe("TS/JS resolution", { tags: ["DefaultResolver", "resolver"] }, () => {
   let root: string;
   let resolver: DefaultResolver;
 
@@ -43,7 +43,7 @@ describe("TS/JS resolution", () => {
 
 // ─── Python relative imports ──────────────────────────────────────────────────
 
-describe("Python relative imports", () => {
+describe("Python relative imports", { tags: ["DefaultResolver", "resolver"] }, () => {
   let root: string;
   let resolver: DefaultResolver;
 
@@ -98,7 +98,7 @@ describe("Python relative imports", () => {
 
 // ─── Python bare module names ─────────────────────────────────────────────────
 
-describe("Python bare module imports", () => {
+describe("Python bare module imports", { tags: ["DefaultResolver", "resolver"] }, () => {
   let root: string;
   let resolver: DefaultResolver;
 
@@ -150,7 +150,7 @@ describe("Python bare module imports", () => {
 
 // ─── Workspace package resolution ────────────────────────────────────────────
 
-describe("workspace package resolution", () => {
+describe("workspace package resolution", { tags: ["DefaultResolver", "resolver"] }, () => {
   let root: string;
   let sharedRoot: string;
 
