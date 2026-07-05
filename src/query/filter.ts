@@ -1,23 +1,15 @@
 /** Filters a graph by applying NodeQuery predicates: category, type, tag, path, imports, coverage, and more. */
 import type { SerializedGraph } from "../types/graph";
 import type { FileNode } from "../types/node";
+import { NODE_MATCHERS } from "./matchers";
 import type { NodeQuery } from "./types";
 
-function matchesStr(nodeValue: string, queryValue: string): boolean {
-  if (queryValue.startsWith("!")) return nodeValue !== queryValue.slice(1);
-  return nodeValue === queryValue;
-}
-
-function matchesPath(nodePath: string, queryPath: string): boolean {
-  if (queryPath.startsWith("!")) return !nodePath.includes(queryPath.slice(1));
-  return nodePath.includes(queryPath);
-}
-
 /**
- * @description Tests whether a graph node satisfies all criteria in `query`.
- *   String fields use exact match with an optional `!` prefix for negation.
- *   `tags` uses OR logic across positive entries; negated tags act as mandatory exclusions.
- *   Coverage fields treat nodes with no data as 101% for `minCoverage` and 0% for `maxCoverage`.
+ * @description Tests whether a graph node satisfies all criteria in `query` by running it
+ *   through every matcher in `NODE_MATCHERS`. String fields use exact match with an optional
+ *   `!` prefix for negation. `tags` uses OR logic across positive entries; negated tags act
+ *   as mandatory exclusions. Adding a new query key requires adding a new matcher to
+ *   `NODE_MATCHERS`, not editing this function.
  * @param {FileNode} node - The graph node to evaluate.
  * @param {NodeQuery} query - Filter criteria; omitted fields are treated as wildcards.
  * @param {Map<string, string[]>} reverseIndex - Optional reverse importer lookup, required when `query.importedBy` is set.
@@ -28,60 +20,7 @@ export function matchNode(
   query: NodeQuery,
   reverseIndex?: Map<string, string[]>,
 ): boolean {
-  if (query.category && !matchesStr(node.category, query.category)) return false;
-  if (query.type && !matchesStr(node.type, query.type)) return false;
-  if (query.path && !matchesPath(node.path, query.path)) return false;
-  if (query.isExternal !== undefined) {
-    const hasExternal = node.imports.some((imp) => imp.isExternal);
-    if (hasExternal !== query.isExternal) return false;
-  }
-
-  if (query.tags && query.tags.length > 0) {
-    const positive = query.tags.filter((tag) => !tag.startsWith("!"));
-    const negative = query.tags.filter((tag) => tag.startsWith("!")).map((tag) => tag.slice(1));
-    if (
-      positive.length > 0 &&
-      !positive.some((tag) => node.tags.some((structuredTag) => structuredTag.name === tag))
-    )
-      return false;
-    if (negative.some((tag) => node.tags.some((structuredTag) => structuredTag.name === tag)))
-      return false;
-  }
-
-  if (query.allTags?.length) {
-    if (
-      !query.allTags.every((tag) => node.tags.some((structuredTag) => structuredTag.name === tag))
-    )
-      return false;
-  }
-  if (query.importsFile) {
-    if (!node.imports.some((imp) => imp.toPath?.includes(query.importsFile as string)))
-      return false;
-  }
-  if (query.importedBy !== undefined) {
-    const importers = reverseIndex?.get(node.path) ?? [];
-    if (!importers.some((importerPath) => importerPath.includes(query.importedBy as string)))
-      return false;
-  }
-  if (query.minImports !== undefined && node.imports.length < query.minImports) return false;
-  if (query.maxImports !== undefined && node.imports.length > query.maxImports) return false;
-  if (query.minSize !== undefined && node.size < query.minSize) return false;
-  if (query.maxSize !== undefined && node.size > query.maxSize) return false;
-  if (query.hasDocstring !== undefined) {
-    if (!!node.description !== query.hasDocstring) return false;
-  }
-  // Nodes with no coverage data are excluded from minCoverage (treated as 101%) and
-  // included in maxCoverage (treated as 0%) — matching the "uncovered by default" convention.
-  if (query.minCoverage !== undefined && (node.coveragePct ?? 101) < query.minCoverage)
-    return false;
-  if (query.maxCoverage !== undefined && (node.coveragePct ?? 0) > query.maxCoverage) return false;
-  // Nodes with no coupling data are excluded from minExportUsage and included in maxExportUsage.
-  if (query.minExportUsage !== undefined && (node.avgExportUsage ?? -1) < query.minExportUsage)
-    return false;
-  if (query.maxExportUsage !== undefined && (node.avgExportUsage ?? 0) > query.maxExportUsage)
-    return false;
-
-  return true;
+  return NODE_MATCHERS.every((matcher) => matcher(node, query, reverseIndex));
 }
 
 /**

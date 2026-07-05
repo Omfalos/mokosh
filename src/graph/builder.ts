@@ -17,6 +17,36 @@ import {
 import { Graph } from "./model.js";
 import { DefaultResolver, type PathResolver } from "./resolver.js";
 
+/** Conventional top-level test-directory names probed as siblings between the entry-derived scan root and `rootDir`. */
+const CONVENTIONAL_TEST_DIR_NAMES = ["tests", "test", "__tests__", "specs", "spec"];
+
+/**
+ * @description Finds the deepest directory that contains every path in `absPaths`, clamped
+ *   so the result is never outside `rootDir`. Used to scope the test-file discovery walk to
+ *   the subtree actually reachable from the given entry points, instead of always walking the
+ *   full project root (which, for a nested sub-project under a much larger `rootDir`, would
+ *   sweep in unrelated files).
+ * @param absPaths - Absolute file paths (typically resolved entry points).
+ * @param rootDir - Absolute project root; acts as an upper bound for the result.
+ * @returns The common ancestor directory, or `rootDir` if `absPaths` is empty or resolves outside it.
+ */
+function commonAncestorDir(absPaths: string[], rootDir: string): string {
+  if (absPaths.length === 0) return rootDir;
+
+  const segmentLists = absPaths.map((p) => path.dirname(p).split(path.sep));
+  let common = segmentLists[0]!;
+  for (const segments of segmentLists.slice(1)) {
+    let i = 0;
+    while (i < common.length && i < segments.length && common[i] === segments[i]) i++;
+    common = common.slice(0, i);
+  }
+  const candidate = common.join(path.sep) || path.sep;
+
+  const rel = path.relative(rootDir, candidate);
+  if (rel.startsWith("..") || path.isAbsolute(rel)) return rootDir;
+  return candidate;
+}
+
 /**
  * @description Builds a dependency graph by recursively walking the file system from a set of entry points.
  *
@@ -80,14 +110,19 @@ export class GraphBuilder {
    * @returns The completed, enriched dependency graph.
    */
   public async build(entryPoints: string[]): Promise<Graph> {
-    for (const entry of entryPoints) {
-      const entryPath = path.isAbsolute(entry) ? entry : path.resolve(this.rootDir, entry);
+    const entryPaths = entryPoints.map((entry) =>
+      path.isAbsolute(entry) ? entry : path.resolve(this.rootDir, entry),
+    );
+    for (const entryPath of entryPaths) {
       await this.processFile(entryPath);
     }
 
     // Test files are never reachable from library entry points (imports flow source→test,
     // not the other way around). Scan for them explicitly so enrichTestedBy has data.
-    await this.processTestFiles();
+    // Scoped to the entry points' common ancestor (plus conventional sibling test dirs) rather
+    // than the full rootDir, so a nested sub-project scanned from a much larger rootDir doesn't
+    // pull in unrelated files elsewhere in the tree.
+    await this.processTestFiles(commonAncestorDir(entryPaths, this.rootDir));
 
     if (this.progressCallback && this.visited.size >= 100) {
       process.stderr.write(`\nDone. Total processed: ${this.visited.size} nodes.\n`);
@@ -104,8 +139,12 @@ export class GraphBuilder {
    * @description Scans the file system for test files and processes them into the graph.
    *   Test files are never reachable from library entry points, so they must be discovered
    *   separately; without this pass `enrichTestedBy` would have no data to work with.
+   * @param scanRoot - Directory to walk for test files; the entry points' common ancestor,
+   *   clamped to `rootDir`. Conventional sibling test directories (`tests/`, `__tests__/`, …)
+   *   found between `scanRoot` and `rootDir` are also walked, so a top-level test directory
+   *   alongside a `src/` entry point is still discovered even though it falls outside `scanRoot`.
    */
-  private async processTestFiles(): Promise<void> {
+  private async processTestFiles(scanRoot: string): Promise<void> {
     const patterns = getTestPatterns();
     const ignoreDirs = new Set([
       "node_modules",
@@ -133,7 +172,22 @@ export class GraphBuilder {
         }
       }
     };
-    await walk(this.rootDir);
+    await walk(scanRoot);
+
+    let dir = scanRoot;
+    while (dir !== this.rootDir) {
+      const parent = path.dirname(dir);
+      if (parent === dir) break;
+      for (const name of CONVENTIONAL_TEST_DIR_NAMES) {
+        const candidate = path.join(parent, name);
+        try {
+          if (fs.statSync(candidate).isDirectory()) await walk(candidate);
+        } catch {
+          // not present
+        }
+      }
+      dir = parent;
+    }
   }
 
   /**

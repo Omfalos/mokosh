@@ -278,84 +278,167 @@ export function detectAllEntryPoints(graph: Graph, root: string): string[] {
  * @returns {ApiSurface} The API surface report.
  * @throws {Error} If any entry point is not present in the graph.
  */
-export function buildApiSurface(graph: Graph, entryPoints: string[]): ApiSurface {
-  if (entryPoints.length === 0)
-    throw new Error("buildApiSurface requires at least one entry point");
-
-  for (const ep of entryPoints) {
-    if (!graph.nodes.has(ep)) throw new Error(`Entry point not found in graph: ${ep}`);
-  }
-
-  // --- 1. Collect all files reachable from any entry point ---
-  const reachable = new Set<string>(entryPoints);
-  for (const ep of entryPoints) {
+/**
+ * @description Walks outgoing imports from every entry point and returns the set of all
+ *   files reachable from them, including the entry points themselves.
+ * @param {Graph} graph - The dependency graph.
+ * @param {string[]} entryPoints - Project-relative paths of all public entry points.
+ * @returns {Set<string>} Every file path reachable from any entry point.
+ */
+function collectReachableFiles(graph: Graph, entryPoints: string[]): Set<string> {
+  const reachableFiles = new Set<string>(entryPoints);
+  for (const entryPoint of entryPoints) {
     graph.traverse(
-      ep,
+      entryPoint,
       (node) => {
-        reachable.add(node.path);
+        reachableFiles.add(node.path);
         return true;
       },
       { direction: "outgoing" },
     );
   }
+  return reachableFiles;
+}
 
-  // --- 2. Build definitions map: symbol name → best concrete definition ---
-  // "Best" = has signature/doc on a non-barrel file. Built from all reachable
-  // non-entry files so that `definedIn` points to the actual implementation.
-  const definitions = new Map<string, { file: string; sym: ExportedSymbol }>();
-  for (const filePath of reachable) {
+/** The best concrete definition found for an exported symbol name. */
+interface SymbolDefinition {
+  file: string;
+  symbol: ExportedSymbol;
+}
+
+/**
+ * @description Builds a map of symbol name → best concrete definition among all reachable,
+ *   non-entry files. "Best" means having a signature/doc on a non-barrel file, so `definedIn`
+ *   points at the actual implementation rather than a re-exporting barrel.
+ * @param {Graph} graph - The dependency graph.
+ * @param {Set<string>} reachableFiles - Files reachable from any entry point.
+ * @param {string[]} entryPoints - Project-relative paths of all public entry points, excluded from consideration.
+ * @returns {Map<string, SymbolDefinition>} Symbol name → its best concrete definition.
+ */
+function buildDefinitionsMap(
+  graph: Graph,
+  reachableFiles: Set<string>,
+  entryPoints: string[],
+): Map<string, SymbolDefinition> {
+  const definitions = new Map<string, SymbolDefinition>();
+  for (const filePath of reachableFiles) {
     if (entryPoints.includes(filePath)) continue;
     const node = graph.nodes.get(filePath);
     if (!node) continue;
     const isBarrel = node.category === "barrel";
-    for (const sym of node.exports) {
-      const existing = definitions.get(sym.name);
-      const hasConcrete = !!(sym.signature || sym.doc);
-      if (!existing || (hasConcrete && !isBarrel)) {
-        definitions.set(sym.name, { file: filePath, sym });
+    for (const exportedSymbol of node.exports) {
+      const existingDefinition = definitions.get(exportedSymbol.name);
+      const hasConcreteSignature = !!(exportedSymbol.signature || exportedSymbol.doc);
+      if (!existingDefinition || (hasConcreteSignature && !isBarrel)) {
+        definitions.set(exportedSymbol.name, { file: filePath, symbol: exportedSymbol });
       }
     }
   }
+  return definitions;
+}
 
-  // --- 3. Collect all accessible symbol names via re-export chain traversal ---
-  // This handles `export * from` wildcards that the parser doesn't expand into
-  // the entry node's `exports` array.
-  const accessibleNames = collectAccessibleSymbolNames(graph, entryPoints);
-
-  // --- 4. Build publicExports ---
+/**
+ * @description Builds the sorted `publicExports` list for every accessible symbol name,
+ *   preferring the best concrete definition found by `buildDefinitionsMap` and falling back
+ *   to the entry node's own `ExportedSymbol` when no better definition exists.
+ * @param {Set<string>} accessibleNames - All symbol names accessible from the entry points.
+ * @param {Map<string, SymbolDefinition>} definitions - Symbol name → best concrete definition.
+ * @param {Graph} graph - The dependency graph.
+ * @param {string[]} entryPoints - Project-relative paths of all public entry points.
+ * @returns {PublicExport[]} Public exports sorted alphabetically by name.
+ */
+function buildPublicExports(
+  accessibleNames: Set<string>,
+  definitions: Map<string, SymbolDefinition>,
+  graph: Graph,
+  entryPoints: string[],
+): PublicExport[] {
   const publicExports: PublicExport[] = [];
   for (const name of accessibleNames) {
-    const def = definitions.get(name);
-    // Fall back to the entry node's own ExportedSymbol for signature/doc when no better def found
+    const definition = definitions.get(name);
     const entrySymbol = entryPoints
-      .flatMap((ep) => graph.nodes.get(ep)?.exports ?? [])
-      .find((exportedSym) => exportedSym.name === name);
-    const sym = def?.sym ?? entrySymbol;
+      .flatMap((entryPoint) => graph.nodes.get(entryPoint)?.exports ?? [])
+      .find((exportedSymbol) => exportedSymbol.name === name);
+    const symbol = definition?.symbol ?? entrySymbol;
 
     const definedIn =
-      def?.file ??
-      entryPoints.find((ep) =>
-        graph.nodes.get(ep)?.exports.some((exportedSym) => exportedSym.name === name),
+      definition?.file ??
+      entryPoints.find((entryPoint) =>
+        graph.nodes.get(entryPoint)?.exports.some((exportedSymbol) => exportedSymbol.name === name),
       ) ??
       (entryPoints[0] as string);
 
-    const entry: PublicExport = { name, definedIn, kind: inferExportKind(sym?.signature) };
-    if (sym?.doc) entry.doc = sym.doc;
-    if (sym?.signature) entry.signature = sym.signature;
-    publicExports.push(entry);
+    const publicExport: PublicExport = {
+      name,
+      definedIn,
+      kind: inferExportKind(symbol?.signature),
+    };
+    if (symbol?.doc) publicExport.doc = symbol.doc;
+    if (symbol?.signature) publicExport.signature = symbol.signature;
+    publicExports.push(publicExport);
   }
   publicExports.sort((exportA, exportB) => exportA.name.localeCompare(exportB.name));
+  return publicExports;
+}
 
-  // --- 5. Partition all graph nodes ---
+/** File-path partitions of the whole graph relative to reachability and test status. */
+interface NodePartitions {
+  internalFiles: string[];
+  unreachableFromEntry: string[];
+  testFiles: string[];
+}
+
+/**
+ * @description Partitions every file in the graph into implementation files backing the
+ *   public API (`internalFiles`), non-test files unreachable from any entry point
+ *   (`unreachableFromEntry`), and unreachable test files (`testFiles`).
+ * @param {Graph} graph - The dependency graph.
+ * @param {Set<string>} reachableFiles - Files reachable from any entry point.
+ * @param {string[]} entryPoints - Project-relative paths of all public entry points.
+ * @returns {NodePartitions} The three file-path partitions.
+ */
+function partitionNodes(
+  graph: Graph,
+  reachableFiles: Set<string>,
+  entryPoints: string[],
+): NodePartitions {
   const isTestNode = (filePath: string) => graph.nodes.get(filePath)?.category === "test";
 
-  const internalFiles = [...reachable].filter(
+  const internalFiles = [...reachableFiles].filter(
     (filePath) => !entryPoints.includes(filePath) && !isTestNode(filePath),
   );
 
-  const notReachable = [...graph.nodes.keys()].filter((filePath) => !reachable.has(filePath));
-  const unreachableFromEntry = notReachable.filter((filePath) => !isTestNode(filePath));
-  const testFiles = notReachable.filter((filePath) => isTestNode(filePath));
+  const unreachableFiles = [...graph.nodes.keys()].filter(
+    (filePath) => !reachableFiles.has(filePath),
+  );
+  const unreachableFromEntry = unreachableFiles.filter((filePath) => !isTestNode(filePath));
+  const testFiles = unreachableFiles.filter((filePath) => isTestNode(filePath));
+
+  return { internalFiles, unreachableFromEntry, testFiles };
+}
+
+export function buildApiSurface(graph: Graph, entryPoints: string[]): ApiSurface {
+  if (entryPoints.length === 0)
+    throw new Error("buildApiSurface requires at least one entry point");
+
+  for (const entryPoint of entryPoints) {
+    if (!graph.nodes.has(entryPoint))
+      throw new Error(`Entry point not found in graph: ${entryPoint}`);
+  }
+
+  const reachableFiles = collectReachableFiles(graph, entryPoints);
+  const definitions = buildDefinitionsMap(graph, reachableFiles, entryPoints);
+
+  // Handles `export * from` wildcards that the parser doesn't expand into the entry node's
+  // own `exports` array.
+  const accessibleNames = collectAccessibleSymbolNames(graph, entryPoints);
+
+  const publicExports = buildPublicExports(accessibleNames, definitions, graph, entryPoints);
+  const { internalFiles, unreachableFromEntry, testFiles } = partitionNodes(
+    graph,
+    reachableFiles,
+    entryPoints,
+  );
 
   return { entryPoints, publicExports, internalFiles, unreachableFromEntry, testFiles };
 }

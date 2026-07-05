@@ -101,6 +101,67 @@ export function enrichExportUsage(nodes: Map<string, FileNode>): void {
 }
 
 /**
+ * @description Appends `{ name, kind }` to `tags` unless an entry with the same `name` and
+ *   `kind` already exists. Centralises the dedup check shared by every tag-adding step in
+ *   `enrichTestNodeTags`.
+ * @param {StructuredTag[]} tags - The tag array to append to; mutated in place.
+ * @param {string} name - The tag name to add.
+ * @param {StructuredTag["kind"]} kind - The tag kind to add.
+ */
+function addUniqueTag(tags: StructuredTag[], name: string, kind: StructuredTag["kind"]): void {
+  if (!name) return;
+  if (tags.some((existingTag) => existingTag.name === name && existingTag.kind === kind)) return;
+  tags.push({ name, kind });
+}
+
+/**
+ * @description Adds a filename-derived `import` tag to `testNode` for the file it imports
+ *   (e.g. a test importing `graph/builder.ts` receives the tag `builder`). Test-suffix
+ *   extensions (`.test`/`.spec`) are stripped from the derived name.
+ * @param {FileNode} testNode - The test node receiving the tag; mutated in place.
+ * @param {ImportEdge} importEdge - The resolved import edge to derive the tag from.
+ */
+function addFilenameTag(testNode: FileNode, importEdge: ImportEdge): void {
+  const toPath = importEdge.toPath as string;
+  const filenameTag = path.basename(toPath, path.extname(toPath)).replace(/\.(test|spec)$/, "");
+  addUniqueTag(testNode.tags, filenameTag, "import");
+}
+
+/**
+ * @description Adds an `import` tag for each named symbol imported by `importEdge`.
+ *   Namespace imports (`["*"]`) are skipped since there is no single symbol name to tag.
+ * @param {FileNode} testNode - The test node receiving the tags; mutated in place.
+ * @param {ImportEdge} importEdge - The resolved import edge whose `symbols` are tagged.
+ */
+function addSymbolTags(testNode: FileNode, importEdge: ImportEdge): void {
+  if (!importEdge.symbols || importEdge.symbols.includes("*")) return;
+  for (const symbolName of importEdge.symbols) {
+    addUniqueTag(testNode.tags, symbolName, "import");
+  }
+}
+
+/**
+ * @description Propagates `comment-marker` tags (e.g. `@tag auth` in the source file) from
+ *   the imported node to `testNode`, so tests inherit the semantic markers of what they test.
+ *   Skips imports that resolve to another test node.
+ * @param {FileNode} testNode - The test node receiving the tags; mutated in place.
+ * @param {ImportEdge} importEdge - The resolved import edge whose target is inspected.
+ * @param {Map<string, FileNode>} nodes - The full node map, used to look up the import target.
+ */
+function propagateCommentMarkers(
+  testNode: FileNode,
+  importEdge: ImportEdge,
+  nodes: Map<string, FileNode>,
+): void {
+  const sourceNode = nodes.get(importEdge.toPath as string);
+  if (!sourceNode || sourceNode.category === "test") return;
+  for (const sourceTag of sourceNode.tags) {
+    if (sourceTag.kind !== "comment-marker") continue;
+    addUniqueTag(testNode.tags, sourceTag.name, "comment-marker");
+  }
+}
+
+/**
  * @description Adds tags derived from each local import to the importing test node.
  *   Two tag kinds are applied: a filename-derived `import` tag (e.g. a test importing
  *   `graph/builder.ts` receives the tag `builder`), and any `comment-marker` tags
@@ -112,43 +173,12 @@ export function enrichExportUsage(nodes: Map<string, FileNode>): void {
 export function enrichTestNodeTags(nodes: Map<string, FileNode>): void {
   for (const node of nodes.values()) {
     if (node.category !== "test") continue;
-    for (const imp of node.imports) {
-      if (!imp.toPath || imp.isExternal) continue;
+    for (const importEdge of node.imports) {
+      if (!importEdge.toPath || importEdge.isExternal) continue;
 
-      const tag = path.basename(imp.toPath, path.extname(imp.toPath)).replace(/\.(test|spec)$/, "");
-      if (
-        tag &&
-        !node.tags.some((existingTag) => existingTag.name === tag && existingTag.kind === "import")
-      ) {
-        node.tags.push({ name: tag, kind: "import" });
-      }
-
-      if (imp.symbols && !imp.symbols.includes("*")) {
-        for (const sym of imp.symbols) {
-          if (
-            sym &&
-            !node.tags.some(
-              (existingTag) => existingTag.name === sym && existingTag.kind === "import",
-            )
-          ) {
-            node.tags.push({ name: sym, kind: "import" });
-          }
-        }
-      }
-
-      const sourceNode = nodes.get(imp.toPath);
-      if (!sourceNode || sourceNode.category === "test") continue;
-      for (const sourceTag of sourceNode.tags) {
-        if (sourceTag.kind !== "comment-marker") continue;
-        if (
-          !node.tags.some(
-            (existingTag) =>
-              existingTag.name === sourceTag.name && existingTag.kind === "comment-marker",
-          )
-        ) {
-          node.tags.push({ name: sourceTag.name, kind: "comment-marker" });
-        }
-      }
+      addFilenameTag(node, importEdge);
+      addSymbolTags(node, importEdge);
+      propagateCommentMarkers(node, importEdge, nodes);
     }
   }
 }

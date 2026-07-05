@@ -2,29 +2,16 @@
 import ts from "typescript";
 
 /**
- * @description Computes McCabe cyclomatic complexity and a simplified SonarSource-style cognitive
- *   complexity for a TypeScript/JavaScript source file.
- *
- *   **Cyclomatic** counts every independent decision point (base 1): `if`, ternary, `for`,
- *   `while`, `do`, `switch case`, `catch`, and each `&&` / `||` / `??` operator.
- *
- *   **Cognitive** tracks how hard the code is to read by adding a nesting penalty.
- *   Structural nodes (`if`, loops, `switch`, `catch`) increment by `1 + current nesting depth`
- *   and increase the depth for their children. Chained `else if` gets +1 (no nesting bonus).
- *   A bare `else` gets +1. Logical operators and ternaries each add +1 without nesting.
- *   Nested functions (lambdas, inner functions) add `1 + depth` and increase nesting.
- * @param node - The AST root node to analyse — a whole `ts.SourceFile` for file-level totals, or
- *   any function-like node to score it in isolation (nesting depth resets to 0 at `node`).
- * @returns `{ complexity, cognitiveComplexity }` — both integers, minimum 1 / 0 respectively.
+ * @description Computes McCabe cyclomatic complexity for an AST node: every independent
+ *   decision point counts (base 1) — `if`, ternary, `for`, `while`, `do`, `switch case`,
+ *   `catch`, and each `&&` / `||` / `??` operator.
+ * @param {ts.Node} rootNode - The AST root node to analyse — a whole `ts.SourceFile` for
+ *   file-level totals, or any function-like node to score it in isolation.
+ * @returns {number} The cyclomatic complexity score, minimum 1.
  */
-export function computeComplexity(node: ts.Node): {
-  complexity: number;
-  cognitiveComplexity: number;
-} {
+export function computeCyclomaticComplexity(rootNode: ts.Node): number {
   let complexity = 1;
-  let cognitiveComplexity = 0;
 
-  // --- Cyclomatic ---
   function walkCyclomatic(node: ts.Node): void {
     switch (node.kind) {
       case ts.SyntaxKind.IfStatement:
@@ -39,11 +26,11 @@ export function computeComplexity(node: ts.Node): {
         complexity++;
         break;
       case ts.SyntaxKind.BinaryExpression: {
-        const op = (node as ts.BinaryExpression).operatorToken.kind;
+        const operatorKind = (node as ts.BinaryExpression).operatorToken.kind;
         if (
-          op === ts.SyntaxKind.AmpersandAmpersandToken ||
-          op === ts.SyntaxKind.BarBarToken ||
-          op === ts.SyntaxKind.QuestionQuestionToken
+          operatorKind === ts.SyntaxKind.AmpersandAmpersandToken ||
+          operatorKind === ts.SyntaxKind.BarBarToken ||
+          operatorKind === ts.SyntaxKind.QuestionQuestionToken
         ) {
           complexity++;
         }
@@ -53,7 +40,25 @@ export function computeComplexity(node: ts.Node): {
     ts.forEachChild(node, walkCyclomatic);
   }
 
-  // --- Cognitive ---
+  walkCyclomatic(rootNode);
+  return complexity;
+}
+
+/**
+ * @description Computes a simplified SonarSource-style cognitive complexity score for an AST
+ *   node, tracking how hard the code is to read by adding a nesting penalty. Structural nodes
+ *   (`if`, loops, `switch`, `catch`) increment by `1 + current nesting depth` and increase the
+ *   depth for their children. Chained `else if` gets +1 (no nesting bonus). A bare `else` gets
+ *   +1. Logical operators and ternaries each add +1 without nesting. Nested functions (lambdas,
+ *   inner functions) add `1 + depth` and increase nesting.
+ * @param {ts.Node} rootNode - The AST root node to analyse — a whole `ts.SourceFile` for
+ *   file-level totals, or any function-like node to score it in isolation (nesting depth
+ *   resets to 0 at `rootNode`).
+ * @returns {number} The cognitive complexity score, minimum 0.
+ */
+export function computeCognitiveComplexity(rootNode: ts.Node): number {
+  let cognitiveComplexity = 0;
+
   function walkCognitive(node: ts.Node, depth: number, isElseIf: boolean): void {
     if (ts.isIfStatement(node)) {
       // else-if chains: flat +1; fresh if: +1 + nesting
@@ -96,21 +101,21 @@ export function computeComplexity(node: ts.Node): {
     }
 
     if (ts.isBinaryExpression(node)) {
-      const op = node.operatorToken.kind;
+      const operatorKind = node.operatorToken.kind;
       if (
-        op === ts.SyntaxKind.AmpersandAmpersandToken ||
-        op === ts.SyntaxKind.BarBarToken ||
-        op === ts.SyntaxKind.QuestionQuestionToken
+        operatorKind === ts.SyntaxKind.AmpersandAmpersandToken ||
+        operatorKind === ts.SyntaxKind.BarBarToken ||
+        operatorKind === ts.SyntaxKind.QuestionQuestionToken
       ) {
         cognitiveComplexity += 1;
       }
     }
 
     // Nested functions and lambdas increase nesting for their body
-    const isNestedFn =
+    const isNestedFunction =
       depth > 0 &&
       (ts.isFunctionDeclaration(node) || ts.isFunctionExpression(node) || ts.isArrowFunction(node));
-    if (isNestedFn) {
+    if (isNestedFunction) {
       cognitiveComplexity += 1 + depth;
       ts.forEachChild(node, (child) => walkCognitive(child, depth + 1, false));
       return;
@@ -119,8 +124,24 @@ export function computeComplexity(node: ts.Node): {
     ts.forEachChild(node, (child) => walkCognitive(child, depth, false));
   }
 
-  walkCyclomatic(node);
-  walkCognitive(node, 0, false);
+  walkCognitive(rootNode, 0, false);
+  return cognitiveComplexity;
+}
 
-  return { complexity, cognitiveComplexity };
+/**
+ * @description Computes both McCabe cyclomatic complexity and a simplified SonarSource-style
+ *   cognitive complexity for a TypeScript/JavaScript AST node, by composing
+ *   `computeCyclomaticComplexity` and `computeCognitiveComplexity`.
+ * @param {ts.Node} node - The AST root node to analyse — a whole `ts.SourceFile` for file-level
+ *   totals, or any function-like node to score it in isolation.
+ * @returns {{ complexity: number; cognitiveComplexity: number }} Both scores, minimum 1 / 0 respectively.
+ */
+export function computeComplexity(node: ts.Node): {
+  complexity: number;
+  cognitiveComplexity: number;
+} {
+  return {
+    complexity: computeCyclomaticComplexity(node),
+    cognitiveComplexity: computeCognitiveComplexity(node),
+  };
 }
