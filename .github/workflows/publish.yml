@@ -1,0 +1,53 @@
+name: Publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to publish to npm (e.g. v0.1.2)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+
+      - name: Verify tag matches package.json version
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          if [ "v$PKG_VERSION" != "$TAG" ]; then
+            echo "Tag $TAG does not match package.json version $PKG_VERSION"
+            exit 1
+          fi
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - run: npm ci
+
+      - name: Build
+        run: npm run build:prod
+
+      - name: Run Tests
+        run: npm test
+
+      # Trusted publishing (OIDC) needs npm >= 11.5.1; Node 22 bundles npm 10.x
+      - name: Update npm for trusted publishing
+        run: npm install -g npm@latest
+
+      - name: Publish to npm
+        run: npm publish --access public
