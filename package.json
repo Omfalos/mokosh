@@ -1,6 +1,6 @@
 {
   "name": "@omfalos/mokosh",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "A high-performance, AST-powered dependency graph generator for frontend projects, optimized for AI context and smart test selection.",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",

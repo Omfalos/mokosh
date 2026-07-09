@@ -1,3 +1,9 @@
+## [0.1.2](https://github.com/Omfalos/mokosh/compare/v0.1.1...v0.1.2) (2026-07-09)
+
+### Bug Fixes
+
+* move runtime parser deps out of devDependencies ([e725bfd](https://github.com/Omfalos/mokosh/commit/e725bfdbef7e08940abc0a97e340bdfaf9b6dfd8))
+
 ## [0.1.1](https://github.com/Omfalos/mokosh/compare/v0.1.0...v0.1.1) (2026-07-09)
 
 ### Bug Fixes
