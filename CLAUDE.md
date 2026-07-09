@@ -219,6 +219,10 @@ npm test           # vitest
 npm run typecheck  # tsc --noEmit
 ```
 
+## Release
+
+Releases are cut from `main` via the **Release** GitHub Actions workflow (workflow_dispatch): you pick `patch`/`minor`/`major` or an exact version; CI regenerates `CHANGELOG.md` from conventional commits, tags `vX.Y.Z`, creates the GitHub Release, and publishes to npm. Commit messages must be conventional — enforced by commitlint (husky `commit-msg` hook). See `docs/releasing.md`.
+
 ## Before changing files
 
 Run `/pre-update` — it calls `get_affected` to show blast radius before any edits.
@@ -238,4 +242,5 @@ Run `/pre-update` — it calls `get_affected` to show blast radius before any ed
 - `query.md` — query DSL in depth
 - `traversal.md` — graph traversal semantics
 - `lock-files.md` — lock file parsing
+- `releasing.md` — release process and commit conventions
 - `adr-001-styles-parsing.md`, `adr-002-python-parsing.md` — ADRs for key parser decisions

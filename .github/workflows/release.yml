@@ -1,0 +1,87 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version bump: patch, minor, major, or an exact version like 0.2.0"
+        required: true
+        default: patch
+        type: string
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Fail if not on main
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "Releases must be dispatched from main (got ${{ github.ref }})"
+          exit 1
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+          registry-url: 'https://registry.npmjs.org'
+
+      - run: npm ci
+
+      - name: Lint and Format Check
+        run: npm run check
+
+      - name: TypeScript Check
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build:prod
+
+      - name: Run Tests
+        run: npm test
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Bump version
+        id: bump
+        env:
+          VERSION_INPUT: ${{ inputs.version }}
+        run: |
+          npm version "$VERSION_INPUT" --no-git-tag-version
+          echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Generate changelog
+        run: npm run changelog
+
+      - name: Commit, tag, push
+        run: |
+          git add package.json package-lock.json CHANGELOG.md
+          git commit -m "chore(release): v${{ steps.bump.outputs.version }}"
+          git tag "v${{ steps.bump.outputs.version }}"
+          git push --follow-tags
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          npx --no -- conventional-changelog -p conventionalcommits -r 1 --stdout > release-notes.md
+          gh release create "v${{ steps.bump.outputs.version }}" \
+            --title "v${{ steps.bump.outputs.version }}" \
+            --notes-file release-notes.md
+
+      - name: Publish to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --provenance --access public
