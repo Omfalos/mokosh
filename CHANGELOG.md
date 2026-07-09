@@ -1,3 +1,9 @@
+## [0.1.1](https://github.com/Omfalos/mokosh/compare/v0.1.0...v0.1.1) (2026-07-09)
+
+### Bug Fixes
+
+* **ci:** push annotated release tag so gh release create succeeds ([92c6228](https://github.com/Omfalos/mokosh/commit/92c622895c01f6745ae0ffec74a6cd3780d26014))
+
 ## 0.1.0 (2026-07-09)
 
 ### Features
