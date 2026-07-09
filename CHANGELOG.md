@@ -1,3 +1,10 @@
+## [0.1.3](https://github.com/Omfalos/mokosh/compare/v0.1.2...v0.1.3) (2026-07-09)
+
+### Bug Fixes
+
+* **ci:** trying to resolve issue with release and publish scripts ([e123e62](https://github.com/Omfalos/mokosh/commit/e123e62615f94baee1b1b09abf9e5899db8c1a55))
+* **ci:** trying to resolve issue with release and publish scripts - missing file ([2eb626a](https://github.com/Omfalos/mokosh/commit/2eb626a8670d2fd2ff6190288519eed6e1d6b0ee))
+
 ## [0.1.2](https://github.com/Omfalos/mokosh/compare/v0.1.1...v0.1.2) (2026-07-09)
 
 ### Bug Fixes
