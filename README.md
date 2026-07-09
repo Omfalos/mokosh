@@ -1,6 +1,6 @@
 # Mokosh 🌊
 
-> **Not yet published to npm.** This package is under active development. Install directly from the repository for now.
+> Available on npm as [`@omfalos/mokosh`](https://www.npmjs.com/package/@omfalos/mokosh).
 
 Mokosh is a lightweight, AST-powered dependency graph generator for modern web and script projects. It extracts import maps from JavaScript, TypeScript, Python, Go, CSS, SCSS, Less, Stylus, CoffeeScript, LiveScript, Lua, and Gherkin files to help AI models and developers understand code relationships efficiently.
 
@@ -49,7 +49,7 @@ When working with large codebases, providing the entire dependency graph to an A
 
 Example of a focused query:
 ```bash
-npx mokosh --query "type:typescript,category:logic" src/index.ts
+npx @omfalos/mokosh --query "type:typescript,category:logic" src/index.ts
 ```
 
 ## Supported Languages & Tags
@@ -71,19 +71,26 @@ Mokosh automatically detects file types and uses the appropriate parser. You can
 
 ## Installation
 
-> **This package is not yet published to npm.** To use it, clone the repository and build locally:
->
-> ```bash
-> git clone https://github.com/Omfalos/mokosh.git
-> cd mokosh
-> npm install
-> npm run build
-> ```
->
-> Once published, installation will be:
-> ```bash
-> npm install mokosh
-> ```
+Install from npm:
+
+```bash
+npm install @omfalos/mokosh
+```
+
+Or run it without installing via `npx`:
+
+```bash
+npx @omfalos/mokosh src/index.ts
+```
+
+To work on Mokosh itself, clone and build locally:
+
+```bash
+git clone https://github.com/Omfalos/mokosh.git
+cd mokosh
+npm install
+npm run build
+```
 
 ## Quick Start
 
@@ -91,39 +98,39 @@ Mokosh automatically detects file types and uses the appropriate parser. You can
 
 Generate a dependency graph as JSON:
 ```bash
-npx mokosh src/index.ts
+npx @omfalos/mokosh src/index.ts
 ```
 
 Generate a Mermaid diagram:
 ```bash
-npx mokosh --mermaid src/index.ts > graph.mmd
+npx @omfalos/mokosh --mermaid src/index.ts > graph.mmd
 ```
 
 Propose test tags for changed files:
 ```bash
-npx mokosh --propose-tags src/index.ts
+npx @omfalos/mokosh --propose-tags src/index.ts
 ```
 
 Detect feature hub files (high out-degree orchestrators):
 ```bash
-npx mokosh --detect-features src/index.ts
+npx @omfalos/mokosh --detect-features src/index.ts
 ```
 
 Find unused files:
 ```bash
-npx mokosh --find-unused src/index.ts
+npx @omfalos/mokosh --find-unused src/index.ts
 ```
 
 Use caching to speed up subsequent runs:
 ```bash
-npx mokosh --cache mokosh-cache/graph.json src/index.ts
+npx @omfalos/mokosh --cache mokosh-cache/graph.json src/index.ts
 ```
 
 > **Note:** Add `mokosh-cache/` to your `.gitignore` to avoid committing the cache directory.
 
 Filter graph by category and tag:
 ```bash
-npx mokosh --query "category:logic,tag:auth" src/index.ts
+npx @omfalos/mokosh --query "category:logic,tag:auth" src/index.ts
 ```
 
 ### Options

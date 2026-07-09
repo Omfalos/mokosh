@@ -4,7 +4,7 @@
 
 A dependency-graph analysis tool. Parses source files, builds a directed import graph, and exposes it via CLI and MCP server. Two published outputs: a CLI binary and an MCP server.
 
-> **Not yet published to npm.** Build locally with `npm install && npm run build`.
+> Published to npm as `@omfalos/mokosh`. For local development, build with `npm install && npm run build`.
 
 ## How it works (the pipeline)
 
