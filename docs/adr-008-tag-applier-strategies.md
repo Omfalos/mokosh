@@ -1,4 +1,4 @@
-# ADR-003: Tag Applier Strategy Architecture
+# ADR-008: Tag Applier Strategy Architecture
 
 **Date:** 2026-07-04
 **Status:** Accepted

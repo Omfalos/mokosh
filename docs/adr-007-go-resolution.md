@@ -71,7 +71,7 @@ Vendor directory and `go.work` workspace support can be added later as pure-FS e
 | Vendor directories | **Not fixed** | `vendor/` imports remain external; affects projects using `go mod vendor` |
 | `go.work` workspaces | **Not fixed** | Multi-module workspaces not supported |
 
-A warning is added to the `analyze` response whenever Go files are present, listing the remaining limitations.
+No runtime warning is emitted for these gaps — they're tracked here and in the resolver's source comments (`src/graph/lang-resolvers/go.ts`) only.
 
 ---
 

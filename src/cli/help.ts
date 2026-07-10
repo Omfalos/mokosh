@@ -15,6 +15,9 @@ Options:
   --feature-threshold <N>     Min internal imports to be a feature hub (default: 5)
   --find-unused               Find files that are not reachable from entry points
   --exclude-tests             Exclude test files from --find-unused output
+  --find-uncovered            List non-test files whose coverage is below the threshold (requires coverageReportPath in config)
+  --callers                   List files whose exported functions call into --file
+  --file <path>               Target file for --callers
   --check-cycles              Check for circular dependencies; exits non-zero if found (CI gate)
   --type-graph                Output type-level graph (interfaces, classes, enums, type aliases)
   --type <name>               Filter --type-graph to a single type name
@@ -46,8 +49,8 @@ FILTERING
                          Examples: category:logic   category:!test
 
   type:<value>           Exact match on language. Negate with !.
-                         Values: typescript | javascript | css | scss | less | stylus |
-                                 coffeescript | livescript | lua | gherkin
+                         Values: typescript | javascript | python | go | css | scss | less |
+                                 stylus | coffeescript | livescript | lua | gherkin
                          Example: type:typescript
 
   tag:<value>            File has this tag (OR across multiple tag: entries).

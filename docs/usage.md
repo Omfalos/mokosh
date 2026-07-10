@@ -28,7 +28,18 @@ npx mokosh [options] <entry-point1> <entry-point2> ...
 | `--find-uncovered` | List non-test files whose line coverage is below the threshold. Requires `coverageReportPath` in config. |
 | `--callers --file <path>` | Print files whose exported functions call into the given file (call-graph dependents). |
 | `--check-cycles` | Check for circular dependencies; exits non-zero if any are found (CI gate). |
+| `--type-graph` | Output type-level graph (interfaces, classes, enums, type aliases). |
+| `--type <name>` | Filter `--type-graph` to a single type name. |
+| `--module-responsibility` | Output each file's semantic role, description, and exports. |
+| `--paths <a,b,...>` | Comma-separated file paths to filter `--module-responsibility` output. |
+| `--min-out-degree <N>` | Min internal imports for hub detection (`--module-responsibility`, `--feature-graph`). |
+| `--feature-graph` | Group files into feature domains under their hub orchestrators. |
+| `--call-graph --function <name>` | Look up callers and callees for a named function. |
+| `--api-surface` | Output the public API surface (expands `export *` chains). |
+| `--apply-tags` | Write `@tag` annotations into test files from graph tags. |
+| `--dry-run` | Preview `--apply-tags` changes without writing to disk. |
 | `--query <query>` | Filter the output graph using a query string (e.g., `category:logic,tag:auth`). See the [Query Language Guide](./query.md). |
+| `--query-help` | Show all supported query filter keys and examples. |
 | `--silent` | Suppress progress output on stderr. |
 | `--help` | Show the help menu. |
 
@@ -36,10 +47,10 @@ npx mokosh [options] <entry-point1> <entry-point2> ...
 
 Mokosh supports a wide range of languages out of the box:
 
-- **Logic**: JavaScript (.js, .mjs, .cjs), TypeScript (.ts, .tsx), Python (.py), CoffeeScript (.coffee), LiveScript (.ls), Lua (.lua), Gherkin (.feature).
+- **Logic**: JavaScript (.js, .mjs, .cjs), TypeScript (.ts, .tsx), Python (.py), Go (.go), CoffeeScript (.coffee), LiveScript (.ls), Lua (.lua), Gherkin (.feature).
 - **Styles**: CSS (.css), SCSS (.scss), Less (.less), Stylus (.styl).
 
-Each language is parsed using its respective AST library to ensure accurate dependency extraction. Python uses [`@lezer/python`](../docs/adr-002-python-parsing.md) — a pure-JavaScript LR parser with no native compilation required.
+Each language is parsed using its respective AST library to ensure accurate dependency extraction. Python uses [`@lezer/python`](../docs/adr-002-python-parsing.md) — a pure-JavaScript LR parser with no native compilation required. Go uses [`@lezer/go`](../docs/adr-007-go-resolution.md), with module-local imports resolved via `go.mod`.
 
 **Python-specific notes:**
 - All import forms are supported: `import X`, `from X import Y`, relative imports (`from . import X`, `from ..utils import Y`), star imports, aliased imports, and parenthesised multi-line imports.
@@ -111,6 +122,7 @@ const graph = await createImportMap(process.cwd(), config.entryPoints ?? ['src/i
 | `gitStats` | `boolean` | When `true`, enriches each cache-missed node with `commitCount90d` and `lastAuthor` via `git log`. Off by default. |
 | `coverageReportPath` | `string` | Path (relative to project root) to an Istanbul `coverage-summary.json`. When set, each node gets a `coveragePct` field. |
 | `coverageThreshold` | `number` | Line-coverage % below which `--find-uncovered` / `find_uncovered` flags a file. Default: `80`. |
+| `tagApplier` | `{ framework?, frameworkOverrides? }` | Configures `--apply-tags` output format. `framework` is the fallback test framework (`vitest` \| `playwright` \| `cypress` \| `jest`) used when a file's own imports don't reveal one; `frameworkOverrides` maps path-glob patterns to a framework, checked before the top-level fallback. See [ADR-008](./adr-008-tag-applier-strategies.md). |
 
 ### Extensibility
 

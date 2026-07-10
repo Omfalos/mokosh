@@ -43,6 +43,7 @@ Responsibility: analyse a single file and return its imports, exports, tags, and
 
 - **TypeScript / JavaScript** (`src/parser/lang/typescript.ts`): Uses the TypeScript Compiler API to walk the AST. Recognises `import`, `export … from`, dynamic `import()`, `require()`, re-exports, and call expressions.
 - **Python** (`src/parser/lang/python.ts`): Uses `@lezer/python` — the CodeMirror 6 pure-JavaScript LR parser (no native binaries). Supports all import forms. See [ADR-002](adr-002-python-parsing.md).
+- **Go** (`src/parser/lang/go.ts`): Uses `@lezer/go` for top-level declarations and `// @tag` markers. Module-local imports are resolved to internal files via `go.mod` (including `replace` directives); the rest are external. See [ADR-007](adr-007-go-resolution.md).
 - **Style files** (`src/parser/style/`): Uses `postcss`, `sass`, and `stylus` ASTs rather than regex. See [ADR-001](adr-001-styles-parsing.md).
 - **CoffeeScript, LiveScript, Lua, Gherkin**: Purpose-built parsers in `src/parser/lang/`.
 

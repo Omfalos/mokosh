@@ -17,15 +17,6 @@ Releases are cut from `main` via the **Release** GitHub Actions workflow. You pi
 
 There is nothing to run locally. To preview the changelog section before releasing, run `npm run changelog` on a scratch branch and discard it.
 
-## One-time setup
-
-The workflow needs an npm token to publish:
-
-1. On npmjs.com, create a **granular access token** with read/write access to the `@omfalos/mokosh` package (or the `@omfalos` scope, for the first-ever publish before the package exists).
-2. In the GitHub repo: **Settings → Secrets and variables → Actions → New repository secret**, name it `NPM_TOKEN`.
-
-Once the package exists on npm, the token can optionally be replaced with [npm trusted publishing](https://docs.npmjs.com/trusted-publishers) (OIDC, no secret to rotate).
-
 ## Commit conventions
 
 Commit messages must follow [Conventional Commits](https://www.conventionalcommits.org/) — enforced locally by commitlint via the husky `commit-msg` hook. The changelog is generated from them:

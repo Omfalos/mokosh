@@ -20,7 +20,7 @@ Designed for performance and RAG (Retrieval-Augmented Generation) workflows, Mok
 - **Multi-Language Support**: Robust extraction from:
     - **JavaScript/TypeScript**: static `import`, dynamic `import()`, `require()`, and re-exports.
     - **Python**: all import forms (`import X`, `from X import Y`, relative `.`/`..` imports, star imports) via `@lezer/python` AST. Test files (`test_*.py`, `*_test.py`) and test frameworks (`pytest`, `unittest`) auto-detected.
-    - **Go**: top-level declarations and `// @tag` markers via `@lezer/go` AST. All imports are treated as external (local package resolution requires `go.mod` context).
+    - **Go**: top-level declarations and `// @tag` markers via `@lezer/go` AST. Module-local imports are resolved to internal files via `go.mod` (including `replace` directives); everything else is treated as external. See [ADR-007](./docs/adr-007-go-resolution.md).
     - **CSS/SCSS/Less/Stylus**: tracks `@import` relationships.
     - **CoffeeScript/LiveScript/Lua/Gherkin**: AST-based parsing for dependencies and tags.
 - **Graph Traversal**: Programmatically explore dependencies from any entry point with depth control.
@@ -180,7 +180,6 @@ For detailed information on each process, check the following guides:
 
 ### Guides
 - [Architecture Overview](./docs/architecture.md)
-- [Product Requirements Document (PRD)](./docs/prd.md)
 - [Usage Guide](./docs/usage.md)
 - [Query Language Guide](./docs/query.md)
 - [Graph Traversal](./docs/traversal.md)
@@ -188,7 +187,7 @@ For detailed information on each process, check the following guides:
 - [Lock File Analysis](./docs/lock-files.md)
 - [MCP Server](./docs/mcp.md)
 - [Monorepo Support](./docs/monorepo.md)
-- [Roadmap](./docs/roadmap.md)
+- [Releasing](./docs/releasing.md)
 
 ### Architecture Decision Records
 - [ADR-001: AST Libraries for Style Parsers](./docs/adr-001-styles-parsing.md)
@@ -197,3 +196,5 @@ For detailed information on each process, check the following guides:
 - [ADR-004: Type Graph — Type-Level Dependency Layer](./docs/adr-004-type-graph.md)
 - [ADR-005: Feature Graph — Domain Clustering by Hub Detection](./docs/adr-005-feature-graph.md)
 - [ADR-006: Responsibility Graph — Semantic Role Assignment](./docs/adr-006-responsibility-graph.md)
+- [ADR-007: Go Import Resolution](./docs/adr-007-go-resolution.md)
+- [ADR-008: Tag Applier Strategy Architecture](./docs/adr-008-tag-applier-strategies.md)

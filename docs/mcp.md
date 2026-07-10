@@ -99,6 +99,8 @@ Full incoming traversal — every file whose behaviour could change if `file` ch
 | `root` | `string` | yes | |
 | `file` | `string` | yes | File path relative to `root` |
 | `testsOnly` | `boolean` | no | Restrict results to test/spec files (default: `false`) |
+| `cached` | `boolean` | no | Use a pre-computed O(1) impact-cache lookup instead of graph traversal. Built lazily on first use and reused for the session (default: `false`) |
+| `changedSymbols` | `string[]` | no | Restrict blast-radius to files that import at least one of these symbols. Omit to treat the whole file as changed |
 
 **Returns:** `{ file, affected: string[], count: number }`
 
@@ -168,31 +170,16 @@ Scan every file's per-function complexity breakdown and return functions/methods
 
 ### `propose_tags`
 
-Backward-traverses from each changed file to find affected test files, then returns their tags. Feature hub files (high out-degree) short-circuit the traversal and emit a `feature:<name>` tag to prevent tag explosion.
+Backward-traverses from each changed file to find affected test files. Feature hub files (high out-degree) short-circuit the traversal and emit a `feature:<name>` tag to prevent tag explosion.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `root` | `string` | yes | |
 | `changedFiles` | `string[]` | no | Changed files relative to `root`. Omit to read from `git diff --name-only` |
 | `featureThreshold` | `number` | no | Min importers for a file to be treated as a hub (default: `5`) |
+| `format` | `"tags" \| "paths"` | no | `"tags"` (default) returns test tag names for CI filtering; `"paths"` returns test file paths, ready to pipe directly to a test runner (e.g. `vitest`) |
 
-**Returns:** `{ changedFiles: string[], proposedTags: string[] }`
-
-**Requires:** a prior `analyze` call for the same `root`.
-
----
-
-### `propose_affected_tests`
-
-Backward-traverses from each changed file and returns the **file paths** of affected test files, ready to pass directly to a test runner (e.g. `vitest`). Feature hubs act as traversal boundaries — tests reachable only through a hub are excluded.
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `root` | `string` | yes | |
-| `changedFiles` | `string[]` | no | Changed files relative to `root`. Omit to read from `git diff --name-only` |
-| `featureThreshold` | `number` | no | Min importers for a file to be treated as a hub (default: `5`) |
-
-**Returns:** `{ changedFiles: string[], affectedTests: string[], count: number }`
+**Returns:** `{ changedFiles: string[], proposedTags: string[] }` (format: `tags`) or `{ changedFiles: string[], affectedTests: string[], count: number }` (format: `paths`)
 
 **Requires:** a prior `analyze` call for the same `root`.
 
@@ -269,6 +256,72 @@ Cross-package blast-radius analysis. Returns every file that could be affected i
 
 ---
 
+### `get_type_graph`
+
+Type-level relationships for the project. Without a type name, returns an inventory of all interfaces, classes, enums, and type aliases with their file and kind. With a type name, returns which files import that type (`usedByFiles`) and which types the defining file imports (`uses`). TypeScript/JavaScript only.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `root` | `string` | yes | |
+| `type` | `string` | no | Exact exported name of the type to look up (e.g. `FileNode`). Omit for the full type inventory |
+
+**Requires:** a prior `analyze` call for the same `root`.
+
+---
+
+### `get_module_responsibility`
+
+What each file is responsible for: its semantic role, JSDoc description (when present), exported symbol names, and which feature hub it belongs to.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `root` | `string` | yes | |
+| `paths` | `string[]` | no | Project-relative file paths to include. Omit to return all files |
+| `minOutDegree` | `number` | no | Min imports for a file to qualify as a feature hub (default: `5`) |
+
+**Requires:** a prior `analyze` call for the same `root`.
+
+---
+
+### `get_feature_graph`
+
+Groups files by domain: returns which files each feature hub (high-import orchestrator) transitively owns. Each file is assigned to the most specific hub that can reach it (lowest out-degree wins). Use this instead of a full `query` when answering "what files are in the X feature/module?" — typically 85-95% fewer tokens than a full graph query.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `root` | `string` | yes | |
+| `minOutDegree` | `number` | no | Minimum internal imports a file must have to qualify as a feature hub (default: `5`) |
+
+**Requires:** a prior `analyze` call for the same `root`.
+
+---
+
+### `get_call_graph`
+
+Look up callers and callees for a named function. Returns the file that defines the function, all files/functions that call it, and all files/functions it calls. Always requires a function name — never returns the full call graph unfiltered. Call edges are only populated for TypeScript/JavaScript files.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `root` | `string` | yes | |
+| `function` | `string` | yes | Exact name of the function to look up (e.g. `parseFile`) |
+
+**Requires:** a prior `analyze` call for the same `root`.
+
+---
+
+### `get_api_surface`
+
+Builds the API surface report for a project. Expands `export *` chains so every symbol accessible to consumers is listed (not just those directly declared in the entry file). Each export is resolved to its defining file and tagged with a kind (`function`/`class`/`interface`/`type`/`enum`/`const`). The graph is partitioned into `internalFiles` (implementation reachable from entry points), `unreachableFromEntry` (non-test files not reachable from any entry point — may be separate consumers like CLI/MCP, config, or dead code), and `testFiles` (test suite). Supports multiple public entry points for libraries with sub-path exports.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `root` | `string` | yes | |
+| `entryPoints` | `string[]` | no | Project-relative paths of public entry points (e.g. `['src/index.ts', 'src/utils.ts']`). Omit to auto-detect from `package.json` `exports`/`main`/`module` fields |
+
+**Requires:** a prior `analyze` call for the same `root`.
+
+---
+
 ### `clear_cache`
 
 Drop the cached dependency graph for a project root, forcing the next `analyze` call to rebuild from disk. Call this after editing source files mid-session — otherwise query tools will reason from stale data.
@@ -278,6 +331,19 @@ Drop the cached dependency graph for a project root, forcing the next `analyze` 
 | `root` | `string` | yes | Absolute path to the project root to invalidate |
 
 **Returns:** `{ cleared: true }`
+
+---
+
+### `apply_tags`
+
+Writes `@tag` annotations into test file source code based on the dependency graph. Tags of kind `import` (filename-derived) and `comment-marker` (domain semantic, propagated from source files) are written as an idempotent block; re-running replaces the block in place. Tags already present in the file are excluded to avoid duplication. Supports TypeScript/JavaScript (`// <mokosh-tags>` block with `// @tag` lines) and Gherkin `.feature` files (`# <mokosh-tags>` block with `@tagname` lines). See [ADR-008](./adr-008-tag-applier-strategies.md).
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `root` | `string` | yes | |
+| `dryRun` | `boolean` | no | When `true`, computes which files would change but does not write to disk (default: `false`) |
+
+**Requires:** a prior `analyze` call for the same `root`.
 
 ---
 
@@ -318,7 +384,7 @@ src/mcp.ts          Entry point — connects server to StdioServerTransport
 src/mcp/
   server.ts         createMcpServer() factory — wires cache, tools, handlers
   cache.ts          GraphCache — in-session graph store with incremental rebuild
-  tools.ts          TOOL_DEFINITIONS — JSON Schema for all 14 tools
+  tools.ts          TOOL_DEFINITIONS — JSON Schema for all 20 tools
   handlers.ts       One handler function per tool
   utils.ts          text() response helper
 ```
