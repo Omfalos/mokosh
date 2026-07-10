@@ -1,3 +1,10 @@
+## [0.1.4](https://github.com/Omfalos/mokosh/compare/v0.1.3...v0.1.4) (2026-07-10)
+
+### Bug Fixes
+
+* **ci:** use Node 24 in publish workflow instead of npm self-upgrade ([cfb84b5](https://github.com/Omfalos/mokosh/commit/cfb84b528ee3c7dcfdd958a6592faa1c980a564c))
+* **style:** resolve ESM load crash and bare-specifier resolution for style files ([1ad1fc4](https://github.com/Omfalos/mokosh/commit/1ad1fc4c206ebc0b4fa9b213916b56225999e9fd))
+
 ## [0.1.3](https://github.com/Omfalos/mokosh/compare/v0.1.2...v0.1.3) (2026-07-09)
 
 ### Bug Fixes
