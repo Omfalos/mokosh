@@ -7,6 +7,7 @@ import {
   LuaLangResolver,
   PythonLangResolver,
   type ResolvedImport,
+  StyleLangResolver,
 } from "./lang-resolvers/index";
 
 export type { ResolvedImport };
@@ -53,7 +54,7 @@ export interface ResolverOptions {
   tsconfigSearchPaths?: string[];
   /**
    * Language-specific resolvers that handle bare (non-relative) specifiers before
-   * falling through to the external-module default. Defaults to Python, Lua, and Go resolvers.
+   * falling through to the external-module default. Defaults to Python, Lua, Go, and style resolvers.
    */
   langResolvers?: LangResolver[];
 }
@@ -82,6 +83,7 @@ export class DefaultResolver implements PathResolver {
       new PythonLangResolver(),
       new LuaLangResolver(),
       new GoLangResolver(),
+      new StyleLangResolver(),
     ];
   }
 

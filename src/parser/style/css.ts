@@ -1,9 +1,9 @@
 /** Parses CSS and Less files using PostCSS to extract @import edges. */
 import postcss from "postcss";
+import * as less from "postcss-less";
 import type { ImportEdge } from "../../types/node";
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const lessParser = require("postcss-less") as {
+const lessParser = less as {
   parse: postcss.Parser<postcss.Root>;
   stringify: postcss.Stringifier;
 };
