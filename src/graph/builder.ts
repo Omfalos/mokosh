@@ -211,6 +211,7 @@ export class GraphBuilder {
     const node = await this.getNode(filePath, relativePath, stats);
 
     node.imports = await this.resolveImports(filePath, node.imports);
+    enrichLibraryTags(node.imports, node.tags);
 
     this.graph.nodes.set(node.path, node);
   }
@@ -237,7 +238,6 @@ export class GraphBuilder {
     const parsed = await this.tryParse(filePath, relativePath);
     if (!parsed) return this.makeStubNode(filePath, relativePath, stats);
 
-    enrichLibraryTags(parsed.imports, parsed.tags);
     const callEdges = this.resolveCallEdges(filePath, parsed.rawCallEdges);
     const node = this.buildNode(filePath, relativePath, stats, parsed, callEdges);
     this.attachGitStats(node, relativePath);

@@ -20,15 +20,17 @@ export function enrichCoverage(
 }
 
 /**
- * @description Scans a file's import edges and appends a structured `import`-kind tag for every
- * third-party library found. Scoped packages (`@scope/pkg/deep`) are normalised to their
- * two-segment name before deduplication.
+ * @description Scans a file's *resolved* import edges and appends a structured `import`-kind tag
+ * for every third-party library found. Scoped packages (`@scope/pkg/deep`) are normalised to their
+ * two-segment name before deduplication. Relies on `isExternal` (set by the resolver) rather than
+ * specifier syntax, since some languages — notably Sass/Less/Stylus — use bare specifiers
+ * (`@import 'variables'`) to mean a local sibling file, not a package.
  * @param imports - The resolved import edges for the file being enriched.
  * @param tags - The tag array for that same file; modified in place.
  */
 export function enrichLibraryTags(imports: ImportEdge[], tags: StructuredTag[]): void {
   for (const imp of imports) {
-    if (!imp.rawSpecifier.startsWith(".") && !path.isAbsolute(imp.rawSpecifier)) {
+    if (imp.isExternal) {
       const libName = imp.rawSpecifier.startsWith("@")
         ? imp.rawSpecifier.split("/").slice(0, 2).join("/")
         : imp.rawSpecifier.split("/")[0];
