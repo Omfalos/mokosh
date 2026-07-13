@@ -12,6 +12,7 @@ import { run as runFeatureGraph } from "./commands/feature-graph";
 import { run as runFindUncovered } from "./commands/find-uncovered";
 import { run as runFindUnused } from "./commands/find-unused";
 import { run as runGraphOutput } from "./commands/graph-output";
+import { runInitConfig } from "./commands/init-config";
 import { runInitSkill } from "./commands/init-skill";
 import { run as runModuleResponsibility } from "./commands/module-responsibility";
 import { run as runProposeTags } from "./commands/propose-tags";
@@ -41,6 +42,11 @@ export async function run(): Promise<void> {
 
   if (parsed.initSkill) {
     runInitSkill(parsed.force);
+    process.exit(0);
+  }
+
+  if (parsed.initConfig) {
+    runInitConfig(parsed.force);
     process.exit(0);
   }
 

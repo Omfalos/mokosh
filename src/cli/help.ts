@@ -33,7 +33,8 @@ Options:
   --query-help                Show all supported query filter keys and examples
   --root <dir>                Project root directory (default: current directory)
   --init-skill                Scaffold the mokosh Claude Code skill/command into .claude/
-  --force                     Overwrite existing files (use with --init-skill)
+  --init-config               Scaffold a starter mokosh.config.js in the project root
+  --force                     Overwrite existing files (use with --init-skill/--init-config)
   --help                      Show help
 
 Notes:

@@ -164,7 +164,8 @@ npx @omfalos/mokosh --query "category:logic,tag:auth" src/index.ts
 - `--query-help`: Print the full query filter reference and examples.
 - `--silent`: Suppress progress output on stderr.
 - `--init-skill`: Scaffold the bundled Claude Code skill/command (`.claude/skills/mokosh/SKILL.md`, `.claude/commands/mokosh.md`) into the current project.
-- `--force`: Overwrite existing files. Use with `--init-skill`.
+- `--init-config`: Scaffold a commented starter `mokosh.config.js` into the project root.
+- `--force`: Overwrite existing files. Use with `--init-skill` / `--init-config`.
 - `--help`: Show usage information.
 
 ### Programmatic API
@@ -185,6 +186,51 @@ graph.traverse('src/main.ts', (node, depth) => {
 // Export to Mermaid
 console.log(graph.toMermaid());
 ```
+
+## Configuration
+
+Mokosh auto-discovers `mokosh.config.json` / `.js` / `.cjs` in the project root — no flag needed, for both the CLI and the MCP server. Scaffold a commented starter file with:
+
+```bash
+npx @omfalos/mokosh --init-config
+```
+
+> **Note:** The MCP server only loads `mokosh.config.json` (JS execution is disabled there for safety). If you want the MCP server to pick up your config, use a `.json` file rather than `.js`/`.cjs`.
+
+**`mokosh.config.json`:**
+```json
+{
+  "cachePath": "custom-cache/graph.json",
+  "entryPoints": ["src/index.ts"],
+  "ignoreDirs": ["vendor", "generated"],
+  "extensions": [".graphql"],
+  "configMatchers": [".myconfig."],
+  "testPatterns": [".unit.", ".integration."],
+  "testLibraries": ["@my-org/test-utils"],
+  "barrelThreshold": 0.7
+}
+```
+
+`ignoreDirs` and `extensions` are **additive** — they extend the built-in defaults rather than replacing them.
+
+### Config fields
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `cachePath` | `string` | Override default `mokosh-cache/graph.json` |
+| `entryPoints` | `string[]` | Default entry points when none passed on CLI |
+| `ignoreDirs` | `string[]` | Extra dirs to skip (merged with built-in defaults) |
+| `extensions` | `string[]` | Extra file extensions to scan (merged with built-in defaults) |
+| `configMatchers` | `string[]` | Extra basename substrings that classify a file as `"config"` |
+| `testPatterns` | `string[]` | Extra basename substrings that classify a file as `"test"` |
+| `testLibraries` | `string[]` | Extra import names that classify a file as `"test"` |
+| `barrelThreshold` | `number` | Export-ratio threshold for `"barrel"` detection (default `0.8`) |
+| `gitStats` | `boolean` | When `true`, enriches each cache-missed node with `commitCount90d` and `lastAuthor` via `git log`. Off by default. |
+| `coverageReportPath` | `string` | Path (relative to project root) to an Istanbul `coverage-summary.json`. When set, each node gets a `coveragePct` field. |
+| `coverageThreshold` | `number` | Line-coverage % below which `--find-uncovered` / `find_uncovered` flags a file. Default: `80`. |
+| `tagApplier` | `{ framework?, frameworkOverrides? }` | Configures `--apply-tags` output format. `framework` is the fallback test framework (`vitest` \| `playwright` \| `cypress` \| `jest`) used when a file's own imports don't reveal one; `frameworkOverrides` maps path-glob patterns to a framework, checked before the top-level fallback. See [ADR-008](./docs/adr-008-tag-applier-strategies.md). |
+
+See the [Usage Guide](./docs/usage.md#configuration-file) for `mokosh.config.js` (factory functions, side effects) and programmatic config-loading examples.
 
 ## Documentation
 

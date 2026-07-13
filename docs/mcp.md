@@ -25,6 +25,10 @@ The server communicates over **stdio** using the MCP JSON-RPC protocol. Add it t
 }
 ```
 
+## Configuration
+
+The server auto-loads a `mokosh.config.json` from the project root (the `rootDir`/`root` argument passed on the first `analyze` call) — no extra step needed. Only `mokosh.config.json` is honored here; `.js`/`.cjs` configs are skipped (`allowJs: false`) to avoid executing arbitrary code from an AI-driven surface. Run `npx @omfalos/mokosh --init-config` to scaffold a starter `mokosh.config.js`, then convert it to `mokosh.config.json` (stripping the `//` comments, since JSON doesn't support them) if you want the MCP server to pick it up. See the [Usage Guide](./usage.md#configuration-file) for the full field reference.
+
 ## Wiring up an AI assistant fast
 
 Run `npx @omfalos/mokosh --init-skill` to scaffold a Claude Code skill (`.claude/skills/mokosh/SKILL.md`) and slash command (`.claude/commands/mokosh.md`) into your project. Both teach the assistant to prefer these MCP tools when available and fall back to the CLI otherwise — no need to hand-write tool-usage instructions. Existing files are left untouched unless `--force` is passed.

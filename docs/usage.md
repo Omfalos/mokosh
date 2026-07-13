@@ -42,7 +42,8 @@ npx mokosh [options] <entry-point1> <entry-point2> ...
 | `--query-help` | Show all supported query filter keys and examples. |
 | `--silent` | Suppress progress output on stderr. |
 | `--init-skill` | Scaffold the bundled Claude Code skill (`.claude/skills/mokosh/SKILL.md`) and slash command (`.claude/commands/mokosh.md`) into the current project. Existing files are left untouched unless `--force` is passed. |
-| `--force` | Overwrite existing files. Use with `--init-skill`. |
+| `--init-config` | Scaffold a commented starter `mokosh.config.js` into the project root. Existing files are left untouched unless `--force` is passed. |
+| `--force` | Overwrite existing files. Use with `--init-skill` / `--init-config`. |
 | `--help` | Show the help menu. |
 
 ### Supported Languages
@@ -64,7 +65,9 @@ Each language is parsed using its respective AST library to ensure accurate depe
 
 ### Configuration File
 
-Place a `mokosh.config.json` or `mokosh.config.js` in your project root to configure mokosh declaratively. The CLI loads it automatically before building the graph.
+Place a `mokosh.config.json` or `mokosh.config.js` in your project root to configure mokosh declaratively. The CLI loads it automatically before building the graph — run `npx mokosh --init-config` to scaffold a commented starter file.
+
+> **MCP note:** The MCP server auto-loads config the same way, but with `allowJs: false` — only `mokosh.config.json` is honored there (JS/CJS files are skipped to avoid arbitrary code execution from an AI-driven surface). See [MCP Server](./mcp.md) for details.
 
 **`mokosh.config.json`:**
 ```json

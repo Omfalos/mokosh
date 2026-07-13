@@ -1,6 +1,7 @@
 /** CLI command: scaffolds the bundled mokosh Claude Code skill/command into the current project. */
 import fs from "node:fs";
 import path from "node:path";
+import { findTemplateDir } from "./template-dir";
 
 interface Target {
   templateFile: string;
@@ -13,28 +14,6 @@ const TARGETS: Target[] = [
 ];
 
 /**
- * @description Locates the bundled `templates/skill` directory by walking up from `startDir`.
- *   Templates live one level above the compiled `dist/cli.js` in the published package, but
- *   several levels above `src/cli/commands/` when running against source (tests, ts-node) —
- *   walking up avoids hardcoding either layout.
- * @param {string} startDir - Directory to start searching from (typically `__dirname`).
- * @returns {string} Absolute path to the `templates/skill` directory.
- */
-function findTemplateDir(startDir: string): string {
-  let dir = startDir;
-  for (let i = 0; i < 6; i++) {
-    const candidate = path.join(dir, "templates", "skill");
-    if (fs.existsSync(path.join(candidate, "SKILL.md"))) {
-      return candidate;
-    }
-    const parent = path.dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  throw new Error("Could not locate mokosh skill templates");
-}
-
-/**
  * @description Copies the bundled mokosh skill (`SKILL.md`) and slash command (`mokosh.md`)
  *   templates into the target project's `.claude/` directory, so a downstream project's
  *   Claude Code picks up guidance on driving mokosh via MCP or CLI. Existing files are left
@@ -43,7 +22,7 @@ function findTemplateDir(startDir: string): string {
  * @param {string} cwd - Project directory to scaffold into (default: `process.cwd()`).
  */
 export function runInitSkill(force: boolean, cwd: string = process.cwd()): void {
-  const templateDir = findTemplateDir(__dirname);
+  const templateDir = findTemplateDir(__dirname, ["skill"], "SKILL.md");
 
   for (const target of TARGETS) {
     const src = path.join(templateDir, target.templateFile);
