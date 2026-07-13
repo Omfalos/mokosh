@@ -1,3 +1,15 @@
+## [0.1.5](https://github.com/Omfalos/mokosh/compare/v0.1.4...v0.1.5) (2026-07-13)
+
+### Features
+
+* **cli:** add --init-config command to scaffold a starter mokosh.config.js ([b045a01](https://github.com/Omfalos/mokosh/commit/b045a0172179243d9407d5bb9bb3797ffd6d091b))
+* **cli:** add --init-skill command to scaffold a bundled Claude Code skill ([2ad2b21](https://github.com/Omfalos/mokosh/commit/2ad2b210e13f6ae0451019e15d6f204e675d0a06))
+* **cli:** add CLI parity commands for full MCP fallback coverage ([518da9c](https://github.com/Omfalos/mokosh/commit/518da9c4d6d781fe539481e970507756ec7b89fc))
+
+### Bug Fixes
+
+* **graph:** tag library imports by resolved isExternal, not specifier syntax ([bd2a8e0](https://github.com/Omfalos/mokosh/commit/bd2a8e034796088e7b79ef2c01fe10e225d095e6))
+
 ## [0.1.4](https://github.com/Omfalos/mokosh/compare/v0.1.3...v0.1.4) (2026-07-10)
 
 ### Bug Fixes
