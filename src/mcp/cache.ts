@@ -9,12 +9,11 @@ import {
   type Graph,
   type WorkspaceGraph,
 } from "../index";
+import { IGNORE_WATCH } from "../watch-ignore";
 
 type LastAnalyzeArgs =
   | { kind: "single"; entryPoints: string[]; coverageMap: Map<string, number> }
   | { kind: "workspace" };
-
-const IGNORE_WATCH = /(?:^|[/\\])(?:node_modules|\.git|dist|build|coverage)(?:[/\\]|$)/;
 
 /**
  * Per-session state keyed by absolute project root path.

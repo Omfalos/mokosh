@@ -1,14 +1,19 @@
 /** CLI entry point: parses arguments, loads configuration and the graph, then dispatches to the appropriate command. */
-import { applyConfig, Graph } from "../index";
+import { applyConfig, createWorkspaceGraph, Graph } from "../index";
 import { parseArgs } from "./args";
+import { run as runAffected } from "./commands/affected";
 import { run as runAffectedTests } from "./commands/affected-tests";
 import { run as runApiSurface } from "./commands/api-surface";
 import { run as runApplyTags } from "./commands/apply-tags";
 import { run as runCallGraph } from "./commands/call-graph";
 import { run as runCallers } from "./commands/callers";
 import { run as runCheckCycles } from "./commands/check-cycles";
+import { runClearCache } from "./commands/clear-cache";
+import { run as runDependencies } from "./commands/dependencies";
+import { run as runDependents } from "./commands/dependents";
 import { run as runDetectFeatures } from "./commands/detect-features";
 import { run as runFeatureGraph } from "./commands/feature-graph";
+import { run as runFindComplexFunctions } from "./commands/find-complex-functions";
 import { run as runFindUncovered } from "./commands/find-uncovered";
 import { run as runFindUnused } from "./commands/find-unused";
 import { run as runGraphOutput } from "./commands/graph-output";
@@ -17,10 +22,25 @@ import { runInitSkill } from "./commands/init-skill";
 import { run as runModuleResponsibility } from "./commands/module-responsibility";
 import { run as runProposeTags } from "./commands/propose-tags";
 import { run as runTypeGraph } from "./commands/type-graph";
-import type { CommandHandler } from "./commands/types";
+import type { CommandContext, CommandHandler } from "./commands/types";
+import { runWorkspaceAffected } from "./commands/workspace-affected";
+import { runWorkspacePackages } from "./commands/workspace-packages";
 import { resolveConfig } from "./config";
 import { buildGraph, loadGraphFromCache, saveGraphToCache } from "./graph-loader";
 import { HELP_TEXT, QUERY_HELP_TEXT } from "./help";
+import { watchAndRun } from "./watch";
+
+/** Commands that only read a snapshot and print — safe to re-run in a loop under `--watch`. */
+const WATCHABLE_COMMANDS = new Set<CommandHandler>([
+  runGraphOutput,
+  runCallers,
+  runDependencies,
+  runDependents,
+  runAffected,
+  runFindUncovered,
+  runFindComplexFunctions,
+  runCheckCycles,
+]);
 
 /**
  * @description Parses CLI arguments, loads configuration, builds or restores the
@@ -50,6 +70,11 @@ export async function run(): Promise<void> {
     process.exit(0);
   }
 
+  if (parsed.clearCache) {
+    runClearCache(parsed.cachePath);
+    process.exit(0);
+  }
+
   const config = resolveConfig(parsed);
   applyConfig(config.rawConfig);
   const { rootDir, resolvedEntryPoints, resolvedCachePath, scanOptions } = config;
@@ -63,6 +88,9 @@ export async function run(): Promise<void> {
     excludeTests,
     checkCycles,
     callers,
+    dependencies,
+    dependents,
+    affected,
     file,
     silent,
     featureThreshold,
@@ -79,14 +107,53 @@ export async function run(): Promise<void> {
     apiSurface,
     applyTags,
     dryRun,
+    depth,
+    cached,
+    changedSymbols,
+    withEdgeDetail,
+    findComplexFunctions,
+    metric,
+    complexityThreshold,
+    limit,
+    workspacePackages,
+    workspaceAffected,
+    slim,
+    testsOnly,
+    watch,
   } = parsed;
+
+  if (workspacePackages || workspaceAffected) {
+    if (watch) {
+      console.error(
+        "Error: --watch is not supported with --workspace-packages/--workspace-affected",
+      );
+      process.exit(1);
+    }
+    const wg = await createWorkspaceGraph(rootDir, {
+      gitStats: config.rawConfig.gitStats ?? false,
+    });
+    if (workspacePackages) {
+      runWorkspacePackages(wg);
+    } else {
+      if (!file) {
+        console.error("Error: --workspace-affected requires --file <path>");
+        process.exit(1);
+      }
+      runWorkspaceAffected(wg, file);
+    }
+    return;
+  }
 
   const autoScan =
     proposeTags ||
     affectedTests ||
     applyTags ||
     callers ||
+    dependencies ||
+    dependents ||
+    affected ||
     findUncovered ||
+    findComplexFunctions ||
     typeGraph ||
     moduleResponsibility ||
     callGraph ||
@@ -116,7 +183,7 @@ export async function run(): Promise<void> {
     saveGraphToCache(graph, resolvedCachePath);
   }
 
-  const ctx = {
+  const ctx: CommandContext = {
     graph,
     rootDir,
     entryPoints: resolvedEntryPoints.map((entryPath) => entryPath.replace(rootDir + "/", "")),
@@ -133,6 +200,15 @@ export async function run(): Promise<void> {
     minOutDegree,
     functionName,
     dryRun,
+    depth,
+    cached,
+    changedSymbols,
+    withEdgeDetail,
+    metric,
+    complexityThreshold,
+    limit,
+    slim,
+    testsOnly,
   };
 
   const commands: Array<[boolean, CommandHandler]> = [
@@ -144,6 +220,10 @@ export async function run(): Promise<void> {
     [checkCycles, runCheckCycles],
     [findUncovered, runFindUncovered],
     [callers, runCallers],
+    [dependencies, runDependencies],
+    [dependents, runDependents],
+    [affected, runAffected],
+    [findComplexFunctions, runFindComplexFunctions],
     [typeGraph, runTypeGraph],
     [moduleResponsibility, runModuleResponsibility],
     [featureGraph, runFeatureGraph],
@@ -152,5 +232,28 @@ export async function run(): Promise<void> {
   ];
 
   const handler = commands.find(([flag]) => flag)?.[1] ?? runGraphOutput;
+
+  if (watch) {
+    if (!WATCHABLE_COMMANDS.has(handler)) {
+      console.error(
+        "Error: --watch is only supported with the default output, --query, --callers, --dependencies, --dependents, --affected, --find-uncovered, --find-complex-functions, and --check-cycles",
+      );
+      process.exit(1);
+    }
+    watchAndRun(rootDir, 300, async () => {
+      const freshGraph = await buildGraph(
+        rootDir,
+        resolvedEntryPoints,
+        ctx.graph,
+        silent,
+        config.rawConfig.gitStats ?? false,
+      );
+      saveGraphToCache(freshGraph, resolvedCachePath);
+      console.log(`--- rebuilt at ${new Date().toISOString()} ---`);
+      await handler({ ...ctx, graph: freshGraph });
+    });
+    return;
+  }
+
   await handler(ctx);
 }

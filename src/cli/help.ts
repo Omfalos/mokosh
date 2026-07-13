@@ -17,7 +17,7 @@ Options:
   --exclude-tests             Exclude test files from --find-unused output
   --find-uncovered            List non-test files whose coverage is below the threshold (requires coverageReportPath in config)
   --callers                   List files whose exported functions call into --file
-  --file <path>               Target file for --callers
+  --file <path>               Target file for --callers/--dependencies/--dependents/--affected/--workspace-affected
   --check-cycles              Check for circular dependencies; exits non-zero if found (CI gate)
   --type-graph                Output type-level graph (interfaces, classes, enums, type aliases)
   --type <name>               Filter --type-graph to a single type name
@@ -31,14 +31,42 @@ Options:
   --silent                    Suppress progress output on stderr
   --query <query>             Filter output using a query (e.g., category:logic,tag:auth)
   --query-help                Show all supported query filter keys and examples
+  --slim                      Compact node output for default/--query JSON: export names, meaningful
+                               tags, and a flat importsFiles list instead of full edge metadata
+                               (default: false — opt-in, unlike the MCP query tool which defaults slim to true)
   --root <dir>                Project root directory (default: current directory)
   --init-skill                Scaffold the mokosh Claude Code skill/command into .claude/
   --init-config               Scaffold a starter mokosh.config.js in the project root
   --force                     Overwrite existing files (use with --init-skill/--init-config)
+  --clear-cache                Delete the cache file at --cache and exit
   --help                      Show help
+
+MCP parity (mirrors the MCP server's tools for use when MCP is unavailable):
+  --dependencies               List all files that --file imports (transitive; use with --depth)
+  --dependents                 List files that directly import --file (one hop)
+  --depth <N>                  Max traversal depth for --dependencies/--callers (default: 1)
+  --affected                   List all files transitively affected if --file changes
+  --tests-only                 Restrict --affected to test/spec files
+  --changed-symbols <a,b,...>  Restrict --affected to files that import these specific symbols
+  --cached                     Use a precomputed impact cache for --affected instead of a fresh traversal
+  --with-edge-detail           Include from/to function names per edge (use with --callers)
+  --find-complex-functions     List functions/methods at or above a complexity threshold, worst-first
+  --metric <name>              cognitiveComplexity (default) | complexity — used by --find-complex-functions
+  --complexity-threshold <N>   Minimum score to include (default: 10, use with --find-complex-functions)
+  --limit <N>                  Max results for --find-complex-functions (default: 20)
+  --workspace-packages         List monorepo packages and their cross-package dependencies
+  --workspace-affected         Cross-package blast-radius for --file in a monorepo
+  --watch                      Re-run on file changes. Supported with the default output, --query,
+                                --callers, --dependencies, --dependents, --affected, --find-uncovered,
+                                --find-complex-functions, and --check-cycles only.
 
 Notes:
   Add mokosh-cache/ to your .gitignore to avoid committing the cache directory.
+  --check-cycles is CLI-only (CI gate via exit code); it has no MCP equivalent by design.
+  --config files may be .js/.cjs and are executed for CLI convenience (allowJs: true); the MCP
+    server only loads JSON config (allowJs: false) for security. This is intentional.
+  --workspace-packages/--workspace-affected require explicit opt-in (unlike MCP's analyze tool,
+    which auto-detects a monorepo when entryPoints is empty); other commands remain single-package.
 `;
 
 /** Reference for all supported --query filter keys, shown with --query-help. */
@@ -95,6 +123,12 @@ SORTING & LIMITING  (applied after all filters)
 
   limit:<N>              Return at most N results.
                          Example: limit:20
+
+OUTPUT SHAPE
+  --slim                 Pass alongside --query (or the default output) for a compact response:
+                         export names, meaningful tags, and a flat importsFiles path list — no
+                         edge objects, no mtime/size. Off by default on the CLI; the MCP query
+                         tool defaults this on.
 
 COMMON PATTERNS
   Token-efficient context (logic only):

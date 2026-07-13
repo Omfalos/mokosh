@@ -38,6 +38,23 @@ export interface ParsedArgs {
   initSkill: boolean;
   initConfig: boolean;
   force: boolean;
+  dependencies: boolean;
+  dependents: boolean;
+  affected: boolean;
+  testsOnly: boolean;
+  changedSymbols: string[] | undefined;
+  cached: boolean;
+  depth: number | undefined;
+  withEdgeDetail: boolean;
+  findComplexFunctions: boolean;
+  metric: "cognitiveComplexity" | "complexity" | undefined;
+  complexityThreshold: number | undefined;
+  limit: number | undefined;
+  workspacePackages: boolean;
+  workspaceAffected: boolean;
+  clearCache: boolean;
+  slim: boolean;
+  watch: boolean;
 }
 
 /**
@@ -96,6 +113,23 @@ const OPTIONS = {
   "init-skill": { type: "boolean" },
   "init-config": { type: "boolean" },
   force: { type: "boolean" },
+  dependencies: { type: "boolean" },
+  dependents: { type: "boolean" },
+  affected: { type: "boolean" },
+  "tests-only": { type: "boolean" },
+  "changed-symbols": { type: "string" },
+  cached: { type: "boolean" },
+  depth: { type: "string" },
+  "with-edge-detail": { type: "boolean" },
+  "find-complex-functions": { type: "boolean" },
+  metric: { type: "string" },
+  "complexity-threshold": { type: "string" },
+  limit: { type: "string" },
+  "workspace-packages": { type: "boolean" },
+  "workspace-affected": { type: "boolean" },
+  "clear-cache": { type: "boolean" },
+  slim: { type: "boolean" },
+  watch: { type: "boolean" },
 } as const;
 
 const STRING_FLAGS = new Set(
@@ -154,6 +188,11 @@ export function parseArgs(cliTokens: string[]): ParsedArgs {
   const filterPathsRaw = values["paths"];
   const cacheValue = values["cache"];
   const configValue = values["config"];
+  const changedSymbolsRaw = values["changed-symbols"];
+  const depthRaw = values["depth"];
+  const complexityThresholdRaw = values["complexity-threshold"];
+  const limitRaw = values["limit"];
+  const metricRaw = values["metric"];
 
   return {
     rootDir,
@@ -191,6 +230,26 @@ export function parseArgs(cliTokens: string[]): ParsedArgs {
     initSkill: values["init-skill"] ?? false,
     initConfig: values["init-config"] ?? false,
     force: values["force"] ?? false,
+    dependencies: values["dependencies"] ?? false,
+    dependents: values["dependents"] ?? false,
+    affected: values["affected"] ?? false,
+    testsOnly: values["tests-only"] ?? false,
+    changedSymbols: changedSymbolsRaw
+      ? changedSymbolsRaw.split(",").map((symbol) => symbol.trim())
+      : undefined,
+    cached: values["cached"] ?? false,
+    depth: depthRaw ? parseInt(depthRaw, 10) : undefined,
+    withEdgeDetail: values["with-edge-detail"] ?? false,
+    findComplexFunctions: values["find-complex-functions"] ?? false,
+    metric:
+      metricRaw === "complexity" || metricRaw === "cognitiveComplexity" ? metricRaw : undefined,
+    complexityThreshold: complexityThresholdRaw ? parseInt(complexityThresholdRaw, 10) : undefined,
+    limit: limitRaw ? parseInt(limitRaw, 10) : undefined,
+    workspacePackages: values["workspace-packages"] ?? false,
+    workspaceAffected: values["workspace-affected"] ?? false,
+    clearCache: values["clear-cache"] ?? false,
+    slim: values["slim"] ?? false,
+    watch: values["watch"] ?? false,
     entryPoints: positionals,
   };
 }

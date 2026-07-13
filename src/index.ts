@@ -48,6 +48,26 @@ export {
 } from "./graph/features/feature-graph";
 // Core graph classes
 export { Graph } from "./graph/model";
+export {
+  type CallerEntry as GraphCallerEntry,
+  type ComplexFunctionEntry,
+  type FindComplexFunctionsOptions,
+  findComplexFunctions,
+  type GetAffectedOptions,
+  type GetCallersOptions,
+  getAffected,
+  getCallers,
+  getDependencies,
+  getDependents,
+  hasCoverageData,
+  type PathWithSymbols,
+  type SlimNode,
+  type SlimSerializedGraph,
+  slimSerialize,
+  summarizeWorkspacePackages,
+  type WorkspacePackageSummary,
+  type WorkspacePackagesSummary,
+} from "./graph/queries";
 export { buildResponsibilityGraph } from "./graph/responsibility";
 export type {
   ModuleResponsibility,

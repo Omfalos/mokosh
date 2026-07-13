@@ -20,4 +20,13 @@ export interface CommandContext {
   minOutDegree: number | undefined;
   functionName: string | undefined;
   dryRun: boolean;
+  depth: number | undefined;
+  cached: boolean;
+  changedSymbols: string[] | undefined;
+  withEdgeDetail: boolean;
+  metric: "cognitiveComplexity" | "complexity" | undefined;
+  complexityThreshold: number | undefined;
+  limit: number | undefined;
+  slim: boolean;
+  testsOnly: boolean;
 }

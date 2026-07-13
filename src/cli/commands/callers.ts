@@ -1,4 +1,5 @@
 /** CLI command: prints files whose exported functions call into the given file. */
+import { getCallers } from "../../index";
 import type { CommandContext } from "./types";
 
 /**
@@ -8,17 +9,17 @@ import type { CommandContext } from "./types";
  * @param {CommandContext} ctx - Shared command context; `ctx.file` must be set via `--file`.
  */
 export async function run(ctx: CommandContext): Promise<void> {
-  const { graph, file, plain } = ctx;
+  const { graph, file, plain, depth, withEdgeDetail } = ctx;
 
   if (!file) {
     console.error("Error: --callers requires --file <path>");
     process.exit(1);
   }
 
-  const callers = graph.getCallers(file);
+  const callers = getCallers(graph, file, { depth: depth ?? 1, withEdgeDetail });
 
   if (plain) {
-    console.log(callers.join("\n"));
+    console.log(callers.map((caller) => caller.file).join("\n"));
   } else {
     console.log(JSON.stringify({ file, callers, count: callers.length }, null, 2));
   }

@@ -11,8 +11,14 @@ import {
   detectFeatures,
   detectMonorepo,
   filterGraph,
+  findComplexFunctions,
   Graph,
+  getAffected,
   getAllProjectFiles,
+  getCallers,
+  getDependencies,
+  getDependents,
+  hasCoverageData,
   loadCoverageMap,
   loadMokoshConfig,
   MermaidExporter,
@@ -22,7 +28,8 @@ import {
   queryCallGraph,
   queryChangeImpact,
   queryTypeGraph,
-  SymbolTraversalContext,
+  slimSerialize,
+  summarizeWorkspacePackages,
 } from "../index";
 import type { SessionState } from "./cache";
 import type { TextResponse } from "./utils";
@@ -176,19 +183,7 @@ export async function handleGetDependencies(
 ): Promise<TextResponse> {
   const { root, file, depth = 1 } = args;
   const graph = await cache.ensureFresh(root);
-  const deps: Array<{ path: string; symbols?: string[] }> = [];
-  graph.traverse(
-    file,
-    (node, _depth, parentPath) => {
-      if (node.path === file) return true;
-      const edge = parentPath
-        ? graph.nodes.get(parentPath)?.imports.find((importEdge) => importEdge.toPath === node.path)
-        : undefined;
-      deps.push({ path: node.path, ...(edge?.symbols ? { symbols: edge.symbols } : {}) });
-      return true;
-    },
-    { direction: "outgoing", maxDepth: depth },
-  );
+  const deps = getDependencies(graph, file, depth);
   return text({ file, dependencies: deps });
 }
 
@@ -205,17 +200,7 @@ export async function handleGetDependents(
 ): Promise<TextResponse> {
   const { root, file } = args;
   const graph = await cache.ensureFresh(root);
-  const dependents: Array<{ path: string; symbols?: string[] }> = [];
-  graph.traverse(
-    file,
-    (node) => {
-      if (node.path === file) return true;
-      const edge = node.imports.find((importEdge) => importEdge.toPath === file);
-      dependents.push({ path: node.path, ...(edge?.symbols ? { symbols: edge.symbols } : {}) });
-      return true;
-    },
-    { direction: "incoming", maxDepth: 1 },
-  );
+  const dependents = getDependents(graph, file);
   return text({ file, dependents });
 }
 
@@ -242,19 +227,7 @@ export async function handleGetAffected(
       : allAffected;
     return text({ file, affected, count: affected.length });
   }
-  const ctx = changedSymbols ? new SymbolTraversalContext(file, changedSymbols) : null;
-  const affected: string[] = [];
-  graph.traverse(
-    file,
-    (node, _depth, parentPath) => {
-      if (node.path === file) return true;
-      if (ctx && parentPath && !ctx.updateAffectedSymbols(node, parentPath)) return false;
-      const isTest = node.category === "test" || node.tags.some((tag) => tag.name === "test");
-      if (!testsOnly || isTest) affected.push(node.path);
-      return true;
-    },
-    { direction: "incoming" },
-  );
+  const affected = getAffected(graph, file, { testsOnly, changedSymbols });
   return text({ file, affected, count: affected.length });
 }
 
@@ -272,24 +245,7 @@ export async function handleGetCallers(
 ): Promise<TextResponse> {
   const { root, file, depth = 1, withEdgeDetail = false } = args;
   const graph = await cache.ensureFresh(root);
-  const callers: Array<{ file: string; edges?: Array<{ from: string; to: string }> }> = [];
-  graph.traverseCalls(
-    file,
-    (node) => {
-      if (node.path === file) return true;
-      const entry: { file: string; edges?: Array<{ from: string; to: string }> } = {
-        file: node.path,
-      };
-      if (withEdgeDetail) {
-        entry.edges = (node.callEdges ?? [])
-          .filter((callEdge) => callEdge.toFile === file)
-          .map((callEdge) => ({ from: callEdge.from, to: callEdge.to }));
-      }
-      callers.push(entry);
-      return true;
-    },
-    { direction: "incoming", maxDepth: depth },
-  );
+  const callers = getCallers(graph, file, { depth, withEdgeDetail });
   return text({ file, callers, count: callers.length });
 }
 
@@ -327,8 +283,7 @@ export async function handleFindUncovered(
   const config = cache.getConfig(root);
   const threshold = coverageThreshold ?? config?.coverageThreshold ?? 80;
 
-  const hasCoverageData = [...graph.nodes.values()].some((node) => node.coveragePct !== undefined);
-  if (!hasCoverageData) {
+  if (!hasCoverageData(graph)) {
     return text({
       error:
         "No coverage data available. Set coverageReportPath in mokosh.config and call analyze again.",
@@ -358,22 +313,7 @@ export async function handleFindComplexFunctions(
 ): Promise<TextResponse> {
   const { root, metric = "cognitiveComplexity", threshold = 10, limit = 20 } = args;
   const graph = await cache.ensureFresh(root);
-
-  const functions = [...graph.nodes.values()]
-    .flatMap((node) =>
-      (node.functions ?? [])
-        .filter((fn) => fn[metric] >= threshold)
-        .map((fn) => ({
-          file: node.path,
-          name: fn.name,
-          line: fn.line,
-          complexity: fn.complexity,
-          cognitiveComplexity: fn.cognitiveComplexity,
-        })),
-    )
-    .sort((a, b) => b[metric] - a[metric])
-    .slice(0, limit);
-
+  const functions = findComplexFunctions(graph, { metric, threshold, limit });
   return text({ metric, threshold, functions, count: functions.length });
 }
 
@@ -458,24 +398,7 @@ export async function handleQuery(cache: SessionState, args: QueryArgs): Promise
     return text(MermaidExporter.serialize(Graph.deserialize(filtered)));
   }
   if (slim) {
-    const slimNodes = filtered.nodes.map((node) => ({
-      path: node.path,
-      type: node.type,
-      category: node.category,
-      exports: node.exports.map((exportedSym) => exportedSym.name),
-      tags: node.tags
-        .filter((tag) => tag.kind === "comment-marker" || tag.kind === "import")
-        .map((tag) => tag.name),
-      importsFiles: node.imports
-        .filter((imp) => !imp.isExternal && imp.toPath)
-        .map((imp) => imp.toPath as string),
-      ...(node.description !== undefined && { description: node.description }),
-      ...(node.testedBy !== undefined && { testedBy: node.testedBy }),
-      ...(node.coveragePct !== undefined && { coveragePct: node.coveragePct }),
-      ...(node.avgExportUsage !== undefined && { avgExportUsage: node.avgExportUsage }),
-      ...(node.maxExportUsage !== undefined && { maxExportUsage: node.maxExportUsage }),
-    }));
-    return text({ nodes: slimNodes, cycles: filtered.cycles });
+    return text(slimSerialize(filtered));
   }
   return text(filtered);
 }
@@ -493,14 +416,7 @@ export async function handleGetWorkspacePackages(
 ): Promise<TextResponse> {
   const { root } = args;
   const wg = await cache.ensureFreshWorkspace(root);
-  const pkgDeps = wg.getPackageDependencies();
-  const packages = Array.from(wg.packages.values()).map(({ graph, pkg }) => ({
-    name: pkg.name,
-    relativeRoot: pkg.relativeRoot,
-    nodeCount: graph.nodes.size,
-    dependsOn: pkgDeps.get(pkg.name) ?? [],
-  }));
-  return text({ monorepoType: wg.type, packageCount: packages.length, packages });
+  return text(summarizeWorkspacePackages(wg));
 }
 
 /**
