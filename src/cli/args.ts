@@ -35,6 +35,8 @@ export interface ParsedArgs {
   apiSurface: boolean;
   applyTags: boolean;
   dryRun: boolean;
+  initSkill: boolean;
+  force: boolean;
 }
 
 /**
@@ -90,6 +92,8 @@ const OPTIONS = {
   "api-surface": { type: "boolean" },
   "apply-tags": { type: "boolean" },
   "dry-run": { type: "boolean" },
+  "init-skill": { type: "boolean" },
+  force: { type: "boolean" },
 } as const;
 
 const STRING_FLAGS = new Set(
@@ -182,6 +186,8 @@ export function parseArgs(cliTokens: string[]): ParsedArgs {
     apiSurface: values["api-surface"] ?? false,
     applyTags: values["apply-tags"] ?? false,
     dryRun: values["dry-run"] ?? false,
+    initSkill: values["init-skill"] ?? false,
+    force: values["force"] ?? false,
     entryPoints: positionals,
   };
 }

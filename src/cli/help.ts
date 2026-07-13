@@ -32,6 +32,8 @@ Options:
   --query <query>             Filter output using a query (e.g., category:logic,tag:auth)
   --query-help                Show all supported query filter keys and examples
   --root <dir>                Project root directory (default: current directory)
+  --init-skill                Scaffold the mokosh Claude Code skill/command into .claude/
+  --force                     Overwrite existing files (use with --init-skill)
   --help                      Show help
 
 Notes:

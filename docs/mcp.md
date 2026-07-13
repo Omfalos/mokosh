@@ -25,6 +25,10 @@ The server communicates over **stdio** using the MCP JSON-RPC protocol. Add it t
 }
 ```
 
+## Wiring up an AI assistant fast
+
+Run `npx @omfalos/mokosh --init-skill` to scaffold a Claude Code skill (`.claude/skills/mokosh/SKILL.md`) and slash command (`.claude/commands/mokosh.md`) into your project. Both teach the assistant to prefer these MCP tools when available and fall back to the CLI otherwise — no need to hand-write tool-usage instructions. Existing files are left untouched unless `--force` is passed.
+
 ## Session model
 
 The server holds an **in-process graph cache** keyed by project root. This means:

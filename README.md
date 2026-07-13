@@ -94,6 +94,16 @@ npm run build
 
 ## Quick Start
 
+### AI Assistant Setup
+
+Scaffold a Claude Code skill and slash command that teach your AI assistant how to drive Mokosh — via MCP if it's configured, falling back to the CLI otherwise:
+
+```bash
+npx @omfalos/mokosh --init-skill
+```
+
+This writes `.claude/skills/mokosh/SKILL.md` (auto-invoked) and `.claude/commands/mokosh.md` (explicit `/mokosh`) into your project. Existing files are left untouched — pass `--force` to overwrite.
+
 ### CLI Usage
 
 Generate a dependency graph as JSON:
@@ -153,6 +163,8 @@ npx @omfalos/mokosh --query "category:logic,tag:auth" src/index.ts
 - `--query <query>`: Filter the output graph using a query string. Supported keys: `path`, `type`, `category`, `tag`, `external`, `importsFile`, `importedBy`, `minImports`, `maxImports`, `minSize`, `maxSize`, `hasDocstring`, `sort`, `limit`. Example: `category:logic,hasDocstring:false`.
 - `--query-help`: Print the full query filter reference and examples.
 - `--silent`: Suppress progress output on stderr.
+- `--init-skill`: Scaffold the bundled Claude Code skill/command (`.claude/skills/mokosh/SKILL.md`, `.claude/commands/mokosh.md`) into the current project.
+- `--force`: Overwrite existing files. Use with `--init-skill`.
 - `--help`: Show usage information.
 
 ### Programmatic API

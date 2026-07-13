@@ -25,7 +25,8 @@
     "mokosh-mcp": "dist/mcp.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "templates"
   ],
   "scripts": {
     "test": "vitest run",

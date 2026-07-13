@@ -41,6 +41,8 @@ npx mokosh [options] <entry-point1> <entry-point2> ...
 | `--query <query>` | Filter the output graph using a query string (e.g., `category:logic,tag:auth`). See the [Query Language Guide](./query.md). |
 | `--query-help` | Show all supported query filter keys and examples. |
 | `--silent` | Suppress progress output on stderr. |
+| `--init-skill` | Scaffold the bundled Claude Code skill (`.claude/skills/mokosh/SKILL.md`) and slash command (`.claude/commands/mokosh.md`) into the current project. Existing files are left untouched unless `--force` is passed. |
+| `--force` | Overwrite existing files. Use with `--init-skill`. |
 | `--help` | Show the help menu. |
 
 ### Supported Languages
