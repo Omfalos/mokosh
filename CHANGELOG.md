@@ -1,3 +1,13 @@
+## [0.1.7](https://github.com/Omfalos/mokosh/compare/v0.1.6...v0.1.7) (2026-07-14)
+
+### Features
+
+* **query:** add complexity, commit, and doc-staleness filters with sort direction and OR-groups ([bb9a4c9](https://github.com/Omfalos/mokosh/commit/bb9a4c97d3cbe23ea0263cff4425edf4fb7e2714))
+
+### Bug Fixes
+
+* **git:** use execFileSync instead of execSync to prevent shell injection ([96e550b](https://github.com/Omfalos/mokosh/commit/96e550bef614a2c8223c2d190149559f207aa579))
+
 ## [0.1.6](https://github.com/Omfalos/mokosh/compare/v0.1.5...v0.1.6) (2026-07-14)
 
 ### Features
