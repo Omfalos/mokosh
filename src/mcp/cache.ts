@@ -7,6 +7,7 @@ import {
   createImportMap,
   createWorkspaceGraph,
   type Graph,
+  type ParallelParsingOption,
   type WorkspaceGraph,
 } from "../index";
 import { IGNORE_WATCH } from "../watch-ignore";
@@ -77,6 +78,7 @@ export class SessionState {
     const graph = await createImportMap(root, entryPoints, this.graphs.get(root) ?? null, {
       gitStats: config?.gitStats ?? false,
       coverageMap,
+      parallelParsing: config?.parallelParsing,
     });
     this.graphs.set(root, graph);
     return graph;
@@ -101,7 +103,12 @@ export class SessionState {
    */
   async getOrBuildWorkspace(
     root: string,
-    options: { packages?: string[]; silent?: boolean; gitStats?: boolean } = {},
+    options: {
+      packages?: string[];
+      silent?: boolean;
+      gitStats?: boolean;
+      parallelParsing?: ParallelParsingOption | undefined;
+    } = {},
   ): Promise<WorkspaceGraph> {
     const cached = this.workspaceGraphs.get(root);
     if (cached) return cached;
@@ -209,7 +216,10 @@ export class SessionState {
     this.changeImpactCaches.delete(root);
     this.workspaceGraphs.delete(root);
     const config = this.configs.get(root);
-    return this.getOrBuildWorkspace(root, { gitStats: config?.gitStats ?? false });
+    return this.getOrBuildWorkspace(root, {
+      gitStats: config?.gitStats ?? false,
+      parallelParsing: config?.parallelParsing,
+    });
   }
 
   /**

@@ -1,6 +1,7 @@
 /** Loads and applies mokosh.config.* files, activating user-defined matchers, patterns, and thresholds. */
 import fs from "node:fs";
 import path from "node:path";
+import type { ParallelParsingOption } from "./graph/builder";
 import {
   registerConfigMatcher,
   registerTestLibrary,
@@ -63,6 +64,15 @@ export interface MokoshConfig {
   coverageReportPath?: string;
   /** Default line-coverage threshold (0–100) used by `find_uncovered`. Defaults to `80` when not specified. */
   coverageThreshold?: number;
+  /**
+   * Controls worker-pool offloading of file parsing (see docs/adr-010-parallel-parsing.md).
+   * `true`/unset (default) enables it once a cheap pre-scan finds at least `minFiles`
+   * (default 20) files; parsing a file is fast enough in most repos that the pool's
+   * per-thread startup cost only pays off past roughly 600-700 files, so small/typical
+   * repos may see slightly slower builds under the default — set `false` to always parse
+   * in-process, or pass `{ minFiles, maxThreads }` to raise the threshold instead.
+   */
+  parallelParsing?: ParallelParsingOption;
 }
 
 const CONFIG_FILENAMES = ["mokosh.config.js", "mokosh.config.cjs", "mokosh.config.json"];

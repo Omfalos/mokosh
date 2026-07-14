@@ -20,6 +20,7 @@ export {
   type ExportKind,
   type PublicExport,
 } from "./graph/api-surface";
+export type { ParallelParsingOption } from "./graph/builder";
 export { queryCallGraph } from "./graph/call-graph";
 export type {
   CalleeEntry,
@@ -127,7 +128,14 @@ export type { FileType, ImportType, NodeCategory, TagKind } from "./types/parse"
 import fs from "node:fs";
 import path from "node:path";
 import { DEFAULT_EXTENSIONS, DEFAULT_IGNORE_DIRS, type ScanOptions } from "./const";
-import { DefaultResolver, detectMonorepo, type Graph, GraphBuilder, WorkspaceGraph } from "./graph";
+import {
+  DefaultResolver,
+  detectMonorepo,
+  type Graph,
+  GraphBuilder,
+  type ParallelParsingOption,
+  WorkspaceGraph,
+} from "./graph";
 
 /**
  * @description Builds a dependency graph from the given entry points, optionally reusing a
@@ -135,14 +143,19 @@ import { DefaultResolver, detectMonorepo, type Graph, GraphBuilder, WorkspaceGra
  * @param rootDir - Absolute or relative path to the project root; resolved internally.
  * @param entryPoints - File paths (relative to `rootDir`) that seed the graph walk.
  * @param previousGraph - An earlier graph to diff against for incremental builds; pass `null` for a full build.
- * @param options - `silent` suppresses progress output; `gitStats` attaches git churn data; `coverageMap` maps file paths to line-coverage percentages.
+ * @param options - `silent` suppresses progress output; `gitStats` attaches git churn data; `coverageMap` maps file paths to line-coverage percentages; `parallelParsing` controls worker-pool offloading of file parsing (see {@link ParallelParsingOption}).
  * @returns The fully-built Graph with all reachable nodes and import edges populated.
  */
 export async function createImportMap(
   rootDir: string,
   entryPoints: string[],
   previousGraph: Graph | null = null,
-  options: { silent?: boolean; gitStats?: boolean; coverageMap?: Map<string, number> } = {},
+  options: {
+    silent?: boolean;
+    gitStats?: boolean;
+    coverageMap?: Map<string, number>;
+    parallelParsing?: ParallelParsingOption | undefined;
+  } = {},
 ): Promise<Graph> {
   const progressCallback = options.silent
     ? undefined
@@ -156,6 +169,7 @@ export async function createImportMap(
     progressCallback,
     options.gitStats ?? false,
     options.coverageMap ?? new Map(),
+    options.parallelParsing ?? true,
   );
   return await builder.build(entryPoints);
 }
@@ -164,12 +178,17 @@ export async function createImportMap(
  * @description Auto-detects the monorepo layout under `rootDir` and builds a per-package
  *   dependency graph, stitching them together into a single WorkspaceGraph.
  * @param rootDir - Absolute path to the monorepo root.
- * @param options - `packages` filters to a named subset of packages; `silent` suppresses progress; `gitStats` attaches git churn data per file.
+ * @param options - `packages` filters to a named subset of packages; `silent` suppresses progress; `gitStats` attaches git churn data per file; `parallelParsing` controls worker-pool offloading of file parsing per package (see {@link ParallelParsingOption}).
  * @returns A WorkspaceGraph where each package has its own Graph and cross-package edges are resolved.
  */
 export async function createWorkspaceGraph(
   rootDir: string,
-  options: { packages?: string[]; silent?: boolean; gitStats?: boolean } = {},
+  options: {
+    packages?: string[];
+    silent?: boolean;
+    gitStats?: boolean;
+    parallelParsing?: ParallelParsingOption | undefined;
+  } = {},
 ): Promise<WorkspaceGraph> {
   const abs = path.resolve(rootDir);
   const layout = detectMonorepo(abs);
@@ -196,6 +215,8 @@ export async function createWorkspaceGraph(
       new DefaultResolver(abs, { workspaceMap, tsconfigSearchPaths: [pkg.root, abs] }),
       progressCallback,
       options.gitStats ?? false,
+      new Map(),
+      options.parallelParsing ?? true,
     );
     const graph = await builder.build(pkg.entryPoints);
     wg.addPackage(pkg, graph);

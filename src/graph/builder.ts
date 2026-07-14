@@ -1,6 +1,7 @@
 /** GraphBuilder walks the file system from entry points, parses each reachable file, and assembles the dependency graph. */
 import fs from "node:fs";
 import path from "node:path";
+import Piscina from "piscina";
 import { getGitFileStats } from "../git.js";
 import { getTestPatterns } from "../parser/classify.js";
 import { type LockFileData, loadLockFile } from "../parser/lockfile.js";
@@ -33,6 +34,12 @@ const WALK_IGNORE_DIRS = new Set([
   "coverage",
 ]);
 
+/** Below this many files, the worker-pool spin-up cost outweighs the parallelism benefit — parse in-process instead. */
+const DEFAULT_MIN_FILES_FOR_POOL = 20;
+
+/** Configures whether/how `parseFile` calls are offloaded to a `piscina` worker pool. `false` always parses in-process. */
+export type ParallelParsingOption = boolean | { minFiles?: number; maxThreads?: number };
+
 /**
  * @description Finds the deepest directory that contains every path in `absPaths`, clamped
  *   so the result is never outside `rootDir`. Used to scope the test-file discovery walk to
@@ -61,19 +68,23 @@ function commonAncestorDir(absPaths: string[], rootDir: string): string {
 }
 
 /**
- * @description Builds a dependency graph by recursively walking the file system from a set of entry points.
+ * @description Builds a dependency graph by walking the file system from a set of entry points.
  *
  * Responsibilities:
- * - Parsing each reachable source file via {@link parseFile}
+ * - Parsing each reachable source file via {@link parseFile} (optionally offloaded to a worker pool)
  * - Resolving raw import specifiers to actual file paths via a {@link PathResolver}
  * - Reusing unchanged nodes from a previous graph (incremental build)
  * - Annotating external imports with lock-file versions
  * - Applying post-build enrichment (test-node tags)
  *
- * **SRP note:** `resolveImports` intentionally doubles as the recursion trigger —
- * it calls `processFile` on each local dependency as it resolves it. This keeps the
- * traversal depth-first and avoids a separate queue, at the cost of two concerns
- * living in one method.
+ * **Traversal shape:** a file's imports are only known once it's been parsed, so discovery is
+ * inherently incremental. Rather than a strict recursive depth-first walk, `build` runs a
+ * queue-pumped wavefront: each round parses/resolves every currently-queued file in parallel
+ * (`Promise.all`), and files discovered during that round join the next round's queue. This
+ * lets `getNode` dispatch parses to a worker pool concurrently instead of one at a time. Nothing
+ * downstream depends on discovery order, only on the `visited` set being consulted synchronously
+ * before a file is queued (see {@link GraphBuilder.discover}), which keeps dedup race-free even
+ * though many files are mid-parse at once.
  *
  * **DIP note:** Only `PathResolver` is abstracted. `fs`, parsers, and enrichment
  * functions are concrete imports — sufficient for a build-time tool where the call
@@ -82,10 +93,12 @@ function commonAncestorDir(absPaths: string[], rootDir: string): string {
 export class GraphBuilder {
   private graph: DependencyGraph = { nodes: new Map() };
   private visited = new Set<string>();
+  private queue: string[] = [];
   private readonly previousGraph: Graph | null = null;
   private readonly resolver: PathResolver;
   private lockFile: LockFileData | null = null;
   private progressCallback?: (count: number) => void;
+  private pool: Piscina | null = null;
 
   /**
    * @param rootDir - Absolute path to the project root; all node paths in the graph are relative to this.
@@ -94,6 +107,7 @@ export class GraphBuilder {
    * @param progressCallback - Called every 100 files processed; useful for rendering a progress indicator in long-running CLI builds.
    * @param gitStats - When true, fetches `commitCount90d` and `lastAuthor` for each cache-missed file via git log.
    * @param coverageMap - Pre-loaded coverage map (relative path → line %). When non-empty, populates `coveragePct` on each node after the graph is built.
+   * @param parallelParsing - Controls worker-pool offloading of `parseFile`. `true`/omitted enables it once a cheap pre-scan finds at least `minFiles` (default 20) files under `rootDir`; `false` always parses in-process; an object overrides `minFiles`/`maxThreads`.
    */
   constructor(
     private rootDir: string,
@@ -102,6 +116,7 @@ export class GraphBuilder {
     progressCallback?: (count: number) => void,
     private readonly enableGitStats = false,
     private readonly coverageMap: Map<string, number> = new Map(),
+    private readonly parallelParsing: ParallelParsingOption = true,
   ) {
     this.previousGraph = previousGraph;
     this.resolver = resolver || new DefaultResolver(rootDir);
@@ -114,11 +129,11 @@ export class GraphBuilder {
   /**
    * @description Starts the graph build from the given entry points and returns the completed graph.
    *
-   * Each entry point triggers a depth-first traversal: imports are resolved, unvisited
-   * local files are parsed, and the process continues until the full reachable subgraph
-   * is covered. Test-node tags are applied as a final post-processing step because they
-   * depend on the fully connected graph (e.g. a file is "test" if something imports it
-   * with a `.test.` path, which can only be known after all edges are resolved).
+   * Each entry point seeds the queue; imports are resolved and unvisited local files join the
+   * next wavefront round, continuing until the full reachable subgraph is covered. Test-node
+   * tags are applied as a final post-processing step because they depend on the fully connected
+   * graph (e.g. a file is "test" if something imports it with a `.test.` path, which can only be
+   * known after all edges are resolved).
    * @param entryPoints - File paths to start from. Relative paths are resolved against `rootDir`.
    * @returns The completed, enriched dependency graph.
    */
@@ -126,32 +141,99 @@ export class GraphBuilder {
     const entryPaths = entryPoints.map((entry) =>
       path.isAbsolute(entry) ? entry : path.resolve(this.rootDir, entry),
     );
-    for (const entryPath of entryPaths) {
-      await this.processFile(entryPath);
+
+    await this.initPool();
+    try {
+      for (const entryPath of entryPaths) this.enqueue(entryPath);
+      await this.drain();
+
+      // Test files are never reachable from library entry points (imports flow source→test,
+      // not the other way around). Scan for them explicitly so enrichTestedBy has data.
+      // Scoped to the entry points' common ancestor (plus conventional sibling test dirs) rather
+      // than the full rootDir, so a nested sub-project scanned from a much larger rootDir doesn't
+      // pull in unrelated files elsewhere in the tree.
+      await this.processTestFiles(commonAncestorDir(entryPaths, this.rootDir));
+
+      // Docs are never reachable from library entry points either (code doesn't import markdown),
+      // and they commonly live outside the entry points' subtree entirely (top-level README, docs/),
+      // so this scans the full rootDir rather than reusing the test-files' common-ancestor scope.
+      await this.processDocFiles();
+
+      if (this.progressCallback && this.visited.size >= 100) {
+        process.stderr.write(`\nDone. Total processed: ${this.visited.size} nodes.\n`);
+      }
+
+      enrichTestNodeTags(this.graph.nodes);
+      enrichTestedBy(this.graph.nodes);
+      enrichExportUsage(this.graph.nodes);
+      enrichDocDrift(this.graph.nodes);
+      if (this.coverageMap.size > 0) enrichCoverage(this.graph.nodes, this.coverageMap);
+      return new Graph(this.graph.nodes);
+    } finally {
+      if (this.pool) {
+        await this.pool.destroy();
+        this.pool = null;
+      }
     }
+  }
 
-    // Test files are never reachable from library entry points (imports flow source→test,
-    // not the other way around). Scan for them explicitly so enrichTestedBy has data.
-    // Scoped to the entry points' common ancestor (plus conventional sibling test dirs) rather
-    // than the full rootDir, so a nested sub-project scanned from a much larger rootDir doesn't
-    // pull in unrelated files elsewhere in the tree.
-    await this.processTestFiles(commonAncestorDir(entryPaths, this.rootDir));
+  /**
+   * @description Decides whether to spin up a worker pool for this build and constructs it if
+   *   so. Skipped entirely when `parallelParsing` is `false`, or when a cheap pre-scan of
+   *   `rootDir` (capped at `minFiles`, so it never walks more than necessary) finds fewer than
+   *   `minFiles` files — small builds (the common unit-test case) never pay pool spin-up cost.
+   *   If pool construction itself throws (e.g. a sandboxed environment without `worker_threads`
+   *   permission), falls back to in-process parsing for the whole build instead of failing it.
+   */
+  private async initPool(): Promise<void> {
+    if (this.parallelParsing === false) return;
 
-    // Docs are never reachable from library entry points either (code doesn't import markdown),
-    // and they commonly live outside the entry points' subtree entirely (top-level README, docs/),
-    // so this scans the full rootDir rather than reusing the test-files' common-ancestor scope.
-    await this.processDocFiles();
+    const opts = typeof this.parallelParsing === "object" ? this.parallelParsing : {};
+    const minFiles = opts.minFiles ?? DEFAULT_MIN_FILES_FOR_POOL;
+    if (minFiles > 0 && !this.hasAtLeastFiles(this.rootDir, minFiles)) return;
 
-    if (this.progressCallback && this.visited.size >= 100) {
-      process.stderr.write(`\nDone. Total processed: ${this.visited.size} nodes.\n`);
+    try {
+      const workerFilename = path.join(__dirname, "parse-worker.js");
+      this.pool = new Piscina({
+        filename: workerFilename,
+        ...(opts.maxThreads !== undefined ? { maxThreads: opts.maxThreads } : {}),
+      });
+    } catch (err) {
+      process.stderr.write(
+        `\nWarning: failed to start parse worker pool, falling back to synchronous parsing: ${err}\n`,
+      );
+      this.pool = null;
     }
+  }
 
-    enrichTestNodeTags(this.graph.nodes);
-    enrichTestedBy(this.graph.nodes);
-    enrichExportUsage(this.graph.nodes);
-    enrichDocDrift(this.graph.nodes);
-    if (this.coverageMap.size > 0) enrichCoverage(this.graph.nodes, this.coverageMap);
-    return new Graph(this.graph.nodes);
+  /**
+   * @description Cheaply checks whether `dir` contains at least `threshold` files, stopping the
+   *   walk as soon as the threshold is met rather than counting exhaustively.
+   * @param dir - Directory to scan (recursively, skipping `WALK_IGNORE_DIRS`).
+   * @param threshold - Minimum file count to confirm.
+   * @returns Whether at least `threshold` files were found.
+   */
+  private hasAtLeastFiles(dir: string, threshold: number): boolean {
+    let count = 0;
+    const stack = [dir];
+    while (stack.length > 0) {
+      const current = stack.pop()!;
+      let entries: fs.Dirent[];
+      try {
+        entries = fs.readdirSync(current, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          if (!WALK_IGNORE_DIRS.has(entry.name)) stack.push(path.join(current, entry.name));
+        } else if (entry.isFile()) {
+          count++;
+          if (count >= threshold) return true;
+        }
+      }
+    }
+    return count >= threshold;
   }
 
   /**
@@ -168,7 +250,7 @@ export class GraphBuilder {
     const matchesTest = (entry: fs.Dirent) =>
       patterns.some((pattern) => entry.name.includes(pattern));
 
-    await this.walkProject(scanRoot, matchesTest);
+    this.walkProject(scanRoot, matchesTest);
 
     let dir = scanRoot;
     while (dir !== this.rootDir) {
@@ -177,13 +259,15 @@ export class GraphBuilder {
       for (const name of CONVENTIONAL_TEST_DIR_NAMES) {
         const candidate = path.join(parent, name);
         try {
-          if (fs.statSync(candidate).isDirectory()) await this.walkProject(candidate, matchesTest);
+          if (fs.statSync(candidate).isDirectory()) this.walkProject(candidate, matchesTest);
         } catch {
           // not present
         }
       }
       dir = parent;
     }
+
+    await this.drain();
   }
 
   /**
@@ -194,23 +278,22 @@ export class GraphBuilder {
    *   `processTestFiles`'s narrower common-ancestor scope.
    */
   private async processDocFiles(): Promise<void> {
-    await this.walkProject(
+    this.walkProject(
       this.rootDir,
       (entry) => entry.name.endsWith(".md") || entry.name.endsWith(".mdx"),
     );
+    await this.drain();
   }
 
   /**
-   * @description Recursively walks a directory, processing every file that satisfies `matches`
-   *   into the graph. Shared by `processTestFiles` and `processDocFiles`, whose discovery passes
-   *   only differ in which files they're looking for and where they start.
+   * @description Recursively walks a directory, enqueueing every file that satisfies `matches`
+   *   for processing. Shared by `processTestFiles` and `processDocFiles`, whose discovery passes
+   *   only differ in which files they're looking for and where they start. Purely synchronous
+   *   directory traversal — the actual parse/resolve work happens later, in `drain`.
    * @param scanRoot - Directory to walk.
-   * @param matches - Predicate tested against each file entry; matching files are processed.
+   * @param matches - Predicate tested against each file entry; matching files are enqueued.
    */
-  private async walkProject(
-    scanRoot: string,
-    matches: (entry: fs.Dirent) => boolean,
-  ): Promise<void> {
+  private walkProject(scanRoot: string, matches: (entry: fs.Dirent) => boolean): void {
     let entries: fs.Dirent[];
     try {
       entries = fs.readdirSync(scanRoot, { withFileTypes: true });
@@ -220,27 +303,49 @@ export class GraphBuilder {
     for (const entry of entries) {
       const fullPath = path.join(scanRoot, entry.name);
       if (entry.isDirectory()) {
-        if (!WALK_IGNORE_DIRS.has(entry.name)) await this.walkProject(fullPath, matches);
+        if (!WALK_IGNORE_DIRS.has(entry.name)) this.walkProject(fullPath, matches);
       } else if (entry.isFile() && matches(entry)) {
-        await this.processFile(fullPath);
+        this.enqueue(fullPath);
       }
     }
   }
 
   /**
-   * @description Parses a single file and registers it in the graph, then recurses into its imports.
+   * @description Marks `filePath` as visited and, if it wasn't already, queues it for
+   *   processing in the next `drain` round.
    *
    * The `visited` guard prevents re-processing files encountered via multiple import paths
-   * (diamond dependencies). It is set before any async work so concurrent calls on the same
-   * path — if this ever runs with parallelism — cannot race.
-   * @param filePath - Absolute path of the file to process.
+   * (diamond dependencies). It is checked-and-set synchronously, with no `await` in between,
+   * so concurrent callers mid-parse in the same `drain` round cannot race each other onto the
+   * same file.
+   * @param filePath - Absolute path of the file to enqueue.
    */
-  private async processFile(filePath: string) {
+  private enqueue(filePath: string): void {
     if (this.visited.has(filePath)) return;
     this.visited.add(filePath);
-
     this.showProgress();
+    this.queue.push(filePath);
+  }
 
+  /**
+   * @description Drains the queue in wavefront rounds: every file currently queued is parsed
+   *   and resolved in parallel via `Promise.all`, and any new files discovered during that round
+   *   (via `resolveImports` → `enqueue`) form the next round's queue. Repeats until empty.
+   */
+  private async drain(): Promise<void> {
+    while (this.queue.length > 0) {
+      const batch = this.queue;
+      this.queue = [];
+      await Promise.all(batch.map((filePath) => this.finishFile(filePath)));
+    }
+  }
+
+  /**
+   * @description Parses a single queued file and registers it in the graph, then enqueues its
+   *   local imports for the next wavefront round.
+   * @param filePath - Absolute path of the file to process.
+   */
+  private async finishFile(filePath: string): Promise<void> {
     const stats = fs.statSync(filePath, { throwIfNoEntry: false });
     if (!stats?.isFile()) return;
 
@@ -294,11 +399,25 @@ export class GraphBuilder {
   ): Promise<Awaited<ReturnType<typeof parseFile>> | null> {
     const content = fs.readFileSync(filePath, "utf-8");
     try {
-      return await parseFile(filePath, content);
+      return await this.parseContent(filePath, content);
     } catch (err) {
       process.stderr.write(`\nWarning: failed to parse ${relativePath}: ${err}\n`);
       return null;
     }
+  }
+
+  /**
+   * @description Parses file content, dispatching to the worker pool when one is running for
+   *   this build, or parsing in-process otherwise. A worker's thrown error surfaces as a normal
+   *   rejected promise, so callers need no special handling for the pooled vs. in-process case.
+   * @param filePath - Absolute path of the file, used to select the language parser.
+   * @param content - Raw source content of the file.
+   */
+  private parseContent(filePath: string, content: string): ReturnType<typeof parseFile> {
+    if (this.pool) {
+      return this.pool.run({ filePath, content });
+    }
+    return parseFile(filePath, content);
   }
 
   /**
@@ -414,11 +533,7 @@ export class GraphBuilder {
 
   /**
    * @description Resolves each import's raw specifier to a concrete path and, for local imports,
-   * triggers recursive processing of the target file.
-   *
-   * Combining resolution with recursion (rather than two separate passes) keeps the
-   * traversal depth-first, which improves cache locality during parsing. The trade-off
-   * is that this method now owns two concerns: path resolution and graph traversal.
+   * enqueues the target file for the next wavefront round.
    *
    * For external imports (node_modules), the package name is extracted from the specifier
    * and matched against the lock file to attach a resolved version string. Scoped packages
@@ -452,7 +567,7 @@ export class GraphBuilder {
         if (resolved.isExternal) {
           this.attachLockfileVersion(edge);
         } else {
-          await this.processFile(resolved.path);
+          this.enqueue(resolved.path);
         }
 
         resolvedImports.push(edge);

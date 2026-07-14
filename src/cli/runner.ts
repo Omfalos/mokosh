@@ -134,6 +134,7 @@ export async function run(): Promise<void> {
     }
     const wg = await createWorkspaceGraph(rootDir, {
       gitStats: config.rawConfig.gitStats ?? false,
+      parallelParsing: config.rawConfig.parallelParsing,
     });
     if (workspacePackages) {
       runWorkspacePackages(wg);
@@ -182,6 +183,7 @@ export async function run(): Promise<void> {
       graph,
       silent,
       config.rawConfig.gitStats ?? false,
+      config.rawConfig.parallelParsing,
     );
 
     saveGraphToCache(graph, resolvedCachePath);
@@ -252,6 +254,7 @@ export async function run(): Promise<void> {
         ctx.graph,
         silent,
         config.rawConfig.gitStats ?? false,
+        config.rawConfig.parallelParsing,
       );
       saveGraphToCache(freshGraph, resolvedCachePath);
       console.log(`--- rebuilt at ${new Date().toISOString()} ---`);

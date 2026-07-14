@@ -139,7 +139,10 @@ export async function handleAnalyze(cache: SessionState, args: AnalyzeArgs) {
     const layout = detectMonorepo(root);
     if (layout.type !== "none") {
       const config = cache.getConfig(root);
-      const wg = await cache.getOrBuildWorkspace(root, { gitStats: config?.gitStats ?? false });
+      const wg = await cache.getOrBuildWorkspace(root, {
+        gitStats: config?.gitStats ?? false,
+        parallelParsing: config?.parallelParsing,
+      });
       cache.storeLastAnalyze(root, { kind: "workspace" });
       cache.startWatching(root);
       const perPackage = Array.from(wg.packages.values()).map(({ graph, pkg }) => ({

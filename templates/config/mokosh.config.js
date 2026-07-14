@@ -15,4 +15,5 @@ module.exports = {
   // coverageReportPath: "coverage/coverage-summary.json",
   // coverageThreshold: 80,
   // tagApplier: { framework: "vitest" },
+  // parallelParsing: false, // disable the worker-pool parser (see docs/adr-010-parallel-parsing.md)
 };

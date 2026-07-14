@@ -1,7 +1,7 @@
 /** Loads the dependency graph from a JSON disk cache or builds it fresh if the cache is missing. */
 import fs from "node:fs";
 import path from "node:path";
-import { createImportMap, Graph } from "../index";
+import { createImportMap, Graph, type ParallelParsingOption } from "../index";
 
 /**
  * @description Reads a serialized graph from a JSON cache file and deserializes it.
@@ -35,6 +35,7 @@ export function saveGraphToCache(graph: Graph, cachePath: string): void {
  * @param {Graph | null} cachedGraph - A previously built `Graph` to reuse as an incremental base, or `null` for a full build.
  * @param {boolean} [silent=false] - When `true`, suppresses progress output during the build.
  * @param {boolean} [gitStats=false] - When `true`, attaches git churn data to each node.
+ * @param {ParallelParsingOption} [parallelParsing] - Controls worker-pool offloading of file parsing; see `MokoshConfig.parallelParsing`.
  * @returns {Promise<Graph>} The fully-built `Graph` covering all reachable imports.
  */
 export async function buildGraph(
@@ -43,6 +44,7 @@ export async function buildGraph(
   cachedGraph: Graph | null,
   silent = false,
   gitStats = false,
+  parallelParsing?: ParallelParsingOption,
 ): Promise<Graph> {
-  return createImportMap(rootDir, entryPoints, cachedGraph, { silent, gitStats });
+  return createImportMap(rootDir, entryPoints, cachedGraph, { silent, gitStats, parallelParsing });
 }

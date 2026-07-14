@@ -87,7 +87,7 @@ src/
     index.ts          re-export
 
   graph/
-    builder.ts        GraphBuilder — walks FS, calls parsers, builds Graph
+    builder.ts        GraphBuilder — walks FS, calls parsers, builds Graph (parseFile optionally offloaded to a piscina worker pool — see docs/adr-010-parallel-parsing.md)
     model.ts          Graph class — traverse, findCycles, serialize/deserialize
     analyzer.ts       GraphAnalyzer — in/out-degree analysis
     enrichment.ts     enrichCoverage, enrichExportUsage, enrichLibraryTags, enrichTestedBy, enrichTestNodeTags, enrichDocDrift
@@ -249,4 +249,4 @@ Run `/pre-update` — it calls `get_affected` to show blast radius before any ed
 - `traversal.md` — graph traversal semantics
 - `lock-files.md` — lock file parsing
 - `releasing.md` — release process and commit conventions
-- `adr-001-styles-parsing.md` through `adr-009-markdown-parsing.md` — ADRs for key architecture/parser decisions
+- `adr-001-styles-parsing.md` through `adr-010-parallel-parsing.md` — ADRs for key architecture/parser decisions
