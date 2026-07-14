@@ -1,5 +1,5 @@
 /** Git integration: changed-file detection via GitProvider and per-file commit activity stats via getGitFileStats. */
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 
 /**
  * @description Contract for querying changed files from a version-control backend.
@@ -22,14 +22,17 @@ export class DefaultGitProvider implements GitProvider {
   public getChangedFiles(): string[] {
     try {
       const commands = [
-        "git diff --name-only",
-        "git diff --cached --name-only",
-        "git ls-files --others --exclude-standard",
+        ["diff", "--name-only"],
+        ["diff", "--cached", "--name-only"],
+        ["ls-files", "--others", "--exclude-standard"],
       ];
 
-      const allFiles = commands.flatMap((cmd) => {
+      const allFiles = commands.flatMap((args) => {
         try {
-          const output = execSync(cmd, { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] });
+          const output = execFileSync("git", args, {
+            encoding: "utf-8",
+            stdio: ["ignore", "pipe", "ignore"],
+          });
           return output
             .split("\n")
             .map((filePath) => filePath.trim())
@@ -66,14 +69,16 @@ export interface GitFileStats {
  *   unbounded last-commit timestamp. Fields are `undefined` if the file has no history.
  */
 export function getGitFileStats(rootDir: string, relativePath: string): GitFileStats {
-  const output = execSync(
-    `git -C "${rootDir}" log --follow --format="%ae" --since="90 days ago" -- "${relativePath}"`,
+  const output = execFileSync(
+    "git",
+    ["-C", rootDir, "log", "--follow", "--format=%ae", "--since=90 days ago", "--", relativePath],
     { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] },
   );
   const lines = output.split("\n").filter(Boolean);
 
-  const lastCommitOutput = execSync(
-    `git -C "${rootDir}" log -1 --format="%at" -- "${relativePath}"`,
+  const lastCommitOutput = execFileSync(
+    "git",
+    ["-C", rootDir, "log", "-1", "--format=%at", "--", relativePath],
     { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] },
   ).trim();
 

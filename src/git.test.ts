@@ -1,12 +1,12 @@
 // @tag git-provider-test
 
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { DefaultGitProvider } from "./git";
 
-// Mock the execSync from node:child_process
+// Mock the execFileSync from node:child_process
 vi.mock("node:child_process", () => ({
-  execSync: vi.fn(),
+  execFileSync: vi.fn(),
 }));
 
 describe("GitProvider", { tags: ["DefaultGitProvider", "git"] }, () => {
@@ -19,28 +19,32 @@ describe("GitProvider", { tags: ["DefaultGitProvider", "git"] }, () => {
   describe("DefaultGitProvider.getChangedFiles", () => {
     test("should return a deduplicated list of changed files from multiple git commands", () => {
       // Mock different outputs for different git commands
-      vi.mocked(execSync).mockImplementation(((command: string) => {
-        if (typeof command !== "string") return "";
-        if (command.includes("diff --name-only") && !command.includes("--cached")) {
+      vi.mocked(execFileSync).mockImplementation(((_file: string, args: string[]) => {
+        if (args.includes("diff") && !args.includes("--cached")) {
           return "file1.ts\nfile2.ts";
         }
-        if (command.includes("diff --cached --name-only")) {
+        if (args.includes("diff") && args.includes("--cached")) {
           return "file2.ts\nfile3.ts";
         }
-        if (command.includes("ls-files --others")) {
+        if (args.includes("ls-files")) {
           return "file4.ts";
         }
         return "";
-      }) as unknown as typeof execSync);
+      }) as unknown as typeof execFileSync);
 
       const changedFiles = provider.getChangedFiles();
 
       // Verify all commands were called
-      expect(execSync).toHaveBeenCalledTimes(3);
-      expect(execSync).toHaveBeenCalledWith("git diff --name-only", expect.any(Object));
-      expect(execSync).toHaveBeenCalledWith("git diff --cached --name-only", expect.any(Object));
-      expect(execSync).toHaveBeenCalledWith(
-        "git ls-files --others --exclude-standard",
+      expect(execFileSync).toHaveBeenCalledTimes(3);
+      expect(execFileSync).toHaveBeenCalledWith("git", ["diff", "--name-only"], expect.any(Object));
+      expect(execFileSync).toHaveBeenCalledWith(
+        "git",
+        ["diff", "--cached", "--name-only"],
+        expect.any(Object),
+      );
+      expect(execFileSync).toHaveBeenCalledWith(
+        "git",
+        ["ls-files", "--others", "--exclude-standard"],
         expect.any(Object),
       );
 
@@ -54,24 +58,20 @@ describe("GitProvider", { tags: ["DefaultGitProvider", "git"] }, () => {
     });
 
     test("should handle empty output from git commands", () => {
-      vi.mocked(execSync).mockReturnValue("" as unknown as ReturnType<typeof execSync>);
+      vi.mocked(execFileSync).mockReturnValue("" as unknown as ReturnType<typeof execFileSync>);
 
       const changedFiles = provider.getChangedFiles();
       expect(changedFiles).toEqual([]);
     });
 
     test("should continue if one git command fails", () => {
-      vi.mocked(execSync).mockImplementation(((command: string) => {
-        if (
-          typeof command === "string" &&
-          command.includes("diff --name-only") &&
-          !command.includes("--cached")
-        ) {
+      vi.mocked(execFileSync).mockImplementation(((_file: string, args: string[]) => {
+        if (args.includes("diff") && !args.includes("--cached")) {
           return "file1.ts";
         }
         // Simulate failure for other commands
         throw new Error("Git command failed");
-      }) as unknown as typeof execSync);
+      }) as unknown as typeof execFileSync);
 
       const changedFiles = provider.getChangedFiles();
 
@@ -80,7 +80,7 @@ describe("GitProvider", { tags: ["DefaultGitProvider", "git"] }, () => {
     });
 
     test("should return an empty array if all git commands fail", () => {
-      vi.mocked(execSync).mockImplementation(() => {
+      vi.mocked(execFileSync).mockImplementation(() => {
         throw new Error("Git not installed or repository not found");
       });
 
@@ -89,8 +89,8 @@ describe("GitProvider", { tags: ["DefaultGitProvider", "git"] }, () => {
     });
 
     test("should filter out empty strings and whitespace", () => {
-      vi.mocked(execSync).mockReturnValue(
-        "\n  \nfile1.ts\n\nfile2.ts  \n" as unknown as ReturnType<typeof execSync>,
+      vi.mocked(execFileSync).mockReturnValue(
+        "\n  \nfile1.ts\n\nfile2.ts  \n" as unknown as ReturnType<typeof execFileSync>,
       );
 
       const changedFiles = provider.getChangedFiles();
