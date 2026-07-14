@@ -1,3 +1,10 @@
+## [0.1.6](https://github.com/Omfalos/mokosh/compare/v0.1.5...v0.1.6) (2026-07-14)
+
+### Features
+
+* **config:** add parallelParsing option to disable/tune the worker pool ([dcf6f3e](https://github.com/Omfalos/mokosh/commit/dcf6f3e2df119dad42143a308f9b49194d800594))
+* **graph:** add markdown parsing and doc-drift detection ([68d3357](https://github.com/Omfalos/mokosh/commit/68d33574a60023c356dfdea4ec606604c442e20b))
+
 ## [0.1.5](https://github.com/Omfalos/mokosh/compare/v0.1.4...v0.1.5) (2026-07-13)
 
 ### Features
