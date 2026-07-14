@@ -1,27 +1,9 @@
 /** Filters a graph by applying NodeQuery predicates: category, type, tag, path, imports, coverage, and more. */
 import type { SerializedGraph } from "../types/graph";
-import type { FileNode } from "../types/node";
-import { NODE_MATCHERS } from "./matchers";
+import { matchNode } from "./matchers";
 import type { NodeQuery } from "./types";
 
-/**
- * @description Tests whether a graph node satisfies all criteria in `query` by running it
- *   through every matcher in `NODE_MATCHERS`. String fields use exact match with an optional
- *   `!` prefix for negation. `tags` uses OR logic across positive entries; negated tags act
- *   as mandatory exclusions. Adding a new query key requires adding a new matcher to
- *   `NODE_MATCHERS`, not editing this function.
- * @param {FileNode} node - The graph node to evaluate.
- * @param {NodeQuery} query - Filter criteria; omitted fields are treated as wildcards.
- * @param {Map<string, string[]>} reverseIndex - Optional reverse importer lookup, required when `query.importedBy` is set.
- * @returns {boolean} `true` if the node passes every active filter criterion.
- */
-export function matchNode(
-  node: FileNode,
-  query: NodeQuery,
-  reverseIndex?: Map<string, string[]>,
-): boolean {
-  return NODE_MATCHERS.every((matcher) => matcher(node, query, reverseIndex));
-}
+export { matchNode } from "./matchers";
 
 /**
  * @description Filters a serialized graph to only nodes matching all criteria in `query`,
@@ -54,14 +36,20 @@ export function filterGraph(graph: SerializedGraph, query: NodeQuery): Serialize
   }));
 
   if (query.sort) {
+    const direction = query.sortDir === "asc" ? -1 : 1;
     resultNodes.sort((nodeA, nodeB) => {
-      if (query.sort === "size") return nodeB.size - nodeA.size;
-      if (query.sort === "imports") return nodeB.imports.length - nodeA.imports.length;
-      if (query.sort === "commitCount90d")
-        return (nodeB.commitCount90d ?? 0) - (nodeA.commitCount90d ?? 0);
-      if (query.sort === "exportUsage")
-        return (nodeB.avgExportUsage ?? 0) - (nodeA.avgExportUsage ?? 0);
-      return 0;
+      let diff = 0;
+      if (query.sort === "size") diff = nodeB.size - nodeA.size;
+      else if (query.sort === "imports") diff = nodeB.imports.length - nodeA.imports.length;
+      else if (query.sort === "commitCount90d")
+        diff = (nodeB.commitCount90d ?? 0) - (nodeA.commitCount90d ?? 0);
+      else if (query.sort === "exportUsage")
+        diff = (nodeB.avgExportUsage ?? 0) - (nodeA.avgExportUsage ?? 0);
+      else if (query.sort === "complexity")
+        diff = (nodeB.complexity ?? 0) - (nodeA.complexity ?? 0);
+      else if (query.sort === "cognitiveComplexity")
+        diff = (nodeB.cognitiveComplexity ?? 0) - (nodeA.cognitiveComplexity ?? 0);
+      return diff * direction;
     });
   }
   if (query.limit !== undefined) resultNodes.splice(query.limit);

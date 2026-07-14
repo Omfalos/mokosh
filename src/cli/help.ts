@@ -119,12 +119,57 @@ FILTERING
                          false = undocumented files only.
                          Example: hasDocstring:false
 
+  minCoverage:<pct>      Line coverage % >= N. No-data nodes are excluded.
+  maxCoverage:<pct>      Line coverage % <= N. No-data nodes are treated as 0%.
+                         Examples: minCoverage:80   maxCoverage:20
+
+  minExportUsage:<0-1>   Average exportUsageRatio >= N. No-data nodes are excluded.
+  maxExportUsage:<0-1>   Average exportUsageRatio <= N. No-data nodes treated as 0.
+                         Example: maxExportUsage:0.2
+
+  minComplexity:<N>      McCabe cyclomatic complexity >= N. No-data nodes excluded.
+  maxComplexity:<N>      McCabe cyclomatic complexity <= N. No-data nodes treated as 0.
+                         Example: minComplexity:15
+
+  minCognitiveComplexity:<N>  Cognitive complexity >= N. No-data nodes excluded.
+  maxCognitiveComplexity:<N>  Cognitive complexity <= N. No-data nodes treated as 0.
+                         Example: minCognitiveComplexity:10
+
+  minCommits:<N>         commitCount90d >= N (requires gitStats: true). No-data nodes excluded.
+  maxCommits:<N>         commitCount90d <= N. No-data nodes treated as 0.
+                         Example: minCommits:5
+
+  isDocumented:<bool>    true = at least one markdown doc references this file.
+                         false = undocumented-by-doc files only.
+                         Example: isDocumented:false
+
+  isStale:<bool>         true = node is flagged as doc-stale (staleFor non-empty; see
+                         check-doc-drift). Example: isStale:true
+
+  lastAuthor:<value>     Exact match on the file's most recent git author. Negate with !.
+                         Requires gitStats: true.
+                         Example: lastAuthor:jane
+
+OR LOGIC
+  any(key:val|key:val)   OR-group: node matches if it satisfies ANY single-key clause inside
+                         the group. ANDed with every other key in the query string. Each
+                         clause is a single key:value pair — multi-key AND clauses inside a
+                         group are not supported.
+                         Examples: any(category:logic|category:ui)
+                                   path:src,any(tag:auth|tag:payments)
+
 SORTING & LIMITING  (applied after all filters)
-  sort:<field>           Sort results descending by one of:
-                           size           — file size in bytes
-                           imports        — number of direct imports
-                           commitCount90d — commits in the last 90 days (requires gitStats: true)
-                         Example: sort:imports
+  sort:<field>           Sort results by one of:
+                           size                 — file size in bytes
+                           imports              — number of direct imports
+                           commitCount90d       — commits in the last 90 days (requires gitStats: true)
+                           exportUsage          — average exportUsageRatio
+                           complexity           — McCabe cyclomatic complexity
+                           cognitiveComplexity  — cognitive complexity
+                         Default direction is descending; see sortDir. Example: sort:imports
+
+  sortDir:<asc|desc>     Sort direction, applies to sort. Default: desc.
+                         Example: sort:size,sortDir:asc
 
   limit:<N>              Return at most N results.
                          Example: limit:20

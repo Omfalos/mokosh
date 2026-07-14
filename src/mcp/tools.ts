@@ -238,7 +238,7 @@ export const TOOL_DEFINITIONS = [
         filter: {
           type: "string",
           description:
-            "Query string e.g. 'category:logic' or 'category:logic,tag:auth'. Supports: category, type, tag, path, external, importsFile, importedBy, minImports, maxImports, minSize, maxSize, hasDocstring, minCoverage, maxCoverage, minExportUsage, maxExportUsage. sort: size|imports|commitCount90d|exportUsage. limit: N.",
+            "Query string e.g. 'category:logic' or 'category:logic,tag:auth'. Supports: category, type, tag, path, external, importsFile, importedBy, minImports, maxImports, minSize, maxSize, hasDocstring, minCoverage, maxCoverage, minExportUsage, maxExportUsage, minComplexity, maxComplexity, minCognitiveComplexity, maxCognitiveComplexity, minCommits, maxCommits, isDocumented, isStale, lastAuthor. OR logic: any(key:val|key:val) matches if any single-key clause holds, ANDed with the rest of the query. sort: size|imports|commitCount90d|exportUsage|complexity|cognitiveComplexity, with sortDir: asc|desc (default desc). limit: N.",
         },
         mermaid: { type: "boolean", description: "Return a Mermaid diagram (default: false)" },
         slim: {

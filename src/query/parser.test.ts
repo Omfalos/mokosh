@@ -160,6 +160,32 @@ describe("parseQuery", { tags: ["parseQuery", "parser"] }, () => {
     test("'commitCount90d' is accepted", () => {
       expect(parseQuery("sort:commitCount90d")).toEqual({ sort: "commitCount90d" });
     });
+
+    test("'complexity' is accepted", () => {
+      expect(parseQuery("sort:complexity")).toEqual({ sort: "complexity" });
+    });
+
+    test("'cognitiveComplexity' is accepted", () => {
+      expect(parseQuery("sort:cognitiveComplexity")).toEqual({ sort: "cognitiveComplexity" });
+    });
+  });
+
+  describe("sortDir", () => {
+    test("'asc' sets sortDir to asc", () => {
+      expect(parseQuery("sortDir:asc")).toEqual({ sortDir: "asc" });
+    });
+
+    test("'desc' sets sortDir to desc", () => {
+      expect(parseQuery("sortDir:desc")).toEqual({ sortDir: "desc" });
+    });
+
+    test("mixed case 'Asc' sets sortDir to asc", () => {
+      expect(parseQuery("sortDir:Asc")).toEqual({ sortDir: "asc" });
+    });
+
+    test("invalid value falls back to desc", () => {
+      expect(parseQuery("sortDir:banana")).toEqual({ sortDir: "desc" });
+    });
   });
 
   describe("hasDocstring", () => {
@@ -177,6 +203,115 @@ describe("parseQuery", { tags: ["parseQuery", "parser"] }, () => {
 
     test("any non-false value sets hasDocstring to true", () => {
       expect(parseQuery("hasDocstring:yes")).toEqual({ hasDocstring: true });
+    });
+  });
+
+  describe("minComplexity / maxComplexity", () => {
+    test("minComplexity parses integer", () => {
+      expect(parseQuery("minComplexity:10")).toEqual({ minComplexity: 10 });
+    });
+
+    test("maxComplexity parses integer", () => {
+      expect(parseQuery("maxComplexity:5")).toEqual({ maxComplexity: 5 });
+    });
+  });
+
+  describe("minCognitiveComplexity / maxCognitiveComplexity", () => {
+    test("minCognitiveComplexity parses integer", () => {
+      expect(parseQuery("minCognitiveComplexity:8")).toEqual({ minCognitiveComplexity: 8 });
+    });
+
+    test("maxCognitiveComplexity parses integer", () => {
+      expect(parseQuery("maxCognitiveComplexity:3")).toEqual({ maxCognitiveComplexity: 3 });
+    });
+  });
+
+  describe("minCommits / maxCommits", () => {
+    test("minCommits parses integer", () => {
+      expect(parseQuery("minCommits:2")).toEqual({ minCommits: 2 });
+    });
+
+    test("maxCommits parses integer", () => {
+      expect(parseQuery("maxCommits:20")).toEqual({ maxCommits: 20 });
+    });
+  });
+
+  describe("isDocumented", () => {
+    test("'true' sets isDocumented to true", () => {
+      expect(parseQuery("isDocumented:true")).toEqual({ isDocumented: true });
+    });
+
+    test("'false' sets isDocumented to false", () => {
+      expect(parseQuery("isDocumented:false")).toEqual({ isDocumented: false });
+    });
+
+    test("any non-false value sets isDocumented to true", () => {
+      expect(parseQuery("isDocumented:yes")).toEqual({ isDocumented: true });
+    });
+  });
+
+  describe("isStale", () => {
+    test("'true' sets isStale to true", () => {
+      expect(parseQuery("isStale:true")).toEqual({ isStale: true });
+    });
+
+    test("'false' sets isStale to false", () => {
+      expect(parseQuery("isStale:false")).toEqual({ isStale: false });
+    });
+  });
+
+  describe("lastAuthor", () => {
+    test("parses plain value", () => {
+      expect(parseQuery("lastAuthor:jane")).toEqual({ lastAuthor: "jane" });
+    });
+
+    test("parses negated value", () => {
+      expect(parseQuery("lastAuthor:!jane")).toEqual({ lastAuthor: "!jane" });
+    });
+  });
+
+  describe("any — OR groups", () => {
+    test("two-clause OR group parses into any array", () => {
+      expect(parseQuery("any(tag:auth|tag:payments)")).toEqual({
+        any: [{ tags: ["auth"] }, { tags: ["payments"] }],
+      });
+    });
+
+    test("OR group across different keys", () => {
+      expect(parseQuery("any(category:logic|category:ui)")).toEqual({
+        any: [{ category: "logic" }, { category: "ui" }],
+      });
+    });
+
+    test("combined with other top-level keys (ANDed with the group)", () => {
+      expect(parseQuery("path:src,any(tag:auth|tag:payments)")).toEqual({
+        path: "src",
+        any: [{ tags: ["auth"] }, { tags: ["payments"] }],
+      });
+    });
+
+    test("case-insensitive 'any(' prefix", () => {
+      expect(parseQuery("ANY(category:logic|category:ui)")).toEqual({
+        any: [{ category: "logic" }, { category: "ui" }],
+      });
+    });
+
+    test("multiple any(...) groups accumulate", () => {
+      expect(parseQuery("any(category:logic|category:ui),any(tag:auth|tag:core)")).toEqual({
+        any: [{ category: "logic" }, { category: "ui" }, { tags: ["auth"] }, { tags: ["core"] }],
+      });
+    });
+
+    test("malformed group: unclosed paren is ignored (falls through to normal parsing)", () => {
+      expect(parseQuery("any(tag:auth|tag:payments")).toEqual({});
+    });
+
+    test("malformed group: empty group produces no any entries", () => {
+      expect(parseQuery("any()")).toEqual({});
+    });
+
+    test("single-clause group still produces a one-item any array", () => {
+      expect(parseQuery("any(tag:auth)")).toEqual({ any: [{ tags: ["auth"] }] });
     });
   });
 

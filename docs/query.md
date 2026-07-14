@@ -33,10 +33,20 @@ The query is a comma-separated string of `key:value` pairs.
 | `minSize` | Matches nodes whose file size is at least N bytes. | `minSize:1024` |
 | `maxSize` | Matches nodes whose file size is at most N bytes. | `maxSize:4096` |
 | `hasDocstring` | Matches nodes that have (`true`) or lack (`false`) a JSDoc description on the first statement. | `hasDocstring:true` |
-| `sort` | Sort results by `size`, `imports`, or `commitCount90d`. | `sort:imports` |
+| `minCoverage` / `maxCoverage` | Line coverage % is at least/at most N. No-data nodes are excluded from `minCoverage`, treated as 0% for `maxCoverage`. | `minCoverage:80` |
+| `minExportUsage` / `maxExportUsage` | Average `exportUsageRatio` (0–1) is at least/at most N. Same no-data convention as coverage. | `maxExportUsage:0.2` |
+| `minComplexity` / `maxComplexity` | McCabe cyclomatic complexity is at least/at most N. No-data nodes (non-TS/JS files) excluded from `min`, treated as 0 for `max`. | `minComplexity:15` |
+| `minCognitiveComplexity` / `maxCognitiveComplexity` | Cognitive complexity is at least/at most N. Same no-data convention as complexity. | `minCognitiveComplexity:10` |
+| `minCommits` / `maxCommits` | `commitCount90d` is at least/at most N (requires `gitStats: true`). Same no-data convention. | `minCommits:5` |
+| `isDocumented` | Matches nodes that have (`true`) or lack (`false`) at least one markdown doc referencing them. | `isDocumented:false` |
+| `isStale` | Matches nodes flagged as doc-stale (`true`) by `check-doc-drift`, i.e. `staleFor` is non-empty. | `isStale:true` |
+| `lastAuthor` | Exact match on the file's most recent git author (requires `gitStats: true`). Negate with `!`. | `lastAuthor:jane` |
+| `any(key:val\|key:val)` | OR-group: node matches if it satisfies **any** single-key clause inside the group. ANDed with every other key in the query string. Each clause is one `key:value` pair — multi-key AND clauses inside a group aren't supported. | `any(category:logic\|category:ui)` |
+| `sort` | Sort results by `size`, `imports`, `commitCount90d`, `exportUsage`, `complexity`, or `cognitiveComplexity`. | `sort:imports` |
+| `sortDir` | Sort direction for `sort`: `asc` or `desc`. Defaults to `desc`. | `sort:size,sortDir:asc` |
 | `limit` | Return at most N nodes after filtering and sorting. | `limit:20` |
 
-> **Note**: If multiple filter keys are provided, a node must match **all** criteria (AND logic). `sort` and `limit` apply after filtering.
+> **Note**: If multiple filter keys are provided, a node must match **all** criteria (AND logic), except inside an `any(...)` group, which is OR logic among its own clauses. `sort` and `limit` apply after filtering. The literal substring `any(` is reserved syntax — a query value that happens to contain it verbatim will be misparsed, similar to how `+` is reserved inside `tag:` values.
 
 ## Examples
 
@@ -74,6 +84,26 @@ npx mokosh --query "type:typescript,category:logic,hasDocstring:false" src/index
 Find the 10 largest logic files in the `services` directory tagged with `api`:
 ```bash
 npx mokosh --query "path:services,category:logic,tag:api,sort:size,limit:10" src/index.ts
+```
+
+### OR Logic Across Keys
+Use `any(key:val|key:val)` to match a node against several unrelated criteria — the node
+passes the group if it satisfies **any one** of the clauses inside it. It's still ANDed with
+every other key in the query string:
+```bash
+# Files in either the "logic" or "ui" category
+npx mokosh --query "any(category:logic|category:ui)" src/index.ts
+
+# Files under src/ that are tagged auth OR payments
+npx mokosh --query "path:src,any(tag:auth|tag:payments)" src/index.ts
+```
+Each `|`-separated clause must be a single `key:value` pair — `any(a:1,b:2|c:3)` (multi-key
+clauses joined by `,` inside the group) is not supported.
+
+### Sort Direction and Complexity
+Find the 10 least-churned files with the lowest cognitive complexity:
+```bash
+npx mokosh --query "sort:cognitiveComplexity,sortDir:asc,limit:10" src/index.ts
 ```
 
 ## Node Categories

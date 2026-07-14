@@ -322,6 +322,174 @@ describe("matchNode", {
       expect(matchNode(noDoc, {})).toBe(true);
     });
   });
+
+  describe("minComplexity / maxComplexity", () => {
+    const node = makeNode({ path: "src/a.ts", complexity: 10 });
+    const noData = makeNode({ path: "src/b.ts" });
+
+    test("minComplexity: passes when at or above threshold", () => {
+      expect(matchNode(node, { minComplexity: 10 })).toBe(true);
+    });
+
+    test("minComplexity: fails when below threshold", () => {
+      expect(matchNode(node, { minComplexity: 11 })).toBe(false);
+    });
+
+    test("minComplexity: excludes nodes with no complexity data", () => {
+      expect(matchNode(noData, { minComplexity: 1 })).toBe(false);
+    });
+
+    test("maxComplexity: passes when at or below threshold", () => {
+      expect(matchNode(node, { maxComplexity: 10 })).toBe(true);
+    });
+
+    test("maxComplexity: fails when above threshold", () => {
+      expect(matchNode(node, { maxComplexity: 9 })).toBe(false);
+    });
+
+    test("maxComplexity: includes nodes with no complexity data (treated as 0)", () => {
+      expect(matchNode(noData, { maxComplexity: 0 })).toBe(true);
+    });
+  });
+
+  describe("minCognitiveComplexity / maxCognitiveComplexity", () => {
+    const node = makeNode({ path: "src/a.ts", cognitiveComplexity: 6 });
+    const noData = makeNode({ path: "src/b.ts" });
+
+    test("minCognitiveComplexity: passes when at or above threshold", () => {
+      expect(matchNode(node, { minCognitiveComplexity: 6 })).toBe(true);
+    });
+
+    test("minCognitiveComplexity: excludes nodes with no data", () => {
+      expect(matchNode(noData, { minCognitiveComplexity: 1 })).toBe(false);
+    });
+
+    test("maxCognitiveComplexity: fails when above threshold", () => {
+      expect(matchNode(node, { maxCognitiveComplexity: 5 })).toBe(false);
+    });
+
+    test("maxCognitiveComplexity: includes nodes with no data (treated as 0)", () => {
+      expect(matchNode(noData, { maxCognitiveComplexity: 0 })).toBe(true);
+    });
+  });
+
+  describe("minCommits / maxCommits", () => {
+    const node = makeNode({ path: "src/a.ts", commitCount90d: 4 });
+    const noData = makeNode({ path: "src/b.ts" });
+
+    test("minCommits: passes when at or above threshold", () => {
+      expect(matchNode(node, { minCommits: 4 })).toBe(true);
+    });
+
+    test("minCommits: excludes nodes with no git-stats data", () => {
+      expect(matchNode(noData, { minCommits: 1 })).toBe(false);
+    });
+
+    test("maxCommits: fails when above threshold", () => {
+      expect(matchNode(node, { maxCommits: 3 })).toBe(false);
+    });
+
+    test("maxCommits: includes nodes with no data (treated as 0)", () => {
+      expect(matchNode(noData, { maxCommits: 0 })).toBe(true);
+    });
+  });
+
+  describe("isDocumented", () => {
+    const documented = makeNode({ path: "src/a.ts", documentedBy: ["docs/a.md"] });
+    const undocumented = makeNode({ path: "src/b.ts" });
+
+    test("passes when node has documentedBy and query is true", () => {
+      expect(matchNode(documented, { isDocumented: true })).toBe(true);
+    });
+
+    test("fails when node has no documentedBy and query is true", () => {
+      expect(matchNode(undocumented, { isDocumented: true })).toBe(false);
+    });
+
+    test("passes when node has no documentedBy and query is false", () => {
+      expect(matchNode(undocumented, { isDocumented: false })).toBe(true);
+    });
+  });
+
+  describe("isStale", () => {
+    const stale = makeNode({ path: "src/a.md", staleFor: ["src/a.ts"] });
+    const notStale = makeNode({ path: "src/b.md" });
+
+    test("passes when node has staleFor and query is true", () => {
+      expect(matchNode(stale, { isStale: true })).toBe(true);
+    });
+
+    test("fails when node has no staleFor and query is true", () => {
+      expect(matchNode(notStale, { isStale: true })).toBe(false);
+    });
+
+    test("passes when node has no staleFor and query is false", () => {
+      expect(matchNode(notStale, { isStale: false })).toBe(true);
+    });
+  });
+
+  describe("lastAuthor", () => {
+    const withAuthor = makeNode({ path: "src/a.ts", lastAuthor: "jane" });
+    const noAuthor = makeNode({ path: "src/b.ts" });
+
+    test("matches exact value", () => {
+      expect(matchNode(withAuthor, { lastAuthor: "jane" })).toBe(true);
+    });
+
+    test("rejects different value", () => {
+      expect(matchNode(withAuthor, { lastAuthor: "bob" })).toBe(false);
+    });
+
+    test("negated: passes when value differs", () => {
+      expect(matchNode(withAuthor, { lastAuthor: "!bob" })).toBe(true);
+    });
+
+    test("negated: fails when value matches negated term", () => {
+      expect(matchNode(withAuthor, { lastAuthor: "!jane" })).toBe(false);
+    });
+
+    test("node with no author data fails the positive form", () => {
+      expect(matchNode(noAuthor, { lastAuthor: "jane" })).toBe(false);
+    });
+
+    test("node with no author data passes the negative form", () => {
+      expect(matchNode(noAuthor, { lastAuthor: "!jane" })).toBe(true);
+    });
+  });
+
+  describe("any — OR groups", () => {
+    const node = makeNode({ path: "src/a.ts", category: "logic", tags: [tag("auth")] });
+
+    test("passes when node matches only the first sub-query", () => {
+      expect(matchNode(node, { any: [{ category: "logic" }, { category: "ui" }] })).toBe(true);
+    });
+
+    test("passes when node matches only the second sub-query", () => {
+      expect(matchNode(node, { any: [{ category: "ui" }, { category: "logic" }] })).toBe(true);
+    });
+
+    test("fails when node matches neither sub-query", () => {
+      expect(matchNode(node, { any: [{ category: "ui" }, { category: "test" }] })).toBe(false);
+    });
+
+    test("passes when node matches both sub-queries", () => {
+      expect(matchNode(node, { any: [{ category: "logic" }, { tags: ["auth"] }] })).toBe(true);
+    });
+
+    test("combined with a top-level AND field that must also pass", () => {
+      expect(
+        matchNode(node, { path: "src/a.ts", any: [{ category: "logic" }, { category: "ui" }] }),
+      ).toBe(true);
+      expect(
+        matchNode(node, { path: "src/nope.ts", any: [{ category: "logic" }, { category: "ui" }] }),
+      ).toBe(false);
+    });
+
+    test("empty/absent any is a no-op wildcard", () => {
+      expect(matchNode(node, {})).toBe(true);
+      expect(matchNode(node, { any: [] })).toBe(true);
+    });
+  });
 });
 
 // ── filterGraph ──────────────────────────────────────────────────────────────
@@ -429,6 +597,78 @@ describe("filterGraph", {
     test("sort:commitCount90d treats undefined commitCount90d as 0", () => {
       const result = filterGraph(graph, { sort: "commitCount90d" });
       expect(result.nodes[2]?.path).toBe("src/medium.ts");
+    });
+
+    test("sortDir unset preserves descending default (regression)", () => {
+      const result = filterGraph(graph, { sort: "size" });
+      expect(result.nodes.map((n) => n.path)).toEqual([
+        "src/large.ts",
+        "src/medium.ts",
+        "src/small.ts",
+      ]);
+    });
+
+    test("sortDir:desc is equivalent to unset", () => {
+      const result = filterGraph(graph, { sort: "size", sortDir: "desc" });
+      expect(result.nodes.map((n) => n.path)).toEqual([
+        "src/large.ts",
+        "src/medium.ts",
+        "src/small.ts",
+      ]);
+    });
+
+    test("sortDir:asc reverses order for sort:size", () => {
+      const result = filterGraph(graph, { sort: "size", sortDir: "asc" });
+      expect(result.nodes.map((n) => n.path)).toEqual([
+        "src/small.ts",
+        "src/medium.ts",
+        "src/large.ts",
+      ]);
+    });
+
+    test("sortDir:asc reverses order for sort:imports", () => {
+      const result = filterGraph(graph, { sort: "imports", sortDir: "asc" });
+      expect(result.nodes.map((n) => n.path)).toEqual([
+        "src/small.ts",
+        "src/medium.ts",
+        "src/large.ts",
+      ]);
+    });
+
+    test("sortDir:asc reverses order for sort:commitCount90d", () => {
+      const result = filterGraph(graph, { sort: "commitCount90d", sortDir: "asc" });
+      expect(result.nodes.map((n) => n.path)).toEqual([
+        "src/medium.ts",
+        "src/small.ts",
+        "src/large.ts",
+      ]);
+    });
+
+    test("sort:complexity orders nodes by complexity descending, undefined treated as 0", () => {
+      const complexityGraph: SerializedGraph = {
+        nodes: [
+          makeNode({ path: "src/a.ts", complexity: 5 }),
+          makeNode({ path: "src/b.ts", complexity: 20 }),
+          makeNode({ path: "src/c.ts" }),
+        ],
+      };
+      const result = filterGraph(complexityGraph, { sort: "complexity" });
+      expect(result.nodes.map((n) => n.path)).toEqual(["src/b.ts", "src/a.ts", "src/c.ts"]);
+    });
+
+    test("sort:cognitiveComplexity with sortDir:asc orders ascending", () => {
+      const complexityGraph: SerializedGraph = {
+        nodes: [
+          makeNode({ path: "src/a.ts", cognitiveComplexity: 5 }),
+          makeNode({ path: "src/b.ts", cognitiveComplexity: 20 }),
+          makeNode({ path: "src/c.ts" }),
+        ],
+      };
+      const result = filterGraph(complexityGraph, {
+        sort: "cognitiveComplexity",
+        sortDir: "asc",
+      });
+      expect(result.nodes.map((n) => n.path)).toEqual(["src/c.ts", "src/a.ts", "src/b.ts"]);
     });
   });
 

@@ -48,6 +48,16 @@ export const matchCategory: NodeMatcher = (node, query) =>
 export const matchType: NodeMatcher = (node, query) =>
   !query.type || matchesStr(node.type, query.type);
 
+/**
+ * @description Matches `NodeQuery.lastAuthor` against `FileNode.lastAuthor`. Nodes with no
+ *   author data fail the positive form and pass the negative (`!`-prefixed) form.
+ */
+export const matchLastAuthor: NodeMatcher = (node, query) => {
+  if (!query.lastAuthor) return true;
+  if (query.lastAuthor.startsWith("!")) return node.lastAuthor !== query.lastAuthor.slice(1);
+  return node.lastAuthor !== undefined && node.lastAuthor === query.lastAuthor;
+};
+
 /** @description Matches `NodeQuery.path` as a substring of `FileNode.path`. */
 export const matchPath: NodeMatcher = (node, query) =>
   !query.path || matchesPath(node.path, query.path);
@@ -114,6 +124,14 @@ export const matchMaxSize: NodeMatcher = (node, query) =>
 export const matchHasDocstring: NodeMatcher = (node, query) =>
   query.hasDocstring === undefined || !!node.description === query.hasDocstring;
 
+/** @description Matches `NodeQuery.isDocumented` against whether `FileNode.documentedBy` is non-empty. */
+export const matchIsDocumented: NodeMatcher = (node, query) =>
+  query.isDocumented === undefined || !!node.documentedBy?.length === query.isDocumented;
+
+/** @description Matches `NodeQuery.isStale` against whether `FileNode.staleFor` is non-empty. */
+export const matchIsStale: NodeMatcher = (node, query) =>
+  query.isStale === undefined || !!node.staleFor?.length === query.isStale;
+
 /**
  * @description Matches `NodeQuery.minCoverage`. Nodes with no coverage data are excluded
  *   (treated as 101%, i.e. always above any real threshold) — matching the
@@ -137,10 +155,48 @@ export const matchMinExportUsage: NodeMatcher = (node, query) =>
 export const matchMaxExportUsage: NodeMatcher = (node, query) =>
   query.maxExportUsage === undefined || (node.avgExportUsage ?? 0) <= query.maxExportUsage;
 
+/**
+ * @description Matches `NodeQuery.minComplexity`. Nodes with no complexity data are excluded —
+ *   unlike `matchMinCoverage`'s large-sentinel convention (which inadvertently makes undata'd
+ *   nodes pass any threshold), this uses `-Infinity` so missing data always fails a `>=` check.
+ */
+export const matchMinComplexity: NodeMatcher = (node, query) =>
+  query.minComplexity === undefined || (node.complexity ?? -Infinity) >= query.minComplexity;
+
+/** @description Matches `NodeQuery.maxComplexity`. Nodes with no complexity data are included (treated as 0). */
+export const matchMaxComplexity: NodeMatcher = (node, query) =>
+  query.maxComplexity === undefined || (node.complexity ?? 0) <= query.maxComplexity;
+
+/** @description Matches `NodeQuery.minCognitiveComplexity`. Nodes with no complexity data are excluded. */
+export const matchMinCognitiveComplexity: NodeMatcher = (node, query) =>
+  query.minCognitiveComplexity === undefined ||
+  (node.cognitiveComplexity ?? -Infinity) >= query.minCognitiveComplexity;
+
+/** @description Matches `NodeQuery.maxCognitiveComplexity`. Nodes with no complexity data are included (treated as 0). */
+export const matchMaxCognitiveComplexity: NodeMatcher = (node, query) =>
+  query.maxCognitiveComplexity === undefined ||
+  (node.cognitiveComplexity ?? 0) <= query.maxCognitiveComplexity;
+
+/** @description Matches `NodeQuery.minCommits`. Nodes with no git-stats data are excluded. */
+export const matchMinCommits: NodeMatcher = (node, query) =>
+  query.minCommits === undefined || (node.commitCount90d ?? -Infinity) >= query.minCommits;
+
+/** @description Matches `NodeQuery.maxCommits`. Nodes with no git-stats data are included (treated as 0). */
+export const matchMaxCommits: NodeMatcher = (node, query) =>
+  query.maxCommits === undefined || (node.commitCount90d ?? 0) <= query.maxCommits;
+
+/**
+ * @description Matches `NodeQuery.any` — the node passes if it satisfies at least one sub-query
+ *   in the OR-group, ANDed with every other top-level criterion via the rest of `NODE_MATCHERS`.
+ */
+export const matchAny: NodeMatcher = (node, query, reverseIndex) =>
+  !query.any?.length || query.any.some((subQuery) => matchNode(node, subQuery, reverseIndex));
+
 /** @description All matchers, applied in order by `matchNode`. Add new filter keys here. */
 export const NODE_MATCHERS: NodeMatcher[] = [
   matchCategory,
   matchType,
+  matchLastAuthor,
   matchPath,
   matchIsExternal,
   matchTags,
@@ -152,8 +208,37 @@ export const NODE_MATCHERS: NodeMatcher[] = [
   matchMinSize,
   matchMaxSize,
   matchHasDocstring,
+  matchIsDocumented,
+  matchIsStale,
   matchMinCoverage,
   matchMaxCoverage,
   matchMinExportUsage,
   matchMaxExportUsage,
+  matchMinComplexity,
+  matchMaxComplexity,
+  matchMinCognitiveComplexity,
+  matchMaxCognitiveComplexity,
+  matchMinCommits,
+  matchMaxCommits,
+  matchAny,
 ];
+
+/**
+ * @description Tests whether a graph node satisfies all criteria in `query` by running it
+ *   through every matcher in `NODE_MATCHERS`. String fields use exact match with an optional
+ *   `!` prefix for negation. `tags` uses OR logic across positive entries; negated tags act
+ *   as mandatory exclusions. Adding a new query key requires adding a new matcher to
+ *   `NODE_MATCHERS`, not editing this function. Lives here (not in `filter.ts`) so `matchAny`
+ *   can recurse into `NodeQuery.any` sub-queries without a circular import between the two modules.
+ * @param {FileNode} node - The graph node to evaluate.
+ * @param {NodeQuery} query - Filter criteria; omitted fields are treated as wildcards.
+ * @param {Map<string, string[]>} reverseIndex - Optional reverse importer lookup, required when `query.importedBy` is set.
+ * @returns {boolean} `true` if the node passes every active filter criterion.
+ */
+export function matchNode(
+  node: FileNode,
+  query: NodeQuery,
+  reverseIndex?: Map<string, string[]>,
+): boolean {
+  return NODE_MATCHERS.every((matcher) => matcher(node, query, reverseIndex));
+}
