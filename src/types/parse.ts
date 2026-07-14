@@ -11,6 +11,7 @@ export type FileType =
   | "gherkin"
   | "python"
   | "go"
+  | "markdown"
   | "unknown";
 
 export type ImportType = "static" | "dynamic" | "require" | "re-export" | "side-effect";

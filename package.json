@@ -97,7 +97,9 @@
     "postcss": "^8.5.12",
     "postcss-less": "^6.0.0",
     "postcss-scss": "^4.0.9",
+    "remark-parse": "^11.0.0",
     "stylus": "^0.64.0",
-    "typescript": "^6.0.2"
+    "typescript": "^6.0.2",
+    "unified": "^11.0.5"
   }
 }

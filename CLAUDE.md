@@ -36,6 +36,9 @@ Enrichment (post-build)        ← src/graph/enrichment.ts
   │  enrichLibraryTags         Adds import-kind tags for third-party libs
   │  enrichTestedBy            Links test files back to their subjects
   │  enrichTestNodeTags        Tags test nodes with the files they test
+  │  enrichDocDrift            Links markdown docs to referenced files; flags docs whose
+  │                            referenced files committed more recently (commit-recency
+  │                            heuristic, not a content diff)
   │
   ▼
 Consumers
@@ -87,8 +90,9 @@ src/
     builder.ts        GraphBuilder — walks FS, calls parsers, builds Graph
     model.ts          Graph class — traverse, findCycles, serialize/deserialize
     analyzer.ts       GraphAnalyzer — in/out-degree analysis
-    enrichment.ts     enrichCoverage, enrichExportUsage, enrichLibraryTags, enrichTestedBy, enrichTestNodeTags
+    enrichment.ts     enrichCoverage, enrichExportUsage, enrichLibraryTags, enrichTestedBy, enrichTestNodeTags, enrichDocDrift
     resolver.ts       DefaultResolver — turns import specifiers into file paths (relative, tsconfig aliases, node_modules)
+    lang-resolvers/   per-extension bare-specifier resolution (Python, Lua, Go, style, markdown)
     index.ts          re-export of all graph/* modules
     workspace/        monorepo detection
       types.ts        WorkspacePackage, MonorepoLayout
@@ -116,6 +120,7 @@ src/
       gherkin.ts      Gherkin/Cucumber (.feature files)
       ls.ts           LiveScript
       lua.ts          Lua
+      markdown.ts     Markdown/MDX via remark/mdast — see docs/adr-009-markdown-parsing.md
     style/
       barrel.ts       style parser aggregator
       css.ts          CSS
@@ -153,6 +158,7 @@ src/
       affected-tests.ts --affected-tests
       callers.ts        --callers
       check-cycles.ts   --check-cycles
+      check-doc-drift.ts --check-doc-drift
       detect-features.ts --detect-features
       find-uncovered.ts --find-uncovered
       find-unused.ts    --find-unused
@@ -170,7 +176,7 @@ src/
 - `imports: ImportEdge[]` — outgoing edges; each edge has `toPath`, `rawSpecifier`, `symbols`, `isExternal`, `isWorkspace`
 - `exports: ExportedSymbol[]` — named exports with optional doc/signature
 - `tags: StructuredTag[]` — semantic labels (kind: `declaration | import | marker | comment | option-bag`)
-- Optional enriched fields: `commitCount90d`, `lastAuthor`, `coveragePct`, `complexity`, `cognitiveComplexity`, `callEdges`, `avgExportUsage`, `maxExportUsage`
+- Optional enriched fields: `commitCount90d`, `lastAuthor`, `lastCommitAt`, `coveragePct`, `complexity`, `cognitiveComplexity`, `callEdges`, `avgExportUsage`, `maxExportUsage`, `documentedBy`, `staleFor`
 
 **`Graph`** (`src/graph/model.ts`) — wraps `Map<string, FileNode>`:
 - `traverse(startPath, visitor, opts)` — DFS/BFS in outgoing or incoming direction
@@ -243,4 +249,4 @@ Run `/pre-update` — it calls `get_affected` to show blast radius before any ed
 - `traversal.md` — graph traversal semantics
 - `lock-files.md` — lock file parsing
 - `releasing.md` — release process and commit conventions
-- `adr-001-styles-parsing.md`, `adr-002-python-parsing.md` — ADRs for key parser decisions
+- `adr-001-styles-parsing.md` through `adr-009-markdown-parsing.md` — ADRs for key architecture/parser decisions

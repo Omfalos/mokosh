@@ -16,6 +16,7 @@ export interface ParsedArgs {
   findUnused: boolean;
   excludeTests: boolean;
   checkCycles: boolean;
+  checkDocDrift: boolean;
   findUncovered: boolean;
   callers: boolean;
   file: string | undefined;
@@ -98,6 +99,7 @@ const OPTIONS = {
   "find-unused": { type: "boolean" },
   "exclude-tests": { type: "boolean" },
   "check-cycles": { type: "boolean" },
+  "check-doc-drift": { type: "boolean" },
   "find-uncovered": { type: "boolean" },
   callers: { type: "boolean" },
   silent: { type: "boolean" },
@@ -215,6 +217,7 @@ export function parseArgs(cliTokens: string[]): ParsedArgs {
     findUnused: values["find-unused"] ?? false,
     excludeTests: values["exclude-tests"] ?? false,
     checkCycles: values["check-cycles"] ?? false,
+    checkDocDrift: values["check-doc-drift"] ?? false,
     findUncovered: values["find-uncovered"] ?? false,
     callers: values["callers"] ?? false,
     silent: values["silent"] ?? false,

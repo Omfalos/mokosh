@@ -27,6 +27,8 @@ export const DEFAULT_EXTENSIONS: readonly string[] = [
   ".py",
   ".go",
   ".feature",
+  ".md",
+  ".mdx",
 ];
 
 export interface ScanOptions {

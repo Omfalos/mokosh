@@ -8,6 +8,7 @@ import { run as runApplyTags } from "./commands/apply-tags";
 import { run as runCallGraph } from "./commands/call-graph";
 import { run as runCallers } from "./commands/callers";
 import { run as runCheckCycles } from "./commands/check-cycles";
+import { run as runCheckDocDrift } from "./commands/check-doc-drift";
 import { runClearCache } from "./commands/clear-cache";
 import { run as runDependencies } from "./commands/dependencies";
 import { run as runDependents } from "./commands/dependents";
@@ -40,6 +41,7 @@ const WATCHABLE_COMMANDS = new Set<CommandHandler>([
   runFindUncovered,
   runFindComplexFunctions,
   runCheckCycles,
+  runCheckDocDrift,
 ]);
 
 /**
@@ -87,6 +89,7 @@ export async function run(): Promise<void> {
     findUncovered,
     excludeTests,
     checkCycles,
+    checkDocDrift,
     callers,
     dependencies,
     dependents,
@@ -167,7 +170,8 @@ export async function run(): Promise<void> {
       !autoScan &&
       !findUnused &&
       !detectFeatures &&
-      !checkCycles
+      !checkCycles &&
+      !checkDocDrift
     ) {
       console.error("Error: No entry points provided");
       process.exit(1);
@@ -218,6 +222,7 @@ export async function run(): Promise<void> {
     [detectFeatures, runDetectFeatures],
     [findUnused, runFindUnused],
     [checkCycles, runCheckCycles],
+    [checkDocDrift, runCheckDocDrift],
     [findUncovered, runFindUncovered],
     [callers, runCallers],
     [dependencies, runDependencies],
@@ -236,7 +241,7 @@ export async function run(): Promise<void> {
   if (watch) {
     if (!WATCHABLE_COMMANDS.has(handler)) {
       console.error(
-        "Error: --watch is only supported with the default output, --query, --callers, --dependencies, --dependents, --affected, --find-uncovered, --find-complex-functions, and --check-cycles",
+        "Error: --watch is only supported with the default output, --query, --callers, --dependencies, --dependents, --affected, --find-uncovered, --find-complex-functions, --check-cycles, and --check-doc-drift",
       );
       process.exit(1);
     }

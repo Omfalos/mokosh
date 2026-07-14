@@ -5,6 +5,7 @@ import { parseGherkin } from "./parser/lang/gherkin";
 import { parseGo } from "./parser/lang/go";
 import { parseLiveScript } from "./parser/lang/ls";
 import { parseLua } from "./parser/lang/lua";
+import { parseMarkdown } from "./parser/lang/markdown";
 import { parsePython } from "./parser/lang/python";
 import { parseCodeFile } from "./parser/lang/typescript";
 import type { ParserFunction } from "./parser/registry";
@@ -27,6 +28,7 @@ for (const [type, parser] of [
   ["python", parsePython],
   ["go", parseGo],
   ["gherkin", parseGherkin],
+  ["markdown", parseMarkdown],
 ] satisfies [FileType, ParserFunction][]) {
   registerParser(type, parser);
 }

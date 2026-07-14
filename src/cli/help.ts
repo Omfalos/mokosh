@@ -19,6 +19,9 @@ Options:
   --callers                   List files whose exported functions call into --file
   --file <path>               Target file for --callers/--dependencies/--dependents/--affected/--workspace-affected
   --check-cycles              Check for circular dependencies; exits non-zero if found (CI gate)
+  --check-doc-drift           Flag markdown docs whose referenced files changed more recently
+                               than the doc itself; exits non-zero if found (CI gate; requires
+                               gitStats: true, see docs/adr-009-markdown-parsing.md)
   --type-graph                Output type-level graph (interfaces, classes, enums, type aliases)
   --type <name>               Filter --type-graph to a single type name
   --module-responsibility     Output each file's semantic role, description, and exports
@@ -58,11 +61,13 @@ MCP parity (mirrors the MCP server's tools for use when MCP is unavailable):
   --workspace-affected         Cross-package blast-radius for --file in a monorepo
   --watch                      Re-run on file changes. Supported with the default output, --query,
                                 --callers, --dependencies, --dependents, --affected, --find-uncovered,
-                                --find-complex-functions, and --check-cycles only.
+                                --find-complex-functions, --check-cycles, and --check-doc-drift only.
 
 Notes:
   Add mokosh-cache/ to your .gitignore to avoid committing the cache directory.
   --check-cycles is CLI-only (CI gate via exit code); it has no MCP equivalent by design.
+  --check-doc-drift has an MCP equivalent (check_doc_drift) since its result list, not just a
+    pass/fail exit code, is useful to an AI assistant deciding which docs to fix.
   --config files may be .js/.cjs and are executed for CLI convenience (allowJs: true); the MCP
     server only loads JSON config (allowJs: false) for security. This is intentional.
   --workspace-packages/--workspace-affected require explicit opt-in (unlike MCP's analyze tool,

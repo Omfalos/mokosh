@@ -5,6 +5,7 @@ import {
   GoLangResolver,
   type LangResolver,
   LuaLangResolver,
+  MarkdownLangResolver,
   PythonLangResolver,
   type ResolvedImport,
   StyleLangResolver,
@@ -84,6 +85,7 @@ export class DefaultResolver implements PathResolver {
       new LuaLangResolver(),
       new GoLangResolver(),
       new StyleLangResolver(),
+      new MarkdownLangResolver(),
     ];
   }
 
@@ -187,6 +189,8 @@ export class DefaultResolver implements PathResolver {
       ".lua",
       ".py",
       ".feature",
+      ".md",
+      ".mdx",
     ];
 
     // ESM Support: If specifier ends with .js/.mjs/.cjs, try stripping it to allow .ts resolution

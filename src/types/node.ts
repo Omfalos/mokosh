@@ -58,6 +58,12 @@ export interface FileNode extends GraphNode {
   testedBy?: string[];
   commitCount90d?: number;
   lastAuthor?: string;
+  /** Unix timestamp (ms) of the most recent commit touching this file. Populated alongside the other git fields when `enableGitStats` is on. */
+  lastCommitAt?: number;
+  /** Paths of markdown docs whose `imports` reference this file. Populated by `enrichDocDrift`. */
+  documentedBy?: string[];
+  /** For markdown nodes: paths of referenced files whose `lastCommitAt` is newer than this doc's own — a staleness signal, not proof the doc is wrong. Populated by `enrichDocDrift`. */
+  staleFor?: string[];
   callEdges?: CallEdge[];
   /** Line coverage percentage (0–100) from the last coverage report. Undefined when no report was loaded. */
   coveragePct?: number;

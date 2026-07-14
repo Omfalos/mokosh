@@ -53,13 +53,17 @@ export class DefaultGitProvider implements GitProvider {
 export interface GitFileStats {
   commitCount90d: number;
   lastAuthor: string | undefined;
+  /** Unix timestamp (ms) of the most recent commit touching this file, regardless of the 90-day window. Used for doc-drift staleness comparisons. */
+  lastCommitAt: number | undefined;
 }
 
 /**
- * @description Queries git log to compute commit frequency and last author for a file over the past 90 days.
+ * @description Queries git log to compute commit frequency and last author for a file over the past 90 days,
+ *   plus the timestamp of its single most recent commit (unbounded by the 90-day window).
  * @param rootDir - Absolute path to the repository root, passed to `git -C` so the command works from any cwd.
  * @param relativePath - Path to the file relative to `rootDir`.
- * @returns Commit count and the email of the most recent author, or `undefined` if the file has no history.
+ * @returns Commit count and the email of the most recent author (both windowed to 90 days), plus the
+ *   unbounded last-commit timestamp. Fields are `undefined` if the file has no history.
  */
 export function getGitFileStats(rootDir: string, relativePath: string): GitFileStats {
   const output = execSync(
@@ -67,5 +71,15 @@ export function getGitFileStats(rootDir: string, relativePath: string): GitFileS
     { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] },
   );
   const lines = output.split("\n").filter(Boolean);
-  return { commitCount90d: lines.length, lastAuthor: lines[0] };
+
+  const lastCommitOutput = execSync(
+    `git -C "${rootDir}" log -1 --format="%at" -- "${relativePath}"`,
+    { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] },
+  ).trim();
+
+  return {
+    commitCount90d: lines.length,
+    lastAuthor: lines[0],
+    lastCommitAt: lastCommitOutput ? Number(lastCommitOutput) * 1000 : undefined,
+  };
 }

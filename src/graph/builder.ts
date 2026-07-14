@@ -9,6 +9,7 @@ import type { DependencyGraph } from "../types/graph";
 import type { CallEdge, FileNode, ImportEdge } from "../types/node";
 import {
   enrichCoverage,
+  enrichDocDrift,
   enrichExportUsage,
   enrichLibraryTags,
   enrichTestedBy,
@@ -19,6 +20,18 @@ import { DefaultResolver, type PathResolver } from "./resolver.js";
 
 /** Conventional top-level test-directory names probed as siblings between the entry-derived scan root and `rootDir`. */
 const CONVENTIONAL_TEST_DIR_NAMES = ["tests", "test", "__tests__", "specs", "spec"];
+
+/** Directory names skipped by `walkProject`'s discovery passes (test files, docs), independent of `DEFAULT_IGNORE_DIRS` scanning. */
+const WALK_IGNORE_DIRS = new Set([
+  "node_modules",
+  ".git",
+  "dist",
+  "build",
+  ".next",
+  ".cache",
+  "mokosh-cache",
+  "coverage",
+]);
 
 /**
  * @description Finds the deepest directory that contains every path in `absPaths`, clamped
@@ -124,6 +137,11 @@ export class GraphBuilder {
     // pull in unrelated files elsewhere in the tree.
     await this.processTestFiles(commonAncestorDir(entryPaths, this.rootDir));
 
+    // Docs are never reachable from library entry points either (code doesn't import markdown),
+    // and they commonly live outside the entry points' subtree entirely (top-level README, docs/),
+    // so this scans the full rootDir rather than reusing the test-files' common-ancestor scope.
+    await this.processDocFiles();
+
     if (this.progressCallback && this.visited.size >= 100) {
       process.stderr.write(`\nDone. Total processed: ${this.visited.size} nodes.\n`);
     }
@@ -131,6 +149,7 @@ export class GraphBuilder {
     enrichTestNodeTags(this.graph.nodes);
     enrichTestedBy(this.graph.nodes);
     enrichExportUsage(this.graph.nodes);
+    enrichDocDrift(this.graph.nodes);
     if (this.coverageMap.size > 0) enrichCoverage(this.graph.nodes, this.coverageMap);
     return new Graph(this.graph.nodes);
   }
@@ -146,33 +165,10 @@ export class GraphBuilder {
    */
   private async processTestFiles(scanRoot: string): Promise<void> {
     const patterns = getTestPatterns();
-    const ignoreDirs = new Set([
-      "node_modules",
-      ".git",
-      "dist",
-      "build",
-      ".next",
-      ".cache",
-      "mokosh-cache",
-      "coverage",
-    ]);
-    const walk = async (dir: string): Promise<void> => {
-      let entries: fs.Dirent[];
-      try {
-        entries = fs.readdirSync(dir, { withFileTypes: true });
-      } catch {
-        return;
-      }
-      for (const entry of entries) {
-        const fullPath = path.join(dir, entry.name);
-        if (entry.isDirectory()) {
-          if (!ignoreDirs.has(entry.name)) await walk(fullPath);
-        } else if (entry.isFile() && patterns.some((pattern) => entry.name.includes(pattern))) {
-          await this.processFile(fullPath);
-        }
-      }
-    };
-    await walk(scanRoot);
+    const matchesTest = (entry: fs.Dirent) =>
+      patterns.some((pattern) => entry.name.includes(pattern));
+
+    await this.walkProject(scanRoot, matchesTest);
 
     let dir = scanRoot;
     while (dir !== this.rootDir) {
@@ -181,12 +177,53 @@ export class GraphBuilder {
       for (const name of CONVENTIONAL_TEST_DIR_NAMES) {
         const candidate = path.join(parent, name);
         try {
-          if (fs.statSync(candidate).isDirectory()) await walk(candidate);
+          if (fs.statSync(candidate).isDirectory()) await this.walkProject(candidate, matchesTest);
         } catch {
           // not present
         }
       }
       dir = parent;
+    }
+  }
+
+  /**
+   * @description Scans the full project root for `.md`/`.mdx` files and processes them into the
+   *   graph. Docs are never reachable from library entry points (code doesn't import markdown) and,
+   *   unlike test files, aren't confined to the entry points' subtree — a top-level `README.md` or
+   *   `docs/` directory is common — so this walks `rootDir` directly rather than reusing
+   *   `processTestFiles`'s narrower common-ancestor scope.
+   */
+  private async processDocFiles(): Promise<void> {
+    await this.walkProject(
+      this.rootDir,
+      (entry) => entry.name.endsWith(".md") || entry.name.endsWith(".mdx"),
+    );
+  }
+
+  /**
+   * @description Recursively walks a directory, processing every file that satisfies `matches`
+   *   into the graph. Shared by `processTestFiles` and `processDocFiles`, whose discovery passes
+   *   only differ in which files they're looking for and where they start.
+   * @param scanRoot - Directory to walk.
+   * @param matches - Predicate tested against each file entry; matching files are processed.
+   */
+  private async walkProject(
+    scanRoot: string,
+    matches: (entry: fs.Dirent) => boolean,
+  ): Promise<void> {
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(scanRoot, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const fullPath = path.join(scanRoot, entry.name);
+      if (entry.isDirectory()) {
+        if (!WALK_IGNORE_DIRS.has(entry.name)) await this.walkProject(fullPath, matches);
+      } else if (entry.isFile() && matches(entry)) {
+        await this.processFile(fullPath);
+      }
     }
   }
 
@@ -369,6 +406,7 @@ export class GraphBuilder {
       const git = getGitFileStats(this.rootDir, relativePath);
       node.commitCount90d = git.commitCount90d;
       if (git.lastAuthor !== undefined) node.lastAuthor = git.lastAuthor;
+      if (git.lastCommitAt !== undefined) node.lastCommitAt = git.lastCommitAt;
     } catch {
       // git not available or file not tracked — silent
     }

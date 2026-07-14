@@ -59,6 +59,7 @@ export type GetCallersArgs = {
 };
 export type FindUnusedArgs = { root: string; entryPoints: string[] };
 export type FindUncoveredArgs = { root: string; coverageThreshold?: number };
+export type CheckDocDriftArgs = { root: string };
 export type FindComplexFunctionsArgs = {
   root: string;
   metric?: "cognitiveComplexity" | "complexity";
@@ -100,6 +101,7 @@ export type ToolArgs =
   | GetCallersArgs
   | FindUnusedArgs
   | FindUncoveredArgs
+  | CheckDocDriftArgs
   | FindComplexFunctionsArgs
   | ProposeTagsArgs
   | DetectFeaturesArgs
@@ -295,6 +297,29 @@ export async function handleFindUncovered(
     .filter((node) => node.coveragePct !== undefined && node.coveragePct < threshold)
     .map((node) => ({ file: node.path, coveragePct: node.coveragePct as number }));
   return text({ threshold, uncovered, count: uncovered.length });
+}
+
+/**
+ * @description Returns markdown docs whose referenced files changed more recently than the doc
+ *   itself (populated by the `enrichDocDrift` build step). A commit-recency heuristic, not a
+ *   content diff — see `docs/adr-009-markdown-parsing.md`. Requires a prior `analyze` call with
+ *   `gitStats: true`; otherwise no node has `lastCommitAt` data and nothing is flagged.
+ * @param cache - Session state holding the cached graph.
+ * @param args - `root` selects the graph.
+ * @returns TextResponse with `{ staleDocs: [{ doc, staleFor }], count }`.
+ */
+export async function handleCheckDocDrift(
+  cache: SessionState,
+  args: CheckDocDriftArgs,
+): Promise<TextResponse> {
+  const { root } = args;
+  const graph = await cache.ensureFresh(root);
+
+  const staleDocs = [...graph.nodes.values()]
+    .filter((node) => node.type === "markdown" && node.staleFor && node.staleFor.length > 0)
+    .map((node) => ({ doc: node.path, staleFor: node.staleFor as string[] }));
+
+  return text({ staleDocs, count: staleDocs.length });
 }
 
 /**

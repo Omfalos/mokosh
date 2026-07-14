@@ -62,6 +62,40 @@ export function enrichTestedBy(nodes: Map<string, FileNode>): void {
   }
 }
 
+/**
+ * @description Links markdown docs to the code files they reference and flags likely-stale docs.
+ * For each markdown node's resolved local imports, records the doc on the target's `documentedBy`
+ * (any target, so "what docs reference this file?" stays accurate regardless of category), and —
+ * when the target's last commit is newer than the doc's own — records the target on the doc's
+ * `staleFor`. The staleness check is scoped to `category: "logic"` targets only: barrels (e.g.
+ * `index.ts`), config files, and non-code files (package.json, lockfiles, other markdown) churn
+ * constantly for reasons unrelated to documented behavior — comparing against them made every doc
+ * in a repo look perpetually stale. This is still a commit-recency heuristic, not a content diff:
+ * a doc can go stale without any timestamp gap (e.g. a behavior change bundled into the same
+ * commit as its docs update), and a logic file touched only for formatting will still flag any
+ * doc referencing it. Treat `staleFor` as "worth a look", not "definitely wrong".
+ * @param nodes - The full node map produced by the graph builder; mutated in place.
+ */
+export function enrichDocDrift(nodes: Map<string, FileNode>): void {
+  for (const node of nodes.values()) {
+    if (node.type !== "markdown") continue;
+    for (const imp of node.imports) {
+      if (imp.isExternal || !imp.toPath) continue;
+      const target = nodes.get(imp.toPath);
+      if (!target || target === node) continue;
+
+      target.documentedBy ??= [];
+      if (!target.documentedBy.includes(node.path)) target.documentedBy.push(node.path);
+
+      if (target.category !== "logic") continue;
+      if ((target.lastCommitAt ?? 0) > (node.lastCommitAt ?? 0)) {
+        node.staleFor ??= [];
+        if (!node.staleFor.includes(target.path)) node.staleFor.push(target.path);
+      }
+    }
+  }
+}
+
 function round4(value: number): number {
   return Math.round(value * 10000) / 10000;
 }

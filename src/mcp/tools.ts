@@ -135,6 +135,18 @@ export const TOOL_DEFINITIONS = [
     },
   },
   {
+    name: "check_doc_drift",
+    description:
+      "Find markdown docs whose referenced files changed more recently than the doc itself — a commit-recency heuristic for stale documentation, not a content diff. Requires a prior analyze() call with gitStats: true in mokosh.config (otherwise no file has commit-timestamp data and nothing is flagged). See docs/adr-009-markdown-parsing.md for known limitations.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        root: { type: "string", description: "Absolute path to the project root" },
+      },
+      required: ["root"],
+    },
+  },
+  {
     name: "find_complex_functions",
     description:
       "Find individual functions/methods above a cognitive (or cyclomatic) complexity threshold, sorted worst-first. Requires a prior analyze() call. TypeScript/JavaScript only.",

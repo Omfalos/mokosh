@@ -46,6 +46,9 @@ export function getFileType(filePath: string): FileType {
       return "unknown";
     case ".feature":
       return "gherkin";
+    case ".md":
+    case ".mdx":
+      return "markdown";
     default:
       return "unknown";
   }

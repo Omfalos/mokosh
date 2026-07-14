@@ -5,6 +5,7 @@ import { SessionState } from "./cache";
 import {
   type AnalyzeArgs,
   type ApplyTagsArgs,
+  type CheckDocDriftArgs,
   type ClearCacheArgs,
   type DetectFeaturesArgs,
   type FindComplexFunctionsArgs,
@@ -23,6 +24,7 @@ import {
   type GetWorkspacePackagesArgs,
   handleAnalyze,
   handleApplyTags,
+  handleCheckDocDrift,
   handleClearCache,
   handleDetectFeatures,
   handleFindComplexFunctions,
@@ -77,6 +79,7 @@ export function createMcpServer(): Server {
       get_callers: (args) => handleGetCallers(cache, args as GetCallersArgs),
       find_unused: (args) => handleFindUnused(cache, args as FindUnusedArgs),
       find_uncovered: (args) => handleFindUncovered(cache, args as FindUncoveredArgs),
+      check_doc_drift: (args) => handleCheckDocDrift(cache, args as CheckDocDriftArgs),
       find_complex_functions: (args) =>
         handleFindComplexFunctions(cache, args as FindComplexFunctionsArgs),
       propose_tags: (args) => handleProposeTags(cache, args as ProposeTagsArgs),
