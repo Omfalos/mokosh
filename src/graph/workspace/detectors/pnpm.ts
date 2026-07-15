@@ -1,7 +1,7 @@
 /** Monorepo detector for pnpm workspaces (pnpm-workspace.yaml). */
 import fs from "node:fs";
 import path from "node:path";
-import yaml from "js-yaml";
+import { load as loadYaml } from "js-yaml";
 import type { MonorepoDetector } from "../registry";
 import { resolveGlobPatterns } from "../shared";
 
@@ -17,7 +17,7 @@ export const pnpmDetector: MonorepoDetector = {
 
     let patterns: string[] = [];
     try {
-      const parsed = yaml.load(fs.readFileSync(yamlPath, "utf-8")) as {
+      const parsed = loadYaml(fs.readFileSync(yamlPath, "utf-8")) as {
         packages?: string[];
       } | null;
       patterns = parsed?.packages ?? [];

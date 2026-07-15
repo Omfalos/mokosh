@@ -1,7 +1,7 @@
 /** Parses npm, Yarn, and pnpm lock files to extract installed package versions for import-edge annotation. */
 import fs from "node:fs";
 import path from "node:path";
-import yaml from "js-yaml";
+import { load as loadYaml } from "js-yaml";
 
 /**
  * Represents the parsed data from a lock file.
@@ -80,7 +80,7 @@ function parsePnpmId(id: string, pkgVersion: string): { name: string; version: s
  */
 function tryParseYarnBerry(content: string): LockFileData | null {
   try {
-    const lock = yaml.load(content) as Record<string, PkgData>;
+    const lock = loadYaml(content) as Record<string, PkgData>;
     const result: LockFileData = { dependencies: {} };
     for (const [key, value] of Object.entries(lock)) {
       if (key === "__metadata" || !value?.version) continue;
@@ -197,7 +197,7 @@ export function parsePnpmLock(filePath: string): LockFileData {
   const result: LockFileData = { dependencies: {} };
 
   try {
-    const lock = yaml.load(content) as {
+    const lock = loadYaml(content) as {
       packages?: Record<string, PkgData>;
       dependencies?: Record<string, string | PkgData>;
     };
