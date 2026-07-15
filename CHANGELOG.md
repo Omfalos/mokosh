@@ -1,3 +1,10 @@
+## [0.1.8](https://github.com/Omfalos/mokosh/compare/v0.1.7...v0.1.8) (2026-07-15)
+
+### Bug Fixes
+
+* **deps:** update dependencies and fix js-yaml v5 ESM import break ([131972d](https://github.com/Omfalos/mokosh/commit/131972d3a975d5b88bf2bfbce4882f4a341f88be))
+* **git:** batch git log calls to fix gitStats MCP timeout on large repos ([7f06dd1](https://github.com/Omfalos/mokosh/commit/7f06dd1aee1ea195208928fe4bdc7feca6ae15d4))
+
 ## [0.1.7](https://github.com/Omfalos/mokosh/compare/v0.1.6...v0.1.7) (2026-07-14)
 
 ### Features
