@@ -75,7 +75,7 @@ Walks the file system recursively from entry points, builds a `DependencyGraph` 
 - **Incremental builds**: Takes an optional previous `Graph`. Nodes whose `mtime` and `size` are unchanged are reused as-is — only changed files are re-parsed.
 - **Automatic test discovery**: After the entry-point walk, the builder scans for test files by filename pattern and processes any not yet visited, so `testedBy` enrichment is complete even when test files are not imported from library entry points.
 - **External dependencies**: `node_modules` and paths outside the project root are added as metadata but not traversed.
-- **Git stats** (opt-in): When `gitStats: true`, populates `commitCount90d` and `lastAuthor` on each cache-missed node via `git log`.
+- **Git stats** (opt-in): When `gitStats: true`, populates `commitCount90d`, `lastAuthor`, and `lastCommitAt` on each cache-missed node. Computed with two batched `git log --name-status` calls per build (one bounded to the last 90 days, one unbounded fallback for `lastCommitAt` on files with no recent history) rather than one `git log` per file, so cost is constant regardless of repo size.
 - **Lock file versions**: When a lock file is present, each external import edge is annotated with the installed version.
 
 ### Graph class (`src/graph/model.ts`)

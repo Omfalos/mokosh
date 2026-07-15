@@ -2,7 +2,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import Piscina from "piscina";
-import { getGitFileStats } from "../git.js";
+import { type GitFileStats, getRepoGitStats } from "../git.js";
 import { getTestPatterns } from "../parser/classify.js";
 import { type LockFileData, loadLockFile } from "../parser/lockfile.js";
 import { getFileType, parseFile } from "../parser.js";
@@ -99,6 +99,7 @@ export class GraphBuilder {
   private lockFile: LockFileData | null = null;
   private progressCallback?: (count: number) => void;
   private pool: Piscina | null = null;
+  private gitStatsMap: Map<string, GitFileStats> | null = null;
 
   /**
    * @param rootDir - Absolute path to the project root; all node paths in the graph are relative to this.
@@ -143,6 +144,9 @@ export class GraphBuilder {
     );
 
     await this.initPool();
+    if (this.enableGitStats) {
+      this.gitStatsMap = getRepoGitStats(this.rootDir);
+    }
     try {
       for (const entryPath of entryPaths) this.enqueue(entryPath);
       await this.drain();
@@ -514,21 +518,18 @@ export class GraphBuilder {
   }
 
   /**
-   * @description Enriches a node with git activity metadata when `enableGitStats` is on,
-   *   silently skipping files not tracked by git or when git is unavailable.
+   * @description Enriches a node with git activity metadata when `enableGitStats` is on, by looking
+   *   up the repo-wide stats map computed once in {@link build} (see `getRepoGitStats`) rather than
+   *   spawning a `git log` per file. Silently no-ops for files not tracked by git.
    * @param node - The node to mutate in place.
-   * @param relativePath - Project-relative path passed to the git helper.
+   * @param relativePath - Project-relative path used as the lookup key.
    */
   private attachGitStats(node: FileNode, relativePath: string): void {
-    if (!this.enableGitStats) return;
-    try {
-      const git = getGitFileStats(this.rootDir, relativePath);
-      node.commitCount90d = git.commitCount90d;
-      if (git.lastAuthor !== undefined) node.lastAuthor = git.lastAuthor;
-      if (git.lastCommitAt !== undefined) node.lastCommitAt = git.lastCommitAt;
-    } catch {
-      // git not available or file not tracked — silent
-    }
+    const git = this.gitStatsMap?.get(relativePath);
+    if (!git) return;
+    node.commitCount90d = git.commitCount90d;
+    if (git.lastAuthor !== undefined) node.lastAuthor = git.lastAuthor;
+    if (git.lastCommitAt !== undefined) node.lastCommitAt = git.lastCommitAt;
   }
 
   /**

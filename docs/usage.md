@@ -124,7 +124,7 @@ const graph = await createImportMap(process.cwd(), config.entryPoints ?? ['src/i
 | `testPatterns` | `string[]` | Extra basename substrings that classify a file as `"test"` |
 | `testLibraries` | `string[]` | Extra import names that classify a file as `"test"` |
 | `barrelThreshold` | `number` | Export-ratio threshold for `"barrel"` detection (default `0.8`) |
-| `gitStats` | `boolean` | When `true`, enriches each cache-missed node with `commitCount90d` and `lastAuthor` via `git log`. Off by default. |
+| `gitStats` | `boolean` | When `true`, enriches each cache-missed node with `commitCount90d` and `lastAuthor` via two batched `git log` calls per build. Off by default. |
 | `coverageReportPath` | `string` | Path (relative to project root) to an Istanbul `coverage-summary.json`. When set, each node gets a `coveragePct` field. |
 | `coverageThreshold` | `number` | Line-coverage % below which `--find-uncovered` / `find_uncovered` flags a file. Default: `80`. |
 | `tagApplier` | `{ framework?, frameworkOverrides? }` | Configures `--apply-tags` output format. `framework` is the fallback test framework (`vitest` \| `playwright` \| `cypress` \| `jest`) used when a file's own imports don't reveal one; `frameworkOverrides` maps path-glob patterns to a framework, checked before the top-level fallback. See [ADR-008](./adr-008-tag-applier-strategies.md). |
@@ -158,7 +158,7 @@ Mokosh goes beyond simple dependency tracking by extracting:
 - **File description**: The JSDoc comment on the first statement of a JS/TS file is stored as `description` on the node. Query with `hasDocstring:true/false`.
 - **Call Edges**: Beyond import edges, Mokosh records cross-file function/method calls as `callEdges: { from, to, toFile }[]` on each non-test node.
 - **Tested-By Index**: After the graph is built, logic and barrel nodes are enriched with `testedBy: string[]` — the relative paths of test files that directly import them.
-- **Git Stats**: When `gitStats: true` is set in config, each newly built (cache-missed) node is enriched with `commitCount90d` (number of commits in the last 90 days) and `lastAuthor` (email of the most recent committer).
+- **Git Stats**: When `gitStats: true` is set in config, each newly built (cache-missed) node is enriched with `commitCount90d` (number of commits in the last 90 days) and `lastAuthor` (email of the most recent committer). This is computed with exactly two `git log` invocations per build, regardless of repo size — not one per file — so enabling it doesn't slow down proportionally to file count.
 
 ### Lock File Support
 

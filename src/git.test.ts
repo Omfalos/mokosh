@@ -2,7 +2,7 @@
 
 import { execFileSync } from "node:child_process";
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import { DefaultGitProvider } from "./git";
+import { DefaultGitProvider, getRepoGitStats } from "./git";
 
 // Mock the execFileSync from node:child_process
 vi.mock("node:child_process", () => ({
@@ -128,6 +128,91 @@ describe("GitProvider", { tags: ["DefaultGitProvider", "git"] }, () => {
         global.Set = originalSet;
         errorSpy.mockRestore();
       }
+    });
+  });
+
+  describe("getRepoGitStats", { tags: ["getRepoGitStats", "git"] }, () => {
+    const header = (hash: string, email: string, at: number) => `\u0000${hash}\t${email}\t${at}`;
+    const isRecentCall = (args: string[]) => args.includes("--since=90 days ago");
+
+    test("computes commitCount90d/lastAuthor/lastCommitAt from a single batched call, with exactly two git invocations total", () => {
+      const recentLog = [
+        header("h2", "b@example.com", 2000),
+        "M\tsrc/b.ts",
+        "",
+        header("h1", "a@example.com", 1000),
+        "A\tsrc/a.ts",
+        "M\tsrc/b.ts",
+        "",
+      ].join("\n");
+
+      vi.mocked(execFileSync).mockImplementation(((_file: string, args: string[]) => {
+        if (isRecentCall(args)) return recentLog;
+        return "";
+      }) as unknown as typeof execFileSync);
+
+      const stats = getRepoGitStats("/repo");
+
+      expect(execFileSync).toHaveBeenCalledTimes(2);
+      expect(stats.get("src/a.ts")).toEqual({
+        commitCount90d: 1,
+        lastAuthor: "a@example.com",
+        lastCommitAt: 1000 * 1000,
+      });
+      expect(stats.get("src/b.ts")).toEqual({
+        commitCount90d: 2,
+        lastAuthor: "b@example.com",
+        lastCommitAt: 2000 * 1000,
+      });
+    });
+
+    test("attributes renamed files to their new path", () => {
+      const recentLog = [
+        header("h1", "a@example.com", 1000),
+        "R100\told/name.ts\tnew/name.ts",
+        "",
+      ].join("\n");
+
+      vi.mocked(execFileSync).mockImplementation(((_file: string, args: string[]) => {
+        if (isRecentCall(args)) return recentLog;
+        return "";
+      }) as unknown as typeof execFileSync);
+
+      const stats = getRepoGitStats("/repo");
+
+      expect(stats.get("new/name.ts")).toEqual({
+        commitCount90d: 1,
+        lastAuthor: "a@example.com",
+        lastCommitAt: 1000 * 1000,
+      });
+      expect(stats.has("old/name.ts")).toBe(false);
+    });
+
+    test("backfills lastCommitAt from the full-history fallback for files with no recent commits", () => {
+      const fullLog = [header("h0", "old@example.com", 500), "A\tsrc/stale.ts", ""].join("\n");
+
+      vi.mocked(execFileSync).mockImplementation(((_file: string, args: string[]) => {
+        if (isRecentCall(args)) return "";
+        return fullLog;
+      }) as unknown as typeof execFileSync);
+
+      const stats = getRepoGitStats("/repo");
+
+      expect(stats.get("src/stale.ts")).toEqual({
+        commitCount90d: 0,
+        lastAuthor: undefined,
+        lastCommitAt: 500 * 1000,
+      });
+    });
+
+    test("returns an empty map when git is unavailable or the directory isn't a repo", () => {
+      vi.mocked(execFileSync).mockImplementation(() => {
+        throw new Error("not a git repository");
+      });
+
+      const stats = getRepoGitStats("/repo");
+
+      expect(stats.size).toBe(0);
     });
   });
 });
