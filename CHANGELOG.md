@@ -1,3 +1,9 @@
+## [0.1.9](https://github.com/Omfalos/mokosh/compare/v0.1.8...v0.1.9) (2026-07-16)
+
+### Features
+
+* added path alias support ([b568062](https://github.com/Omfalos/mokosh/commit/b5680623da6a40a41ace617284eae5a3e33ff42a))
+
 ## [0.1.8](https://github.com/Omfalos/mokosh/compare/v0.1.7...v0.1.8) (2026-07-15)
 
 ### Bug Fixes
