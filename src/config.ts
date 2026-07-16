@@ -30,6 +30,14 @@ export interface MokoshConfig {
   testPatterns?: string[];
   /** Additional import specifiers that indicate a test file (e.g. `"@my-org/test-utils"`). */
   testLibraries?: string[];
+  /**
+   * Explicit path-alias map for import resolution, same shape as tsconfig's
+   * `compilerOptions.paths` (e.g. `{ "@app/*": ["src/app/*"] }`). Takes precedence over
+   * any aliases declared in `tsconfig.json`. Useful for JS-only projects without a
+   * tsconfig, or to mirror Vite/webpack alias configs. Substitution paths are resolved
+   * relative to the project root.
+   */
+  pathAliases?: Record<string, string[]>;
   /** Ratio of export-statements to total statements required for `"barrel"` classification. Default: `0.8`. */
   barrelThreshold?: number;
   /** When true, enriches each node with `commitCount90d` and `lastAuthor` via git log. Only fetched for new/modified files. */

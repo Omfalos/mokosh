@@ -12,7 +12,7 @@ import { getTestFiles } from "./utils";
  */
 export async function run(ctx: CommandContext): Promise<void> {
   let { graph } = ctx;
-  const { rootDir, scanOptions, dryRun, plain } = ctx;
+  const { rootDir, scanOptions, dryRun, plain, rawConfig } = ctx;
 
   if (!plain) {
     console.log(dryRun ? "Dry run: computing tag changes..." : "Applying tags to test files...");
@@ -20,7 +20,9 @@ export async function run(ctx: CommandContext): Promise<void> {
 
   if (graph.nodes.size === 0) {
     const allFiles = getAllProjectFiles(rootDir, scanOptions);
-    graph = await createImportMap(rootDir, getTestFiles(allFiles), graph);
+    graph = await createImportMap(rootDir, getTestFiles(allFiles), graph, {
+      pathAliases: rawConfig.pathAliases,
+    });
   }
 
   const result = await applyTags(graph, rootDir, { dryRun });

@@ -10,7 +10,7 @@ import { getTestFiles, resolveChangedFiles } from "./utils";
  */
 export async function run(ctx: CommandContext): Promise<void> {
   let { graph } = ctx;
-  const { rootDir, scanOptions, featureThreshold } = ctx;
+  const { rootDir, scanOptions, featureThreshold, rawConfig } = ctx;
 
   const changedFiles = resolveChangedFiles(rootDir);
 
@@ -19,7 +19,9 @@ export async function run(ctx: CommandContext): Promise<void> {
   );
   if (!hasTestNodes) {
     const allFiles = getAllProjectFiles(rootDir, scanOptions);
-    graph = await createImportMap(rootDir, getTestFiles(allFiles), graph);
+    graph = await createImportMap(rootDir, getTestFiles(allFiles), graph, {
+      pathAliases: rawConfig.pathAliases,
+    });
   }
 
   const affectedTests = proposeAffectedTests(graph, changedFiles, {

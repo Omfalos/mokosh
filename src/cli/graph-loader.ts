@@ -36,6 +36,7 @@ export function saveGraphToCache(graph: Graph, cachePath: string): void {
  * @param {boolean} [silent=false] - When `true`, suppresses progress output during the build.
  * @param {boolean} [gitStats=false] - When `true`, attaches git churn data to each node.
  * @param {ParallelParsingOption} [parallelParsing] - Controls worker-pool offloading of file parsing; see `MokoshConfig.parallelParsing`.
+ * @param {Record<string, string[]>} [pathAliases] - Explicit path-alias map; see `MokoshConfig.pathAliases`.
  * @returns {Promise<Graph>} The fully-built `Graph` covering all reachable imports.
  */
 export async function buildGraph(
@@ -45,6 +46,12 @@ export async function buildGraph(
   silent = false,
   gitStats = false,
   parallelParsing?: ParallelParsingOption,
+  pathAliases?: Record<string, string[]>,
 ): Promise<Graph> {
-  return createImportMap(rootDir, entryPoints, cachedGraph, { silent, gitStats, parallelParsing });
+  return createImportMap(rootDir, entryPoints, cachedGraph, {
+    silent,
+    gitStats,
+    parallelParsing,
+    pathAliases,
+  });
 }

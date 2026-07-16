@@ -89,6 +89,7 @@ describe("loadMokoshConfig", {
       testPatterns: [".unit."],
       testLibraries: ["@acme/test"],
       barrelThreshold: 0.65,
+      pathAliases: { "@app/*": ["src/app/*"] },
     };
     fs.writeFileSync(path.join(tmpDir, "mokosh.config.json"), JSON.stringify(full));
     expect(loadMokoshConfig(tmpDir)).toEqual(full);

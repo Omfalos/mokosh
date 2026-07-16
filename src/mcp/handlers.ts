@@ -142,6 +142,7 @@ export async function handleAnalyze(cache: SessionState, args: AnalyzeArgs) {
       const wg = await cache.getOrBuildWorkspace(root, {
         gitStats: config?.gitStats ?? false,
         parallelParsing: config?.parallelParsing,
+        pathAliases: config?.pathAliases,
       });
       cache.storeLastAnalyze(root, { kind: "workspace" });
       cache.startWatching(root);

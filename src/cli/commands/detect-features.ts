@@ -9,11 +9,13 @@ import type { CommandContext } from "./types";
  */
 export async function run(ctx: CommandContext): Promise<void> {
   let { graph } = ctx;
-  const { rootDir, scanOptions, featureThreshold } = ctx;
+  const { rootDir, scanOptions, featureThreshold, rawConfig } = ctx;
 
   if (graph.nodes.size === 0) {
     const allFiles = getAllProjectFiles(rootDir, scanOptions);
-    graph = await createImportMap(rootDir, allFiles, graph);
+    graph = await createImportMap(rootDir, allFiles, graph, {
+      pathAliases: rawConfig.pathAliases,
+    });
   }
 
   const featureMap = detectFeatures(

@@ -79,6 +79,7 @@ export class SessionState {
       gitStats: config?.gitStats ?? false,
       coverageMap,
       parallelParsing: config?.parallelParsing,
+      pathAliases: config?.pathAliases,
     });
     this.graphs.set(root, graph);
     return graph;
@@ -108,6 +109,7 @@ export class SessionState {
       silent?: boolean;
       gitStats?: boolean;
       parallelParsing?: ParallelParsingOption | undefined;
+      pathAliases?: Record<string, string[]> | undefined;
     } = {},
   ): Promise<WorkspaceGraph> {
     const cached = this.workspaceGraphs.get(root);
@@ -219,6 +221,7 @@ export class SessionState {
     return this.getOrBuildWorkspace(root, {
       gitStats: config?.gitStats ?? false,
       parallelParsing: config?.parallelParsing,
+      pathAliases: config?.pathAliases,
     });
   }
 

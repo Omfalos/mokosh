@@ -54,6 +54,14 @@ export interface ResolverOptions {
    */
   tsconfigSearchPaths?: string[];
   /**
+   * Explicit path-alias map (same shape as tsconfig's `compilerOptions.paths`), e.g.
+   * `{ "@app/*": ["src/app/*"] }`. Checked before `tsconfig.json`-derived aliases, so entries
+   * here take precedence — useful for JS-only projects without a tsconfig, Vite/webpack
+   * alias configs, or overriding what a tsconfig declares. Substitution paths are resolved
+   * relative to `rootDir`.
+   */
+  pathAliases?: Record<string, string[]> | undefined;
+  /**
    * Language-specific resolvers that handle bare (non-relative) specifiers before
    * falling through to the external-module default. Defaults to Python, Lua, Go, and style resolvers.
    */
@@ -67,6 +75,7 @@ export interface ResolverOptions {
 export class DefaultResolver implements PathResolver {
   private readonly workspaceMap: Map<string, string>;
   private readonly tsconfigSearchPaths: string[];
+  private readonly pathAliases: Record<string, string[]> | undefined;
   private readonly langResolvers: LangResolver[];
 
   /**
@@ -80,6 +89,7 @@ export class DefaultResolver implements PathResolver {
   ) {
     this.workspaceMap = options.workspaceMap ?? new Map();
     this.tsconfigSearchPaths = options.tsconfigSearchPaths ?? [rootDir];
+    this.pathAliases = options.pathAliases;
     this.langResolvers = options.langResolvers ?? [
       new PythonLangResolver(),
       new LuaLangResolver(),
@@ -260,13 +270,24 @@ export class DefaultResolver implements PathResolver {
   }
 
   /**
-   * @description Reads `tsconfig.json` from the project root and attempts to match the
-   *   specifier against configured `compilerOptions.paths` aliases, trying each substitution
-   *   with multiple extensions.
+   * @description Matches the specifier against the explicit `pathAliases` config option
+   *   (if set), then falls back to `tsconfig.json`-derived `compilerOptions.paths` aliases,
+   *   trying each substitution with multiple extensions.
    * @param specifier - The import specifier to match against path aliases.
    * @returns Resolved path and external flag if an alias matches, or `null` otherwise.
    */
   private resolvePathAlias(specifier: string): ResolvedImport | null {
+    if (this.pathAliases) {
+      for (const alias in this.pathAliases) {
+        const match = this.matchAliasPattern(alias, specifier);
+        const substitutions = this.pathAliases[alias];
+        if (match && substitutions) {
+          const resolved = this.tryAliasSubstitutions(substitutions, match[1] || "");
+          if (resolved) return resolved;
+        }
+      }
+    }
+
     for (const searchDir of this.tsconfigSearchPaths) {
       const tsconfigPath = path.join(searchDir, "tsconfig.json");
       if (!fs.existsSync(tsconfigPath)) continue;

@@ -41,6 +41,52 @@ describe("TS/JS resolution", { tags: ["DefaultResolver", "resolver"] }, () => {
   });
 });
 
+// ─── Explicit pathAliases config option ───────────────────────────────────────
+
+describe("pathAliases config option", { tags: ["DefaultResolver", "resolver"] }, () => {
+  let root: string;
+
+  beforeAll(() => {
+    ({ root } = setup({
+      "src/app/widget.ts": "",
+      "src/shared/logger.ts": "",
+    }));
+  });
+  afterAll(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  test("resolves a wildcard alias without any tsconfig.json present", () => {
+    const resolver = new DefaultResolver(root, {
+      pathAliases: { "@app/*": ["src/app/*"] },
+    });
+    const result = resolver.resolve(path.join(root, "src/index.ts"), "@app/widget");
+    expect(result).toMatchObject({ path: path.join(root, "src/app/widget.ts"), isExternal: false });
+  });
+
+  test("takes precedence over a tsconfig.json alias for the same specifier", () => {
+    fs.writeFileSync(
+      path.join(root, "tsconfig.json"),
+      JSON.stringify({ compilerOptions: { paths: { "@shared/*": ["src/does-not-exist/*"] } } }),
+    );
+    const resolver = new DefaultResolver(root, {
+      pathAliases: { "@shared/*": ["src/shared/*"] },
+    });
+    const result = resolver.resolve(path.join(root, "src/index.ts"), "@shared/logger");
+    expect(result).toMatchObject({
+      path: path.join(root, "src/shared/logger.ts"),
+      isExternal: false,
+    });
+    fs.rmSync(path.join(root, "tsconfig.json"));
+  });
+
+  test("unmatched specifier falls through to external resolution", () => {
+    const resolver = new DefaultResolver(root, {
+      pathAliases: { "@app/*": ["src/app/*"] },
+    });
+    const result = resolver.resolve(path.join(root, "src/index.ts"), "lodash");
+    expect(result).toMatchObject({ isExternal: true });
+  });
+});
+
 // ─── Python relative imports ──────────────────────────────────────────────────
 
 describe("Python relative imports", { tags: ["DefaultResolver", "resolver"] }, () => {

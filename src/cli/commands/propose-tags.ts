@@ -10,14 +10,16 @@ import { getTestFiles, resolveChangedFiles } from "./utils";
  */
 export async function run(ctx: CommandContext): Promise<void> {
   let { graph } = ctx;
-  const { rootDir, scanOptions, featureThreshold, plain } = ctx;
+  const { rootDir, scanOptions, featureThreshold, plain, rawConfig } = ctx;
 
   if (!plain) console.log("Proposing test tags based on git diff...");
   const changedFiles = resolveChangedFiles(rootDir);
 
   if (graph.nodes.size === 0) {
     const allFiles = getAllProjectFiles(rootDir, scanOptions);
-    graph = await createImportMap(rootDir, getTestFiles(allFiles), graph);
+    graph = await createImportMap(rootDir, getTestFiles(allFiles), graph, {
+      pathAliases: rawConfig.pathAliases,
+    });
   }
 
   const tags = proposeTags(graph, changedFiles, {

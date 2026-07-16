@@ -79,7 +79,8 @@ Place a `mokosh.config.json` or `mokosh.config.js` in your project root to confi
   "configMatchers": [".myconfig."],
   "testPatterns": [".unit.", ".integration."],
   "testLibraries": ["@my-org/test-utils"],
-  "barrelThreshold": 0.7
+  "barrelThreshold": 0.7,
+  "pathAliases": { "@app/*": ["src/app/*"] }
 }
 ```
 
@@ -129,6 +130,7 @@ const graph = await createImportMap(process.cwd(), config.entryPoints ?? ['src/i
 | `coverageThreshold` | `number` | Line-coverage % below which `--find-uncovered` / `find_uncovered` flags a file. Default: `80`. |
 | `tagApplier` | `{ framework?, frameworkOverrides? }` | Configures `--apply-tags` output format. `framework` is the fallback test framework (`vitest` \| `playwright` \| `cypress` \| `jest`) used when a file's own imports don't reveal one; `frameworkOverrides` maps path-glob patterns to a framework, checked before the top-level fallback. See [ADR-008](./adr-008-tag-applier-strategies.md). |
 | `parallelParsing` | `boolean \| { minFiles?, maxThreads? }` | Controls worker-pool offloading of file parsing. Default (`true`/unset) enables it once the repo has at least `minFiles` (default `20`) files. The pool only pays off on repos with roughly 600+ files or files with heavy per-file content — smaller repos may see slightly slower builds under the default. Set `false` to always parse in-process, or pass `{ minFiles, maxThreads }` to raise the threshold. See [ADR-010](./adr-010-parallel-parsing.md). |
+| `pathAliases` | `Record<string, string[]>` | Explicit path-alias map for import resolution, same shape as tsconfig's `compilerOptions.paths` (e.g. `{ "@app/*": ["src/app/*"] }`). Takes precedence over any `tsconfig.json` aliases. Useful for JS-only projects without a tsconfig, or to mirror Vite/webpack alias configs. |
 
 ### Extensibility
 
