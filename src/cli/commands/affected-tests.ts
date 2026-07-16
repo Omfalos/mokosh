@@ -1,5 +1,10 @@
 /** CLI command: resolves git-changed files and prints the test files affected by those changes. */
-import { createImportMap, getAllProjectFiles, proposeAffectedTests } from "../../index";
+import {
+  configToGraphOptions,
+  createImportMap,
+  getAllProjectFiles,
+  proposeAffectedTests,
+} from "../../index";
 import type { CommandContext } from "./types";
 import { getTestFiles, resolveChangedFiles } from "./utils";
 
@@ -19,9 +24,12 @@ export async function run(ctx: CommandContext): Promise<void> {
   );
   if (!hasTestNodes) {
     const allFiles = getAllProjectFiles(rootDir, scanOptions);
-    graph = await createImportMap(rootDir, getTestFiles(allFiles), graph, {
-      pathAliases: rawConfig.pathAliases,
-    });
+    graph = await createImportMap(
+      rootDir,
+      getTestFiles(allFiles),
+      graph,
+      configToGraphOptions(rawConfig),
+    );
   }
 
   const affectedTests = proposeAffectedTests(graph, changedFiles, {

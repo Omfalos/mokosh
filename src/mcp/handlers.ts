@@ -7,6 +7,7 @@ import {
   buildFeatureGraph,
   buildResponsibilityGraph,
   buildTypeGraph,
+  configToGraphOptions,
   detectAllEntryPoints,
   detectFeatures,
   detectMonorepo,
@@ -139,21 +140,17 @@ export async function handleAnalyze(cache: SessionState, args: AnalyzeArgs) {
     const layout = detectMonorepo(root);
     if (layout.type !== "none") {
       const config = cache.getConfig(root);
-      const wg = await cache.getOrBuildWorkspace(root, {
-        gitStats: config?.gitStats ?? false,
-        parallelParsing: config?.parallelParsing,
-        pathAliases: config?.pathAliases,
-      });
+      const workspaceGraph = await cache.getOrBuildWorkspace(root, configToGraphOptions(config));
       cache.storeLastAnalyze(root, { kind: "workspace" });
       cache.startWatching(root);
-      const perPackage = Array.from(wg.packages.values()).map(({ graph, pkg }) => ({
+      const perPackage = Array.from(workspaceGraph.packages.values()).map(({ graph, pkg }) => ({
         package: pkg.name,
         relativeRoot: pkg.relativeRoot,
         nodeCount: graph.nodes.size,
       }));
       return text({
         monorepoType: layout.type,
-        packageCount: wg.packages.size,
+        packageCount: workspaceGraph.packages.size,
         packages: perPackage,
       });
     }

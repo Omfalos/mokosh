@@ -1,5 +1,10 @@
 /** CLI command: detects feature-hub files and prints them as JSON. */
-import { createImportMap, detectFeatures, getAllProjectFiles } from "../../index";
+import {
+  configToGraphOptions,
+  createImportMap,
+  detectFeatures,
+  getAllProjectFiles,
+} from "../../index";
 import type { CommandContext } from "./types";
 
 /**
@@ -13,9 +18,7 @@ export async function run(ctx: CommandContext): Promise<void> {
 
   if (graph.nodes.size === 0) {
     const allFiles = getAllProjectFiles(rootDir, scanOptions);
-    graph = await createImportMap(rootDir, allFiles, graph, {
-      pathAliases: rawConfig.pathAliases,
-    });
+    graph = await createImportMap(rootDir, allFiles, graph, configToGraphOptions(rawConfig));
   }
 
   const featureMap = detectFeatures(

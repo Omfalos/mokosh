@@ -1,5 +1,5 @@
 /** CLI entry point: parses arguments, loads configuration and the graph, then dispatches to the appropriate command. */
-import { applyConfig, createWorkspaceGraph, Graph } from "../index";
+import { applyConfig, configToGraphOptions, createWorkspaceGraph, Graph } from "../index";
 import { parseArgs } from "./args";
 import { run as runAffected } from "./commands/affected";
 import { run as runAffectedTests } from "./commands/affected-tests";
@@ -132,19 +132,18 @@ export async function run(): Promise<void> {
       );
       process.exit(1);
     }
-    const wg = await createWorkspaceGraph(rootDir, {
-      gitStats: config.rawConfig.gitStats ?? false,
-      parallelParsing: config.rawConfig.parallelParsing,
-      pathAliases: config.rawConfig.pathAliases,
-    });
+    const workspaceGraph = await createWorkspaceGraph(
+      rootDir,
+      configToGraphOptions(config.rawConfig),
+    );
     if (workspacePackages) {
-      runWorkspacePackages(wg);
+      runWorkspacePackages(workspaceGraph);
     } else {
       if (!file) {
         console.error("Error: --workspace-affected requires --file <path>");
         process.exit(1);
       }
-      runWorkspaceAffected(wg, file);
+      runWorkspaceAffected(workspaceGraph, file);
     }
     return;
   }
@@ -178,15 +177,10 @@ export async function run(): Promise<void> {
       console.error("Error: No entry points provided");
       process.exit(1);
     }
-    graph = await buildGraph(
-      rootDir,
-      resolvedEntryPoints,
-      graph,
+    graph = await buildGraph(rootDir, resolvedEntryPoints, graph, {
       silent,
-      config.rawConfig.gitStats ?? false,
-      config.rawConfig.parallelParsing,
-      config.rawConfig.pathAliases,
-    );
+      ...configToGraphOptions(config.rawConfig),
+    });
 
     saveGraphToCache(graph, resolvedCachePath);
   }
@@ -250,15 +244,10 @@ export async function run(): Promise<void> {
       process.exit(1);
     }
     watchAndRun(rootDir, 300, async () => {
-      const freshGraph = await buildGraph(
-        rootDir,
-        resolvedEntryPoints,
-        ctx.graph,
+      const freshGraph = await buildGraph(rootDir, resolvedEntryPoints, ctx.graph, {
         silent,
-        config.rawConfig.gitStats ?? false,
-        config.rawConfig.parallelParsing,
-        config.rawConfig.pathAliases,
-      );
+        ...configToGraphOptions(config.rawConfig),
+      });
       saveGraphToCache(freshGraph, resolvedCachePath);
       console.log(`--- rebuilt at ${new Date().toISOString()} ---`);
       await handler({ ...ctx, graph: freshGraph });

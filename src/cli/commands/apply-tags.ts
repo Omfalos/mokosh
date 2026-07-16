@@ -1,5 +1,5 @@
 /** CLI command: writes @tag annotations into test files based on the dependency graph. */
-import { applyTags, createImportMap, getAllProjectFiles } from "../../index";
+import { applyTags, configToGraphOptions, createImportMap, getAllProjectFiles } from "../../index";
 import type { CommandContext } from "./types";
 import { getTestFiles } from "./utils";
 
@@ -20,9 +20,12 @@ export async function run(ctx: CommandContext): Promise<void> {
 
   if (graph.nodes.size === 0) {
     const allFiles = getAllProjectFiles(rootDir, scanOptions);
-    graph = await createImportMap(rootDir, getTestFiles(allFiles), graph, {
-      pathAliases: rawConfig.pathAliases,
-    });
+    graph = await createImportMap(
+      rootDir,
+      getTestFiles(allFiles),
+      graph,
+      configToGraphOptions(rawConfig),
+    );
   }
 
   const result = await applyTags(graph, rootDir, { dryRun });

@@ -1,7 +1,7 @@
 /** Loads the dependency graph from a JSON disk cache or builds it fresh if the cache is missing. */
 import fs from "node:fs";
 import path from "node:path";
-import { createImportMap, Graph, type ParallelParsingOption } from "../index";
+import { configToGraphOptions, createImportMap, Graph } from "../index";
 
 /**
  * @description Reads a serialized graph from a JSON cache file and deserializes it.
@@ -33,25 +33,17 @@ export function saveGraphToCache(graph: Graph, cachePath: string): void {
  * @param {string} rootDir - Absolute path to the project root; entry points are resolved relative to this.
  * @param {string[]} entryPoints - File paths that seed the graph traversal.
  * @param {Graph | null} cachedGraph - A previously built `Graph` to reuse as an incremental base, or `null` for a full build.
- * @param {boolean} [silent=false] - When `true`, suppresses progress output during the build.
- * @param {boolean} [gitStats=false] - When `true`, attaches git churn data to each node.
- * @param {ParallelParsingOption} [parallelParsing] - Controls worker-pool offloading of file parsing; see `MokoshConfig.parallelParsing`.
- * @param {Record<string, string[]>} [pathAliases] - Explicit path-alias map; see `MokoshConfig.pathAliases`.
+ * @param {object} [options] - `silent` suppresses progress output; the rest is the graph-build subset of `MokoshConfig` — build via {@link configToGraphOptions}.
  * @returns {Promise<Graph>} The fully-built `Graph` covering all reachable imports.
  */
 export async function buildGraph(
   rootDir: string,
   entryPoints: string[],
   cachedGraph: Graph | null,
-  silent = false,
-  gitStats = false,
-  parallelParsing?: ParallelParsingOption,
-  pathAliases?: Record<string, string[]>,
+  options: { silent?: boolean } & ReturnType<typeof configToGraphOptions> = {
+    silent: false,
+    ...configToGraphOptions(undefined),
+  },
 ): Promise<Graph> {
-  return createImportMap(rootDir, entryPoints, cachedGraph, {
-    silent,
-    gitStats,
-    parallelParsing,
-    pathAliases,
-  });
+  return createImportMap(rootDir, entryPoints, cachedGraph, options);
 }

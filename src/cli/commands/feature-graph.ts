@@ -1,5 +1,10 @@
 /** CLI command: groups files into feature domains under their hub orchestrators. */
-import { buildFeatureGraph, createImportMap, getAllProjectFiles } from "../../index";
+import {
+  buildFeatureGraph,
+  configToGraphOptions,
+  createImportMap,
+  getAllProjectFiles,
+} from "../../index";
 import type { CommandContext } from "./types";
 
 /**
@@ -14,9 +19,7 @@ export async function run(ctx: CommandContext): Promise<void> {
 
   if (graph.nodes.size === 0) {
     const allFiles = getAllProjectFiles(rootDir, scanOptions);
-    graph = await createImportMap(rootDir, allFiles, graph, {
-      pathAliases: rawConfig.pathAliases,
-    });
+    graph = await createImportMap(rootDir, allFiles, graph, configToGraphOptions(rawConfig));
   }
 
   const featureGraph = buildFeatureGraph(

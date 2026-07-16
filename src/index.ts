@@ -1,7 +1,7 @@
 /** Public library API: createImportMap, createWorkspaceGraph, and getAllProjectFiles. */
 
 // Config
-export { applyConfig, loadMokoshConfig, type MokoshConfig } from "./config";
+export { applyConfig, configToGraphOptions, loadMokoshConfig, type MokoshConfig } from "./config";
 
 // Constants
 export { DEFAULT_EXTENSIONS, DEFAULT_IGNORE_DIRS, type ScanOptions } from "./const";

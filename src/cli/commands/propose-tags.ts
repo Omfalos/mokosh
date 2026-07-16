@@ -1,5 +1,10 @@
 /** CLI command: infers test tags from git-changed files and prints them as JSON or plain text. */
-import { createImportMap, getAllProjectFiles, proposeTags } from "../../index";
+import {
+  configToGraphOptions,
+  createImportMap,
+  getAllProjectFiles,
+  proposeTags,
+} from "../../index";
 import type { CommandContext } from "./types";
 import { getTestFiles, resolveChangedFiles } from "./utils";
 
@@ -17,9 +22,12 @@ export async function run(ctx: CommandContext): Promise<void> {
 
   if (graph.nodes.size === 0) {
     const allFiles = getAllProjectFiles(rootDir, scanOptions);
-    graph = await createImportMap(rootDir, getTestFiles(allFiles), graph, {
-      pathAliases: rawConfig.pathAliases,
-    });
+    graph = await createImportMap(
+      rootDir,
+      getTestFiles(allFiles),
+      graph,
+      configToGraphOptions(rawConfig),
+    );
   }
 
   const tags = proposeTags(graph, changedFiles, {

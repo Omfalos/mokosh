@@ -1,6 +1,6 @@
 # rename-singles — Rename Single-Letter Identifiers
 
-Find every single-letter variable, argument, or constant in a target file (or the files mentioned in context) and rename them to human-readable names.
+Find every single-letter variable, argument, or constant in a target file (or the files mentioned in context) and rename them to human-readable names. Also covers a curated denylist of specific 2-3 char abbreviations (`.claude/hooks/rename-singles-check.sh` `DENYLIST` array) known to be unclear out of context — e.g. `wg` for `WorkspaceGraph`. This is **not** a length-based rule: most short names in this codebase (`abs`, `dir`, `ext`, `rel`, `pkg`, `src`, `raw`, `ctx`, `arg`, `key`, `map`, `hub`, `sig`, `ret`, `fn`, `doc`, `git`, `pct`, …) are established, self-explanatory conventions and should never be flagged or renamed. Add an abbreviation to the denylist only after a specific instance is found genuinely unclear in review — don't add it speculatively.
 
 ## When to use
 

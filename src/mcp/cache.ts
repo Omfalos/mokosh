@@ -4,6 +4,7 @@ import type { MokoshConfig } from "../config";
 import {
   buildChangeImpactCache,
   type ChangeImpactCache,
+  configToGraphOptions,
   createImportMap,
   createWorkspaceGraph,
   type Graph,
@@ -76,10 +77,8 @@ export class SessionState {
   ): Promise<Graph> {
     const config = this.configs.get(root);
     const graph = await createImportMap(root, entryPoints, this.graphs.get(root) ?? null, {
-      gitStats: config?.gitStats ?? false,
+      ...configToGraphOptions(config),
       coverageMap,
-      parallelParsing: config?.parallelParsing,
-      pathAliases: config?.pathAliases,
     });
     this.graphs.set(root, graph);
     return graph;
@@ -114,9 +113,9 @@ export class SessionState {
   ): Promise<WorkspaceGraph> {
     const cached = this.workspaceGraphs.get(root);
     if (cached) return cached;
-    const wg = await createWorkspaceGraph(root, options);
-    this.workspaceGraphs.set(root, wg);
-    return wg;
+    const workspaceGraph = await createWorkspaceGraph(root, options);
+    this.workspaceGraphs.set(root, workspaceGraph);
+    return workspaceGraph;
   }
 
   /**
@@ -218,11 +217,7 @@ export class SessionState {
     this.changeImpactCaches.delete(root);
     this.workspaceGraphs.delete(root);
     const config = this.configs.get(root);
-    return this.getOrBuildWorkspace(root, {
-      gitStats: config?.gitStats ?? false,
-      parallelParsing: config?.parallelParsing,
-      pathAliases: config?.pathAliases,
-    });
+    return this.getOrBuildWorkspace(root, configToGraphOptions(config));
   }
 
   /**
