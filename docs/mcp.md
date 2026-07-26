@@ -80,8 +80,9 @@ Outgoing traversal — files that a given file imports.
 | `root` | `string` | yes | |
 | `file` | `string` | yes | File path relative to `root` |
 | `depth` | `number` | no | Max traversal depth (default: `1` = immediate imports only) |
+| `withMeta` | `boolean` | no | Include `category` and `exports` per result (default: `false`) |
 
-**Returns:** `{ file, dependencies: string[] }`
+**Returns:** `{ file, dependencies: { path, symbols? }[] }`. With `withMeta: true`, each entry is `{ path, symbols?, category, exports }`.
 
 ---
 
@@ -93,8 +94,9 @@ One-hop incoming edges — files that directly import a given file.
 |---|---|---|---|
 | `root` | `string` | yes | |
 | `file` | `string` | yes | File path relative to `root` |
+| `withMeta` | `boolean` | no | Include `category` and `exports` per result (default: `false`) |
 
-**Returns:** `{ file, dependents: string[] }`
+**Returns:** `{ file, dependents: { path, symbols? }[] }`. With `withMeta: true`, each entry is `{ path, symbols?, category, exports }`.
 
 ---
 
@@ -109,8 +111,9 @@ Full incoming traversal — every file whose behaviour could change if `file` ch
 | `testsOnly` | `boolean` | no | Restrict results to test/spec files (default: `false`) |
 | `cached` | `boolean` | no | Use a pre-computed O(1) impact-cache lookup instead of graph traversal. Built lazily on first use and reused for the session (default: `false`) |
 | `changedSymbols` | `string[]` | no | Restrict blast-radius to files that import at least one of these symbols. Omit to treat the whole file as changed |
+| `withMeta` | `boolean` | no | Return each affected file as `{ path, category, exports }` instead of a bare path string (default: `false`) |
 
-**Returns:** `{ file, affected: string[], count: number }`
+**Returns:** `{ file, affected: string[], count: number }`. With `withMeta: true`, `affected` is `{ path, category, exports }[]` instead of bare strings.
 
 ---
 

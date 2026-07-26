@@ -33,4 +33,22 @@ describe("affected command", { tags: ["affected"] }, () => {
     expect(errorSpy).toHaveBeenCalled();
     expect(exitSpy).toHaveBeenCalledWith(1);
   });
+
+  it("converts affected into {path, category, exports} objects with --with-meta", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    await run(makeContext({ graph: makeFixtureGraph(), file: "src/a.ts", withMeta: true }));
+
+    const output = JSON.parse(logSpy.mock.calls[0]?.[0] as string);
+    expect(output.affected).toEqual([{ path: "src/b.ts", category: "logic", exports: [] }]);
+  });
+
+  it("supports --with-meta together with --cached", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    await run(
+      makeContext({ graph: makeFixtureGraph(), file: "src/a.ts", cached: true, withMeta: true }),
+    );
+
+    const output = JSON.parse(logSpy.mock.calls[0]?.[0] as string);
+    expect(output.affected).toEqual([{ path: "src/b.ts", category: "logic", exports: [] }]);
+  });
 });

@@ -10,6 +10,24 @@ export interface PathWithSymbols {
   symbols?: string[];
 }
 
+export interface NodeMeta {
+  category: FileNode["category"];
+  exports: string[];
+}
+
+/**
+ * @description Looks up a node's category and export names, for augmenting traversal
+ *   results with `withMeta` so the AI doesn't need a follow-up `query` call.
+ * @param graph - The graph to look up in.
+ * @param path - Project-relative path of the node.
+ * @returns `{ category, exports }` for the node, or undefined if `path` isn't in the graph.
+ */
+export function getNodeMeta(graph: Graph, path: string): NodeMeta | undefined {
+  const node = graph.nodes.get(path);
+  if (!node) return undefined;
+  return { category: node.category, exports: node.exports.map((exportedSym) => exportedSym.name) };
+}
+
 /**
  * @description Outgoing traversal from `file` — all files it imports, up to `depth` hops.
  * @param graph - The graph to traverse.

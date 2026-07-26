@@ -97,7 +97,7 @@ function makeCache(): SessionState {
     ensureFresh: vi.fn().mockResolvedValue(graph),
     storeLastAnalyze: vi.fn(),
     startWatching: vi.fn(),
-    getOrBuildChangeImpact: vi.fn().mockReturnValue({ impactMap: new Map() }),
+    getOrBuildChangeImpact: vi.fn().mockReturnValue({ impact: new Map(), graphHash: "" }),
   } as unknown as SessionState;
 }
 
@@ -203,6 +203,25 @@ describe("handleGetDependencies", {
 
     expect(data.dependencies.map((d) => d.path)).toEqual(["src/a.ts"]);
   });
+
+  test("withMeta=true adds category and exports per result", async () => {
+    const data = parse(
+      await handleGetDependencies(makeCache(), { root: ROOT, file: "src/b.ts", withMeta: true }),
+    ) as { dependencies: Array<{ path: string; category?: string; exports?: string[] }> };
+
+    const a = data.dependencies.find((d) => d.path === "src/a.ts");
+    expect(a?.category).toBe("logic");
+    expect(a?.exports).toEqual(["foo"]);
+  });
+
+  test("withMeta defaults to false (no category/exports fields)", async () => {
+    const data = parse(
+      await handleGetDependencies(makeCache(), { root: ROOT, file: "src/b.ts" }),
+    ) as { dependencies: Array<Record<string, unknown>> };
+
+    expect(data.dependencies[0]).not.toHaveProperty("category");
+    expect(data.dependencies[0]).not.toHaveProperty("exports");
+  });
 });
 
 describe("handleGetDependents", {
@@ -237,6 +256,16 @@ describe("handleGetDependents", {
     const paths = data.dependents.map((d) => d.path);
     expect(paths).toContain("src/b.ts");
     expect(paths).toContain("src/a.test.ts");
+  });
+
+  test("withMeta=true adds category and exports per result", async () => {
+    const data = parse(
+      await handleGetDependents(makeCache(), { root: ROOT, file: "src/a.ts", withMeta: true }),
+    ) as { dependents: Array<{ path: string; category?: string; exports?: string[] }> };
+
+    const testFile = data.dependents.find((d) => d.path === "src/a.test.ts");
+    expect(testFile?.category).toBe("test");
+    expect(testFile?.exports).toEqual([]);
   });
 });
 
@@ -278,6 +307,44 @@ describe("handleGetAffected", {
 
     expect(data.affected).toContain("src/a.test.ts");
     expect(data.affected).not.toContain("src/b.ts");
+  });
+
+  test("withMeta defaults to false (bare string paths)", async () => {
+    const data = parse(await handleGetAffected(makeCache(), { root: ROOT, file: "src/a.ts" })) as {
+      affected: unknown[];
+    };
+
+    expect(typeof data.affected[0]).toBe("string");
+  });
+
+  test("withMeta=true converts affected into {path, category, exports} objects", async () => {
+    const data = parse(
+      await handleGetAffected(makeCache(), { root: ROOT, file: "src/a.ts", withMeta: true }),
+    ) as { affected: Array<{ path: string; category: string; exports: string[] }> };
+
+    const testEntry = data.affected.find((entry) => entry.path === "src/a.test.ts");
+    expect(testEntry?.category).toBe("test");
+    expect(testEntry?.exports).toEqual([]);
+  });
+
+  test("withMeta=true works with cached=true branch", async () => {
+    const cache = makeCache();
+    vi.mocked(cache.getOrBuildChangeImpact).mockReturnValue({
+      impact: new Map([["src/a.ts", ["src/b.ts", "src/a.test.ts"]]]),
+      graphHash: "",
+    });
+
+    const data = parse(
+      await handleGetAffected(cache, {
+        root: ROOT,
+        file: "src/a.ts",
+        cached: true,
+        withMeta: true,
+      }),
+    ) as { affected: Array<{ path: string; category: string }> };
+
+    const b = data.affected.find((entry) => entry.path === "src/b.ts");
+    expect(b?.category).toBe("logic");
   });
 });
 

@@ -22,6 +22,7 @@ export function makeContext(overrides: Partial<CommandContext> & { graph: Graph 
     depth: undefined,
     cached: false,
     changedSymbols: undefined,
+    withMeta: false,
     withEdgeDetail: false,
     metric: undefined,
     complexityThreshold: undefined,

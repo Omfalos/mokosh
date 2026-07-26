@@ -19,6 +19,7 @@ import {
   getCallers,
   getDependencies,
   getDependents,
+  getNodeMeta,
   hasCoverageData,
   loadCoverageMap,
   loadMokoshConfig,
@@ -43,14 +44,20 @@ import { text } from "./utils";
 export type AnalyzeArgs = { root: string; entryPoints: string[] };
 export type GetWorkspacePackagesArgs = { root: string };
 export type GetWorkspaceAffectedArgs = { root: string; file: string };
-export type GetDependenciesArgs = { root: string; file: string; depth?: number };
-export type GetDependentsArgs = { root: string; file: string };
+export type GetDependenciesArgs = {
+  root: string;
+  file: string;
+  depth?: number;
+  withMeta?: boolean;
+};
+export type GetDependentsArgs = { root: string; file: string; withMeta?: boolean };
 export type GetAffectedArgs = {
   root: string;
   file: string;
   testsOnly?: boolean;
   cached?: boolean;
   changedSymbols?: string[];
+  withMeta?: boolean;
 };
 export type GetCallersArgs = {
   root: string;
@@ -177,33 +184,41 @@ export async function handleAnalyze(cache: SessionState, args: AnalyzeArgs) {
  * @description Outgoing traversal from `file` — returns all files that `file` imports,
  *   up to `depth` hops (default 1 = immediate imports only). Requires a prior `analyze` call.
  * @param cache - Session state holding the cached graph for `root`.
- * @param args - `root` selects the graph; `file` is the starting node; `depth` caps traversal depth.
- * @returns TextResponse with `{ file, dependencies }` listing all reachable imported paths.
+ * @param args - `root` selects the graph; `file` is the starting node; `depth` caps traversal depth; `withMeta` adds category/exports per result.
+ * @returns TextResponse with `{ file, dependencies }` listing all reachable imported paths, each
+ *   `{ path, symbols? }` or `{ path, symbols?, category, exports }` when `withMeta` is true.
  */
 export async function handleGetDependencies(
   cache: SessionState,
   args: GetDependenciesArgs,
 ): Promise<TextResponse> {
-  const { root, file, depth = 1 } = args;
+  const { root, file, depth = 1, withMeta = false } = args;
   const graph = await cache.ensureFresh(root);
   const deps = getDependencies(graph, file, depth);
-  return text({ file, dependencies: deps });
+  const dependencies = withMeta
+    ? deps.map((dep) => ({ ...dep, ...getNodeMeta(graph, dep.path) }))
+    : deps;
+  return text({ file, dependencies });
 }
 
 /**
  * @description Incoming one-hop traversal — returns files that directly import `file`.
  *   For the full transitive upstream set use `handleGetAffected` instead. Requires a prior `analyze` call.
  * @param cache - Session state holding the cached graph for `root`.
- * @param args - `root` selects the graph; `file` is the node whose direct importers to find.
- * @returns TextResponse with `{ file, dependents }` listing files that import `file` directly.
+ * @param args - `root` selects the graph; `file` is the node whose direct importers to find; `withMeta` adds category/exports per result.
+ * @returns TextResponse with `{ file, dependents }` listing files that import `file` directly, each
+ *   `{ path, symbols? }` or `{ path, symbols?, category, exports }` when `withMeta` is true.
  */
 export async function handleGetDependents(
   cache: SessionState,
   args: GetDependentsArgs,
 ): Promise<TextResponse> {
-  const { root, file } = args;
+  const { root, file, withMeta = false } = args;
   const graph = await cache.ensureFresh(root);
-  const dependents = getDependents(graph, file);
+  const deps = getDependents(graph, file);
+  const dependents = withMeta
+    ? deps.map((dep) => ({ ...dep, ...getNodeMeta(graph, dep.path) }))
+    : deps;
   return text({ file, dependents });
 }
 
@@ -213,25 +228,31 @@ export async function handleGetDependents(
  *   O(1) impact cache instead of graph traversal — faster on repeated calls for the same root.
  *   Requires a prior `analyze` call.
  * @param cache - Session state holding the cached graph for `root`.
- * @param args - `root` selects the graph; `file` is the changed node; `testsOnly` restricts results to test/spec files; `cached` switches to the impact cache.
- * @returns TextResponse with `{ file, affected, count }` listing all transitively impacted files.
+ * @param args - `root` selects the graph; `file` is the changed node; `testsOnly` restricts results to test/spec files; `cached` switches to the impact cache; `withMeta` turns each affected path into `{ path, category, exports }`.
+ * @returns TextResponse with `{ file, affected, count }` listing all transitively impacted files
+ *   (bare paths, or `{ path, category, exports }` objects when `withMeta` is true).
  */
 export async function handleGetAffected(
   cache: SessionState,
   args: GetAffectedArgs,
 ): Promise<TextResponse> {
-  const { root, file, testsOnly = false, cached = false, changedSymbols } = args;
+  const { root, file, testsOnly = false, cached = false, changedSymbols, withMeta = false } = args;
   const graph = await cache.ensureFresh(root);
+  const annotate = (paths: string[]) =>
+    withMeta ? paths.map((p) => ({ path: p, ...getNodeMeta(graph, p) })) : paths;
+
   if (cached) {
     const impactCache = cache.getOrBuildChangeImpact(root);
     const allAffected = queryChangeImpact(impactCache, file);
     const affected = testsOnly
       ? allAffected.filter((filePath) => graph.nodes.get(filePath)?.category === "test")
       : allAffected;
-    return text({ file, affected, count: affected.length });
+    const result = annotate(affected);
+    return text({ file, affected: result, count: result.length });
   }
   const affected = getAffected(graph, file, { testsOnly, changedSymbols });
-  return text({ file, affected, count: affected.length });
+  const result = annotate(affected);
+  return text({ file, affected: result, count: result.length });
 }
 
 /**

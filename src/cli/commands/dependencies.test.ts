@@ -25,4 +25,14 @@ describe("dependencies command", { tags: ["dependencies"] }, () => {
     expect(errorSpy).toHaveBeenCalled();
     expect(exitSpy).toHaveBeenCalledWith(1);
   });
+
+  it("adds category and exports per result with --with-meta", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    await run(makeContext({ graph: makeFixtureGraph(), file: "src/b.ts", withMeta: true }));
+
+    const output = JSON.parse(logSpy.mock.calls[0]?.[0] as string);
+    expect(output.dependencies).toEqual([
+      { path: "src/a.ts", symbols: ["foo"], category: "logic", exports: ["foo"] },
+    ]);
+  });
 });

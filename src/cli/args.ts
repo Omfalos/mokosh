@@ -46,6 +46,7 @@ export interface ParsedArgs {
   changedSymbols: string[] | undefined;
   cached: boolean;
   depth: number | undefined;
+  withMeta: boolean;
   withEdgeDetail: boolean;
   findComplexFunctions: boolean;
   metric: "cognitiveComplexity" | "complexity" | undefined;
@@ -122,6 +123,7 @@ const OPTIONS = {
   "changed-symbols": { type: "string" },
   cached: { type: "boolean" },
   depth: { type: "string" },
+  "with-meta": { type: "boolean" },
   "with-edge-detail": { type: "boolean" },
   "find-complex-functions": { type: "boolean" },
   metric: { type: "string" },
@@ -242,6 +244,7 @@ export function parseArgs(cliTokens: string[]): ParsedArgs {
       : undefined,
     cached: values["cached"] ?? false,
     depth: depthRaw ? parseInt(depthRaw, 10) : undefined,
+    withMeta: values["with-meta"] ?? false,
     withEdgeDetail: values["with-edge-detail"] ?? false,
     findComplexFunctions: values["find-complex-functions"] ?? false,
     metric:

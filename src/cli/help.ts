@@ -52,6 +52,7 @@ MCP parity (mirrors the MCP server's tools for use when MCP is unavailable):
   --tests-only                 Restrict --affected to test/spec files
   --changed-symbols <a,b,...>  Restrict --affected to files that import these specific symbols
   --cached                     Use a precomputed impact cache for --affected instead of a fresh traversal
+  --with-meta                  Add category/exports per result for --dependencies/--dependents/--affected
   --with-edge-detail           Include from/to function names per edge (use with --callers)
   --find-complex-functions     List functions/methods at or above a complexity threshold, worst-first
   --metric <name>              cognitiveComplexity (default) | complexity — used by --find-complex-functions

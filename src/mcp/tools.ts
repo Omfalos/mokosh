@@ -41,6 +41,11 @@ export const TOOL_DEFINITIONS = [
         root: { type: "string" },
         file: { type: "string", description: "File path relative to root" },
         depth: { type: "number", description: "Max traversal depth (default: 1)" },
+        withMeta: {
+          type: "boolean",
+          description:
+            "Include each result's category and export names alongside the path (default: false). Set true when you need to decide what to do with a result without a follow-up lookup.",
+        },
       },
       required: ["root", "file"],
     },
@@ -54,6 +59,11 @@ export const TOOL_DEFINITIONS = [
       properties: {
         root: { type: "string" },
         file: { type: "string", description: "File path relative to root" },
+        withMeta: {
+          type: "boolean",
+          description:
+            "Include each result's category and export names alongside the path (default: false). Set true when you need to decide what to do with a result without a follow-up lookup.",
+        },
       },
       required: ["root", "file"],
     },
@@ -61,7 +71,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "get_affected",
     description:
-      "Get all files transitively affected if a given file changes — full incoming traversal upward. Use before a refactor to understand blast radius. Set testsOnly=true to get only test files. Set cached=true to use a pre-computed O(1) lookup cache instead of graph traversal — faster on repeated calls for the same root. Pass changedSymbols to restrict blast-radius to files that actually import those symbols — omit to treat the whole file as changed.",
+      "Get all files transitively affected if a given file changes — full incoming traversal upward. Use before a refactor to understand blast radius. Set testsOnly=true to get only test files. Set cached=true to use a pre-computed O(1) lookup cache instead of graph traversal — faster on repeated calls for the same root. Pass changedSymbols to restrict blast-radius to files that actually import those symbols — omit to treat the whole file as changed. Set withMeta=true to get { path, category, exports } objects instead of bare path strings.",
     inputSchema: {
       type: "object",
       properties: {
@@ -81,6 +91,11 @@ export const TOOL_DEFINITIONS = [
           items: { type: "string" },
           description:
             "Restrict blast-radius to files that import at least one of these symbols. Omit to treat the whole file as changed (conservative, same as before).",
+        },
+        withMeta: {
+          type: "boolean",
+          description:
+            "Return each affected file as { path, category, exports } instead of a bare path string (default: false). Set true when you need to decide what to do with a result without a follow-up lookup.",
         },
       },
       required: ["root", "file"],

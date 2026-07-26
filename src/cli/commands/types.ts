@@ -23,6 +23,7 @@ export interface CommandContext {
   depth: number | undefined;
   cached: boolean;
   changedSymbols: string[] | undefined;
+  withMeta: boolean;
   withEdgeDetail: boolean;
   metric: "cognitiveComplexity" | "complexity" | undefined;
   complexityThreshold: number | undefined;
