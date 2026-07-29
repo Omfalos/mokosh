@@ -13,6 +13,7 @@ import {
   detectMonorepo,
   filterGraph,
   findComplexFunctions,
+  findSymbol,
   Graph,
   getAffected,
   getAllProjectFiles,
@@ -65,6 +66,7 @@ export type GetCallersArgs = {
   depth?: number;
   withEdgeDetail?: boolean;
 };
+export type FindSymbolArgs = { root: string; name: string };
 export type FindUnusedArgs = { root: string; entryPoints: string[] };
 export type FindUncoveredArgs = { root: string; coverageThreshold?: number };
 export type CheckDocDriftArgs = { root: string };
@@ -107,6 +109,7 @@ export type ToolArgs =
   | GetDependentsArgs
   | GetAffectedArgs
   | GetCallersArgs
+  | FindSymbolArgs
   | FindUnusedArgs
   | FindUncoveredArgs
   | CheckDocDriftArgs
@@ -588,6 +591,24 @@ export async function handleGetCallGraph(
   const { root, function: functionName } = args;
   const graph = await cache.ensureFresh(root);
   return text(queryCallGraph(graph, functionName));
+}
+
+/**
+ * @description Finds every file that exports `name`, with the best available usage info per match
+ *   (call-edge callers for TS/JS, named-import tracking for Python, whole-file dependents
+ *   otherwise). Requires a prior `analyze` call.
+ * @param cache - Session state holding the cached graph for `root`.
+ * @param args - `root` selects the graph; `name` is the exact export name to look up.
+ * @returns TextResponse with `{ name, matches, count }`.
+ */
+export async function handleFindSymbol(
+  cache: SessionState,
+  args: FindSymbolArgs,
+): Promise<TextResponse> {
+  const { root, name } = args;
+  const graph = await cache.ensureFresh(root);
+  const matches = findSymbol(graph, name);
+  return text({ name, matches, count: matches.length });
 }
 
 /**

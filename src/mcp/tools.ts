@@ -366,6 +366,22 @@ export const TOOL_DEFINITIONS = [
     },
   },
   {
+    name: "find_symbol",
+    description:
+      "Find every file that exports a symbol by exact name, with the best available usage info per match. Precision varies by the defining file's language: TypeScript/JavaScript gets function-level callers (via call edges); Python gets named-import tracking (which files import this exact symbol); everything else (Go, CoffeeScript, LiveScript, Lua, Gherkin, Markdown, CSS/SCSS/Stylus) falls back to whole-file dependents, which is import-level only — a listed importer might not even use this specific export. Files whose parser never records exports (CoffeeScript, LiveScript, Lua, Gherkin, Markdown, CSS/SCSS/Stylus) never appear as matches, so a name that only exists in one of those returns an empty result, same as a typo. Each match's `precision` field is 'call' | 'import-symbol' | 'file-level' — check it before trusting caller/importer results as symbol-exact.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        root: { type: "string", description: "Absolute path to the project root" },
+        name: {
+          type: "string",
+          description: "Exact export name to look up (e.g. 'parseFile').",
+        },
+      },
+      required: ["root", "name"],
+    },
+  },
+  {
     name: "get_api_surface",
     description:
       "Build the API surface report for a project. Expands export* chains so every symbol accessible to consumers is listed (not just those directly declared in the entry file). Each export is resolved to its defining file and tagged with a kind (function/class/interface/type/enum/const). The graph is partitioned into: internalFiles (implementation reachable from entry points), unreachableFromEntry (non-test files not reachable from any entry point — may be separate consumers like CLI/MCP, config, or dead code), and testFiles (test suite). Supports multiple public entry points for libraries with sub-path exports. Requires a prior analyze() call. When entryPoints is omitted, auto-detects all entry points from package.json exports/main/module.",

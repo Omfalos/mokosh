@@ -77,6 +77,13 @@ export type {
   ModuleRole,
   ResponsibilityGraph,
 } from "./graph/responsibility/types";
+export {
+  findSymbol,
+  type SymbolCaller,
+  type SymbolImporter,
+  type SymbolMatch,
+  type SymbolPrecision,
+} from "./graph/symbol";
 export { SymbolTraversalContext } from "./graph/symbol-traversal";
 export {
   buildTypeGraph,

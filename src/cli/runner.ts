@@ -15,6 +15,7 @@ import { run as runDependents } from "./commands/dependents";
 import { run as runDetectFeatures } from "./commands/detect-features";
 import { run as runFeatureGraph } from "./commands/feature-graph";
 import { run as runFindComplexFunctions } from "./commands/find-complex-functions";
+import { run as runFindSymbol } from "./commands/find-symbol";
 import { run as runFindUncovered } from "./commands/find-uncovered";
 import { run as runFindUnused } from "./commands/find-unused";
 import { run as runGraphOutput } from "./commands/graph-output";
@@ -106,6 +107,7 @@ export async function run(): Promise<void> {
     minOutDegree,
     featureGraph,
     callGraph,
+    findSymbol,
     functionName,
     apiSurface,
     applyTags,
@@ -233,6 +235,7 @@ export async function run(): Promise<void> {
     [moduleResponsibility, runModuleResponsibility],
     [featureGraph, runFeatureGraph],
     [callGraph, runCallGraph],
+    [findSymbol, runFindSymbol],
     [apiSurface, runApiSurface],
   ];
 

@@ -32,6 +32,7 @@ export interface ParsedArgs {
   minOutDegree: number | undefined;
   featureGraph: boolean;
   callGraph: boolean;
+  findSymbol: boolean;
   functionName: string | undefined;
   apiSurface: boolean;
   applyTags: boolean;
@@ -110,6 +111,7 @@ const OPTIONS = {
   "module-responsibility": { type: "boolean" },
   "feature-graph": { type: "boolean" },
   "call-graph": { type: "boolean" },
+  "find-symbol": { type: "boolean" },
   "api-surface": { type: "boolean" },
   "apply-tags": { type: "boolean" },
   "dry-run": { type: "boolean" },
@@ -229,6 +231,7 @@ export function parseArgs(cliTokens: string[]): ParsedArgs {
     moduleResponsibility: values["module-responsibility"] ?? false,
     featureGraph: values["feature-graph"] ?? false,
     callGraph: values["call-graph"] ?? false,
+    findSymbol: values["find-symbol"] ?? false,
     apiSurface: values["api-surface"] ?? false,
     applyTags: values["apply-tags"] ?? false,
     dryRun: values["dry-run"] ?? false,

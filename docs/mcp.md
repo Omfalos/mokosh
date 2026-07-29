@@ -320,6 +320,30 @@ Look up callers and callees for a named function. Returns the file that defines 
 
 ---
 
+### `find_symbol`
+
+Find every file that exports a symbol by exact name, with the best available usage info per
+match. Precision depends on what the defining file's language parser tracks:
+
+| Precision | Languages | What `callers`/`importers` means |
+|---|---|---|
+| `call` | TypeScript/JavaScript | Function-level callers via call edges |
+| `import-symbol` | Python | Files that import this exact symbol by name |
+| `file-level` | Go, and everything else with populated exports | Whole-file dependents — an importer might not use this specific export |
+
+Files whose parser never populates `exports` at all (CoffeeScript, LiveScript, Lua, Gherkin,
+Markdown, CSS/SCSS/Stylus) never produce a match — a name that only exists in one of those files
+returns an empty result, indistinguishable from a typo.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `root` | `string` | yes | |
+| `name` | `string` | yes | Exact export name to look up (e.g. `parseFile`) |
+
+**Requires:** a prior `analyze` call for the same `root`.
+
+---
+
 ### `get_api_surface`
 
 Builds the API surface report for a project. Expands `export *` chains so every symbol accessible to consumers is listed (not just those directly declared in the entry file). Each export is resolved to its defining file and tagged with a kind (`function`/`class`/`interface`/`type`/`enum`/`const`). The graph is partitioned into `internalFiles` (implementation reachable from entry points), `unreachableFromEntry` (non-test files not reachable from any entry point — may be separate consumers like CLI/MCP, config, or dead code), and `testFiles` (test suite). Supports multiple public entry points for libraries with sub-path exports.

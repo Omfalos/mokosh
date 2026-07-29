@@ -7,6 +7,7 @@ import {
   handleAnalyze,
   handleDetectFeatures,
   handleFindComplexFunctions,
+  handleFindSymbol,
   handleFindUnused,
   handleGetAffected,
   handleGetDependencies,
@@ -378,6 +379,40 @@ describe("handleFindUnused", {
     expect(data.unusedFiles).toContain("src/orphan.ts");
     expect(data.unusedFiles).not.toContain("src/a.ts");
     expect(data.count).toBe(data.unusedFiles.length);
+  });
+});
+
+describe("handleFindSymbol", {
+  tags: [
+    "Graph",
+    "SerializedGraph",
+    "SessionState",
+    "cache",
+    "graph",
+    "handleFindSymbol",
+    "handlers",
+  ],
+}, () => {
+  test("returns the file that exports the symbol", async () => {
+    const data = parse(await handleFindSymbol(makeCache(), { root: ROOT, name: "foo" })) as {
+      name: string;
+      matches: Array<{ path: string; precision: string }>;
+      count: number;
+    };
+
+    expect(data.name).toBe("foo");
+    expect(data.count).toBe(1);
+    expect(data.matches[0]?.path).toBe("src/a.ts");
+    expect(data.matches[0]?.precision).toBe("call");
+  });
+
+  test("returns no matches for a symbol nothing exports", async () => {
+    const data = parse(
+      await handleFindSymbol(makeCache(), { root: ROOT, name: "doesNotExist" }),
+    ) as { matches: unknown[]; count: number };
+
+    expect(data.matches).toEqual([]);
+    expect(data.count).toBe(0);
   });
 });
 

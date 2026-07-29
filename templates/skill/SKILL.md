@@ -43,6 +43,7 @@ If source files are edited mid-session, call `clear_cache({ root })` before re-q
 | Tests affected by X | `get_affected({ root, file, testsOnly: true })` | `mokosh --affected-tests <file>` |
 | Who **calls into** X at runtime? | `get_callers({ root, file, depth: 1, withEdgeDetail: true })` | `mokosh --callers <file>` |
 | Callers/callees of a named function | `get_call_graph({ root, function: "name" })` | TS/JS only |
+| Which file exports symbol X? | `find_symbol({ root, name: "X" })` | `mokosh <entry> --find-symbol --function X` |
 | Unused files | `find_unused({ root, entryPoints: [...] })` | `mokosh --find-unused <entry>` |
 | Circular dependencies | — | `mokosh <entry> --check-cycles` |
 

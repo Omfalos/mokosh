@@ -60,6 +60,9 @@ MCP parity (mirrors the MCP server's tools for use when MCP is unavailable):
   --limit <N>                  Max results for --find-complex-functions (default: 20)
   --workspace-packages         List monorepo packages and their cross-package dependencies
   --workspace-affected         Cross-package blast-radius for --file in a monorepo
+  --find-symbol                Find every file that exports --function <name> by exact name, with
+                                the best available caller/importer info per match (call-edge
+                                precision for TS/JS, named-import for Python, file-level otherwise)
   --watch                      Re-run on file changes. Supported with the default output, --query,
                                 --callers, --dependencies, --dependents, --affected, --find-uncovered,
                                 --find-complex-functions, --check-cycles, and --check-doc-drift only.

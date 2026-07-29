@@ -160,6 +160,7 @@ npx @omfalos/mokosh --query "category:logic,tag:auth" src/index.ts
 - `--find-uncovered`: List non-test files whose line coverage is below the configured threshold (requires `coverageReportPath` in `mokosh.config.*`). Use `--feature-threshold` to override the default 80 % threshold.
 - `--callers`: List files whose exported functions call into a given file. Requires `--file <path>`. More precise than `--find-unused` because it uses call edges rather than import edges.
 - `--file <path>`: Target file for `--callers`.
+- `--find-symbol`: Find every file that exports a symbol by exact name. Requires `--function <name>`. Precision varies by language: call-edge callers for TS/JS, named-import tracking for Python, whole-file dependents otherwise.
 - `--query <query>`: Filter the output graph using a query string. Supported keys: `path`, `type`, `category`, `tag`, `external`, `importsFile`, `importedBy`, `minImports`, `maxImports`, `minSize`, `maxSize`, `hasDocstring`, `sort`, `limit`. Example: `category:logic,hasDocstring:false`.
 - `--query-help`: Print the full query filter reference and examples.
 - `--silent`: Suppress progress output on stderr.
