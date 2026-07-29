@@ -76,13 +76,31 @@ function resolveRootDir(cliTokens: string[]): string {
 }
 
 /**
+ * @description Parses a raw numeric CLI value, returning `undefined` for missing/empty input.
+ * @param {string | undefined} raw - The raw string value from `nodeParseArgs`, if provided.
+ * @returns {number | undefined} The parsed integer, or `undefined` if `raw` is falsy.
+ */
+function parseOptionalInt(raw: string | undefined): number | undefined {
+  return raw ? parseInt(raw, 10) : undefined;
+}
+
+/**
+ * @description Parses a raw comma-separated CLI value into a trimmed string array.
+ * @param {string | undefined} raw - The raw comma-separated string from `nodeParseArgs`, if provided.
+ * @returns {string[] | undefined} The trimmed parts, or `undefined` if `raw` is falsy.
+ */
+function parseCsv(raw: string | undefined): string[] | undefined {
+  return raw ? raw.split(",").map((part) => part.trim()) : undefined;
+}
+
+/**
  * @description Parses raw CLI tokens into a structured options object with all paths
  *   resolved to absolute values. `--root` is resolved first because the default cache path
  *   derives from it; every subsequent path argument is resolved relative to that root.
  * @param {string[]} cliTokens - Raw process arguments (everything after `node <script>`).
  * @returns {ParsedArgs} A fully populated `ParsedArgs` with boolean flags set and path arguments as absolute paths.
  */
-const OPTIONS = {
+export const OPTIONS = {
   root: { type: "string" },
   cache: { type: "string" },
   config: { type: "string" },
@@ -189,15 +207,8 @@ export function parseArgs(cliTokens: string[]): ParsedArgs {
     options: OPTIONS,
   });
 
-  const featureThresholdRaw = values["feature-threshold"];
-  const minOutDegreeRaw = values["min-out-degree"];
-  const filterPathsRaw = values["paths"];
   const cacheValue = values["cache"];
   const configValue = values["config"];
-  const changedSymbolsRaw = values["changed-symbols"];
-  const depthRaw = values["depth"];
-  const complexityThresholdRaw = values["complexity-threshold"];
-  const limitRaw = values["limit"];
   const metricRaw = values["metric"];
 
   return {
@@ -208,11 +219,9 @@ export function parseArgs(cliTokens: string[]): ParsedArgs {
     file: values["file"],
     typeFilter: values["type"],
     functionName: values["function"],
-    filterPaths: filterPathsRaw
-      ? filterPathsRaw.split(",").map((pathStr) => pathStr.trim())
-      : undefined,
-    featureThreshold: featureThresholdRaw ? parseInt(featureThresholdRaw, 10) : undefined,
-    minOutDegree: minOutDegreeRaw ? parseInt(minOutDegreeRaw, 10) : undefined,
+    filterPaths: parseCsv(values["paths"]),
+    featureThreshold: parseOptionalInt(values["feature-threshold"]),
+    minOutDegree: parseOptionalInt(values["min-out-degree"]),
     mermaid: values["mermaid"] ?? false,
     proposeTags: values["propose-tags"] ?? false,
     plain: values["plain"] ?? false,
@@ -242,18 +251,16 @@ export function parseArgs(cliTokens: string[]): ParsedArgs {
     dependents: values["dependents"] ?? false,
     affected: values["affected"] ?? false,
     testsOnly: values["tests-only"] ?? false,
-    changedSymbols: changedSymbolsRaw
-      ? changedSymbolsRaw.split(",").map((symbol) => symbol.trim())
-      : undefined,
+    changedSymbols: parseCsv(values["changed-symbols"]),
     cached: values["cached"] ?? false,
-    depth: depthRaw ? parseInt(depthRaw, 10) : undefined,
+    depth: parseOptionalInt(values["depth"]),
     withMeta: values["with-meta"] ?? false,
     withEdgeDetail: values["with-edge-detail"] ?? false,
     findComplexFunctions: values["find-complex-functions"] ?? false,
     metric:
       metricRaw === "complexity" || metricRaw === "cognitiveComplexity" ? metricRaw : undefined,
-    complexityThreshold: complexityThresholdRaw ? parseInt(complexityThresholdRaw, 10) : undefined,
-    limit: limitRaw ? parseInt(limitRaw, 10) : undefined,
+    complexityThreshold: parseOptionalInt(values["complexity-threshold"]),
+    limit: parseOptionalInt(values["limit"]),
     workspacePackages: values["workspace-packages"] ?? false,
     workspaceAffected: values["workspace-affected"] ?? false,
     clearCache: values["clear-cache"] ?? false,

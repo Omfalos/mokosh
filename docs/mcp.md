@@ -59,13 +59,26 @@ Build the dependency graph from one or more entry points and cache it for the se
 | `root` | `string` | yes | Absolute path to the project root (or monorepo root) |
 | `entryPoints` | `string[]` | yes | Entry point files relative to `root`. Pass `[]` to trigger monorepo auto-detection. |
 
-**Returns:** `{ nodeCount, categories, cycles }`
+**Returns:** `{ nodeCount, categories, cycles, languageCoverage }` (single-graph builds only — the
+monorepo auto-detection branch doesn't include `languageCoverage` yet).
+
+`languageCoverage` is one entry per language actually present in the repo, reporting what mokosh
+tracks for it: `exportsTracked` (can any tool find the file that defines a symbol?),
+`importSymbolsTracked` (can tools tell which specific named symbols an importer uses?), and
+`callEdgesTracked` (are function-level call edges available, e.g. for `get_call_graph`/`find_symbol`
+precision `"call"`). This is the authoritative, always-current version of the capability notes
+repeated in tool descriptions like `find_symbol`'s — check it once after `analyze` instead of
+discovering degraded precision by trial and error.
 
 ```json
 {
   "nodeCount": 42,
   "categories": { "logic": 28, "test": 8, "barrel": 4, "config": 2 },
-  "cycles": []
+  "cycles": [],
+  "languageCoverage": [
+    { "type": "typescript", "fileCount": 38, "exportsTracked": true, "importSymbolsTracked": true, "callEdgesTracked": true },
+    { "type": "python", "fileCount": 4, "exportsTracked": true, "importSymbolsTracked": true, "callEdgesTracked": false }
+  ]
 }
 ```
 

@@ -47,6 +47,13 @@ export {
   type FeatureGraph,
   type FeatureGraphOptions,
 } from "./graph/features/feature-graph";
+export {
+  CALL_EDGE_TYPES,
+  EXPORT_TRACKING_TYPES,
+  getLanguageCoverage,
+  IMPORT_SYMBOL_TYPES,
+  type LanguageCoverage,
+} from "./graph/language-support";
 // Core graph classes
 export { Graph } from "./graph/model";
 export {

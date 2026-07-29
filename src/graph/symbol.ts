@@ -1,5 +1,6 @@
 /** Symbol-name lookup across the whole graph — generalizes queryCallGraph beyond TS/JS functions. */
-import type { FileType, NodeCategory } from "../types/parse";
+import type { NodeCategory } from "../types/parse";
+import { CALL_EDGE_TYPES, IMPORT_SYMBOL_TYPES } from "./language-support";
 import type { Graph } from "./model";
 import { getDependents } from "./queries";
 
@@ -22,12 +23,6 @@ export interface SymbolMatch {
   callers?: SymbolCaller[];
   importers?: SymbolImporter[];
 }
-
-/** File types whose parser records function-level call edges (`FileNode.callEdges`). */
-const CALL_EDGE_TYPES = new Set<FileType>(["typescript", "javascript"]);
-
-/** File types whose parser records which named symbols each import edge pulls in (`ImportEdge.symbols`). */
-const IMPORT_SYMBOL_TYPES = new Set<FileType>(["typescript", "javascript", "python"]);
 
 /**
  * @description Finds every file that exports a symbol by name, with the best available

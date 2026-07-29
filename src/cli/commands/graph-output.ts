@@ -1,5 +1,12 @@
 /** CLI command: outputs the dependency graph as Mermaid or JSON, optionally filtered by a query. */
-import { filterGraph, Graph, MermaidExporter, parseQuery, slimSerialize } from "../../index";
+import {
+  filterGraph,
+  Graph,
+  getLanguageCoverage,
+  MermaidExporter,
+  parseQuery,
+  slimSerialize,
+} from "../../index";
 import type { CommandContext } from "./types";
 
 /**
@@ -29,10 +36,11 @@ export async function run(ctx: CommandContext): Promise<void> {
   if (cycles.length > 0) {
     serialized.cycles = cycles;
   }
+  const languageCoverage = getLanguageCoverage(graph);
 
   if (slim) {
-    console.log(JSON.stringify(slimSerialize(serialized), null, 2));
+    console.log(JSON.stringify({ ...slimSerialize(serialized), languageCoverage }, null, 2));
   } else {
-    console.log(JSON.stringify(serialized, null, 2));
+    console.log(JSON.stringify({ ...serialized, languageCoverage }, null, 2));
   }
 }

@@ -20,6 +20,7 @@ import {
   getCallers,
   getDependencies,
   getDependents,
+  getLanguageCoverage,
   getNodeMeta,
   hasCoverageData,
   loadCoverageMap,
@@ -180,7 +181,8 @@ export async function handleAnalyze(cache: SessionState, args: AnalyzeArgs) {
     return acc;
   }, {});
   const cycles = graph.findCycles();
-  return text({ nodeCount: serialized.nodes.length, categories, cycles });
+  const languageCoverage = getLanguageCoverage(graph);
+  return text({ nodeCount: serialized.nodes.length, categories, cycles, languageCoverage });
 }
 
 /**

@@ -141,6 +141,29 @@ describe("handleAnalyze", {
     expect(data.cycles).toEqual([]);
   });
 
+  test("includes languageCoverage for languages present in the graph", async () => {
+    const cache = makeCache();
+    const data = parse(await handleAnalyze(cache, { root: ROOT, entryPoints: ["src/a.ts"] })) as {
+      languageCoverage: Array<{
+        type: string;
+        fileCount: number;
+        exportsTracked: boolean;
+        importSymbolsTracked: boolean;
+        callEdgesTracked: boolean;
+      }>;
+    };
+
+    expect(data.languageCoverage).toEqual([
+      {
+        type: "typescript",
+        fileCount: 3,
+        exportsTracked: true,
+        importSymbolsTracked: true,
+        callEdgesTracked: true,
+      },
+    ]);
+  });
+
   test("applies config when root is not yet configured", async () => {
     const { loadMokoshConfig, applyConfig } = await import("../index.js");
     const cache = makeCache();
