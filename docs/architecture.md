@@ -9,7 +9,10 @@ Entry points
     │
     ▼
 GraphBuilder.build()                    src/graph/builder.ts
-  ├─ Walks FS depth-first from each entry point
+  ├─ Queue-pumped wavefront from each entry point (not strict DFS): each round
+  │   parses/resolves every currently-queued file in parallel (Promise.all);
+  │   files discovered during a round join the next round's queue.
+  │   parseFile() optionally offloaded to a piscina worker pool — see ADR-010.
   ├─ For each file:
   │   ├─ parseFile()                    src/parser.ts → registry → lang parser
   │   ├─ resolveImports()               src/graph/resolver.ts
@@ -17,6 +20,8 @@ GraphBuilder.build()                    src/graph/builder.ts
   │   │    Recurses into each local dependency
   │   ├─ Reuses node if mtime+size unchanged (incremental build)
   │   └─ Annotates external imports with lock-file versions
+  ├─ After the wavefront drains: separate scans discover test files and
+  │   markdown docs (.md/.mdx), neither reachable via import edges
   │
   ▼
 Enrichment (post-build)                 src/graph/enrichment.ts
@@ -24,7 +29,9 @@ Enrichment (post-build)                 src/graph/enrichment.ts
   ├─ enrichExportUsage       → computes exportUsageRatio per import edge
   ├─ enrichLibraryTags       → adds import-kind tags for third-party libs
   ├─ enrichTestedBy          → links test files back to their logic subjects
-  └─ enrichTestNodeTags      → tags test nodes with the modules they exercise
+  ├─ enrichTestNodeTags      → tags test nodes with the modules they exercise
+  └─ enrichDocDrift          → links docs to referenced files; flags docs whose
+                                referenced files committed more recently (see ADR-009)
     │
     ▼
 Graph / WorkspaceGraph                  src/graph/model.ts, workspace-model.ts
@@ -46,6 +53,7 @@ Responsibility: analyse a single file and return its imports, exports, tags, and
 - **Go** (`src/parser/lang/go.ts`): Uses `@lezer/go` for top-level declarations and `// @tag` markers. Module-local imports are resolved to internal files via `go.mod` (including `replace` directives); the rest are external. See [ADR-007](adr-007-go-resolution.md).
 - **Style files** (`src/parser/style/`): Uses `postcss`, `sass`, and `stylus` ASTs rather than regex. See [ADR-001](adr-001-styles-parsing.md).
 - **CoffeeScript, LiveScript, Lua, Gherkin**: Purpose-built parsers in `src/parser/lang/`.
+- **Markdown / MDX** (`src/parser/lang/markdown.ts`): Uses `remark`/`unified` (mdast) to extract file references from links and code spans, powering doc-drift detection. See [ADR-009](adr-009-markdown-parsing.md).
 
 ### What the parser extracts
 
@@ -72,8 +80,10 @@ Both are stored on `FileNode` as `complexity` and `cognitiveComplexity`.
 
 Walks the file system recursively from entry points, builds a `DependencyGraph` in memory:
 
+- **Parallel parsing**: `parseFile()` calls are optionally offloaded to a `piscina` worker-thread pool once a cheap pre-scan finds at least `minFiles` (default 20) files under `rootDir`. Traversal runs as a queue-pumped wavefront rather than strict recursive DFS so parses within a round can run concurrently. See [ADR-010](adr-010-parallel-parsing.md).
 - **Incremental builds**: Takes an optional previous `Graph`. Nodes whose `mtime` and `size` are unchanged are reused as-is — only changed files are re-parsed.
 - **Automatic test discovery**: After the entry-point walk, the builder scans for test files by filename pattern and processes any not yet visited, so `testedBy` enrichment is complete even when test files are not imported from library entry points.
+- **Automatic doc discovery**: The builder also scans the full `rootDir` for `.md`/`.mdx` files, since docs are never reachable via import edges and commonly live outside the entry points' subtree (e.g. a top-level `README.md`).
 - **External dependencies**: `node_modules` and paths outside the project root are added as metadata but not traversed.
 - **Git stats** (opt-in): When `gitStats: true`, populates `commitCount90d`, `lastAuthor`, and `lastCommitAt` on each cache-missed node. Computed with two batched `git log --name-status` calls per build (one bounded to the last 90 days, one unbounded fallback for `lastCommitAt` on files with no recent history) rather than one `git log` per file, so cost is constant regardless of repo size.
 - **Lock file versions**: When a lock file is present, each external import edge is annotated with the installed version.
@@ -94,7 +104,7 @@ Wraps `Map<string, FileNode>` with:
 
 ### Enrichment (`src/graph/enrichment.ts`)
 
-Five post-build passes, all mutating nodes in place:
+Six post-build passes, all mutating nodes in place:
 
 | Function | What it adds |
 |----------|-------------|
@@ -103,6 +113,7 @@ Five post-build passes, all mutating nodes in place:
 | `enrichLibraryTags` | `import`-kind tag for each third-party library a file imports |
 | `enrichTestedBy` | `node.testedBy` array on logic/barrel nodes — which test files directly import them |
 | `enrichTestNodeTags` | Adds `import`-kind tags to test nodes derived from basenames of their local imports |
+| `enrichDocDrift` | Links markdown docs to referenced `category: "logic"` files; flags docs whose referenced files committed more recently (`node.staleFor`, `node.documentedBy`) — a commit-recency heuristic, not a content diff. See [ADR-009](adr-009-markdown-parsing.md) |
 
 ### WorkspaceGraph (`src/graph/workspace-model.ts`)
 
@@ -116,9 +127,10 @@ Identifies files with high **out-degree** (many internal imports) — orchestrat
 
 `DefaultResolver` turns raw import specifiers into absolute file paths. Handles:
 - Relative paths with extension probing
-- `tsconfig.json` path aliases and `baseUrl`
+- `tsconfig.json` path aliases and `baseUrl`, or an explicit `pathAliases` config map (checked first)
 - Node.js module resolution (`node_modules`)
 - Workspace package names (cross-package `isWorkspace` edges)
+- Language-specific bare-specifier resolution via `lang-resolvers/` (Python, Lua, Go, style, markdown) before falling through to external
 
 ---
 
@@ -153,7 +165,7 @@ A lightweight filter DSL. `parseQuery(str)` turns a comma-separated `key:value` 
 ```
 1. Input          Entry point paths + optional config
 2. Build          GraphBuilder → parseFile (per lang parser) → resolveImports → Graph
-3. Enrich         enrichCoverage, enrichExportUsage, enrichLibraryTags, enrichTestedBy, enrichTestNodeTags
+3. Enrich         enrichCoverage, enrichExportUsage, enrichLibraryTags, enrichTestedBy, enrichTestNodeTags, enrichDocDrift
 4. Output         CLI → JSON / Mermaid / tag list
                   MCP server → tool responses for get_dependencies, get_affected, query, …
 ```

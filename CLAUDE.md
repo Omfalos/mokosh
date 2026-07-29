@@ -13,7 +13,10 @@ Entry points
     │
     ▼
 GraphBuilder.build()          ← src/graph/builder.ts
-  │  Walks FS from entry points (depth-first)
+  │  Queue-pumped wavefront from entry points (not strict DFS — each round
+  │    parses/resolves every queued file in parallel via Promise.all; newly
+  │    discovered files join the next round). parseFile() optionally offloaded
+  │    to a piscina worker pool — see docs/adr-010-parallel-parsing.md
   │  For each file:
   │    parseFile()             ← src/parser.ts → parser registry → lang parser
   │    resolveImports()        ← src/graph/resolver.ts
@@ -21,6 +24,8 @@ GraphBuilder.build()          ← src/graph/builder.ts
   │      Recurses into each local dependency
   │    Reuses node if mtime+size unchanged (incremental build)
   │    Annotates external imports with lock-file versions
+  │  After the wavefront drains: separate scans discover test files and doc
+  │    files (.md/.mdx), which are never reachable via imports
   │
   ▼
 Graph / WorkspaceGraph         ← src/graph/model.ts, src/graph/workspace-model.ts
@@ -147,7 +152,7 @@ src/
     utils.ts          response helpers
 
   cli/
-    runner.ts         command dispatch — reads parsed args, calls the right command
+    runner.ts         command dispatch — reads parsed args, calls the right command (supports --watch to re-run on file changes)
     args.ts           CLI arg parsing
     config.ts         config loading for CLI
     graph-loader.ts   graph build + disk cache for CLI

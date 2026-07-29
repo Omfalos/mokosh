@@ -27,7 +27,16 @@ npx mokosh [options] <entry-point1> <entry-point2> ...
 | `--exclude-tests` | Exclude test files from `--find-unused` output. |
 | `--find-uncovered` | List non-test files whose line coverage is below the threshold. Requires `coverageReportPath` in config. |
 | `--callers --file <path>` | Print files whose exported functions call into the given file (call-graph dependents). |
+| `--dependencies --file <path>` | Print files that `--file` imports (outgoing traversal), up to `--depth` hops (default 1). |
+| `--dependents --file <path>` | Print files that directly import `--file` (one-hop incoming). |
+| `--affected --file <path>` | Print every file transitively affected if `--file` changes (full incoming traversal). |
+| `--tests-only` | Restrict `--affected` output to test/spec files. |
+| `--changed-symbols <a,b,...>` | Restrict `--affected` propagation to files that import these specific symbols from `--file`. |
+| `--cached` | Use a precomputed change-impact cache instead of a fresh traversal for `--affected`. |
+| `--depth <N>` | Max traversal depth for `--dependencies`. |
+| `--with-meta` | Turn `--dependencies`/`--dependents`/`--affected` bare paths into `{ path, category, exports }` objects. |
 | `--check-cycles` | Check for circular dependencies; exits non-zero if any are found (CI gate). |
+| `--check-doc-drift` | List markdown docs whose referenced code files committed more recently (commit-recency heuristic). |
 | `--type-graph` | Output type-level graph (interfaces, classes, enums, type aliases). |
 | `--type <name>` | Filter `--type-graph` to a single type name. |
 | `--module-responsibility` | Output each file's semantic role, description, and exports. |
@@ -35,10 +44,20 @@ npx mokosh [options] <entry-point1> <entry-point2> ...
 | `--min-out-degree <N>` | Min internal imports for hub detection (`--module-responsibility`, `--feature-graph`). |
 | `--feature-graph` | Group files into feature domains under their hub orchestrators. |
 | `--call-graph --function <name>` | Look up callers and callees for a named function. |
+| `--with-edge-detail` | Include per-edge call-site detail on `--call-graph` output. |
 | `--find-symbol --function <name>` | Find every file that exports a symbol by exact name, with the best available caller/importer info per match (call-edge precision for TS/JS, named-import for Python, file-level dependents otherwise). |
 | `--api-surface` | Output the public API surface (expands `export *` chains). |
 | `--apply-tags` | Write `@tag` annotations into test files from graph tags. |
 | `--dry-run` | Preview `--apply-tags` changes without writing to disk. |
+| `--find-complex-functions` | List functions/methods at or above `--complexity-threshold`, sorted worst-first. TypeScript/JavaScript only. |
+| `--metric <cognitiveComplexity\|complexity>` | Which score `--find-complex-functions` sorts/thresholds on. Default: `cognitiveComplexity`. |
+| `--complexity-threshold <N>` | Minimum score for `--find-complex-functions` to include a function. Default: `10`. |
+| `--limit <N>` | Max results returned by `--find-complex-functions`. |
+| `--workspace-packages` | List monorepo packages detected from the workspace root, with node counts and cross-package dependencies. |
+| `--workspace-affected --file <path>` | Cross-package blast-radius: every file (annotated with its package) affected if `--file` changes. |
+| `--slim` | Compact JSON output (export names, meaningful tags, flat `importsFiles` list) instead of the full shape. |
+| `--watch` | Re-run the resolved command on every debounced file change; rebuilds and re-caches the graph each time. Only supported with the default output, `--query`, `--callers`, `--dependencies`, `--dependents`, `--affected`, `--find-uncovered`, `--find-complex-functions`, `--check-cycles`, and `--check-doc-drift`. |
+| `--clear-cache` | Delete the resolved disk cache file, if present, so the next run rebuilds from scratch. |
 | `--query <query>` | Filter the output graph using a query string (e.g., `category:logic,tag:auth`). See the [Query Language Guide](./query.md). |
 | `--query-help` | Show all supported query filter keys and examples. |
 | `--silent` | Suppress progress output on stderr. |
