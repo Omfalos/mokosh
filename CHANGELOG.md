@@ -1,3 +1,10 @@
+## [0.1.10](https://github.com/Omfalos/mokosh/compare/v0.1.9...v0.1.10) (2026-07-29)
+
+### Features
+
+* **mcp:** add find_symbol tool with CLI parity ([448df4d](https://github.com/Omfalos/mokosh/commit/448df4d6708438a9de22400420a902fdc3c7c98f))
+* **mcp:** add withMeta option to get_dependencies/get_dependents/get_affected ([7550fb9](https://github.com/Omfalos/mokosh/commit/7550fb94dde568634e4c2922749b3ebd2873a88b))
+
 ## [0.1.9](https://github.com/Omfalos/mokosh/compare/v0.1.8...v0.1.9) (2026-07-16)
 
 ### Features
