@@ -1,3 +1,9 @@
+## [0.1.11](https://github.com/Omfalos/mokosh/compare/v0.1.10...v0.1.11) (2026-07-29)
+
+### Bug Fixes
+
+* **deps:** update dependencies to patch known vulnerabilities ([687354d](https://github.com/Omfalos/mokosh/commit/687354dc7dba38ce98e1c2c70334a35ffa8a1987))
+
 ## [0.1.10](https://github.com/Omfalos/mokosh/compare/v0.1.9...v0.1.10) (2026-07-29)
 
 ### Features
