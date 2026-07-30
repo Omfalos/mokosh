@@ -1,3 +1,10 @@
+## [0.2.0](https://github.com/Omfalos/mokosh/compare/v0.1.11...v0.2.0) (2026-07-30)
+
+### Features
+
+* **parser:** extract exports and tags from SCSS/Less declarations ([23286d3](https://github.com/Omfalos/mokosh/commit/23286d309665640c143349d4170a920442a14d81))
+* **parser:** extract exports from Lua and CoffeeScript modules ([1d4e343](https://github.com/Omfalos/mokosh/commit/1d4e343d6768e40f8a424a6c022511f32a94be3f))
+
 ## [0.1.11](https://github.com/Omfalos/mokosh/compare/v0.1.10...v0.1.11) (2026-07-29)
 
 ### Bug Fixes
