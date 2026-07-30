@@ -2,6 +2,7 @@
 import path from "node:path";
 import { loadMokoshConfig, type MokoshConfig, type ScanOptions } from "../index";
 import type { ParsedArgs } from "./args";
+import { DEFAULT_CACHE_DIR, DEFAULT_CACHE_FILE } from "./const";
 
 export interface ResolvedConfig {
   rootDir: string;
@@ -13,6 +14,26 @@ export interface ResolvedConfig {
 }
 
 type ConfigInput = Pick<ParsedArgs, "rootDir" | "entryPoints" | "cachePath" | "configPath">;
+
+/**
+ * @description Picks the effective cache path: an explicit CLI override wins, then the
+ *   config-file value (resolved against rootDir), then the computed default.
+ * @param {string} cachePath - The CLI-resolved cache path (already defaulted if unset).
+ * @param {string} defaultCachePath - The computed default cache path to compare against.
+ * @param {string | undefined} configCachePath - The cache path from mokosh.config.*, if any.
+ * @param {string} rootDir - The project root used to resolve a relative configCachePath.
+ * @returns {string} The effective absolute cache path.
+ */
+function resolveCachePath(
+  cachePath: string,
+  defaultCachePath: string,
+  configCachePath: string | undefined,
+  rootDir: string,
+): string {
+  if (cachePath !== defaultCachePath) return cachePath;
+  if (configCachePath) return path.resolve(rootDir, configCachePath);
+  return defaultCachePath;
+}
 
 /**
  * @description Merges parsed CLI arguments with the mokosh config file into a single resolved
@@ -27,16 +48,16 @@ export function resolveConfig(parsed: ConfigInput): ResolvedConfig {
     ? loadMokoshConfig(configPath, { isExplicitPath: true })
     : loadMokoshConfig(rootDir);
 
-  const defaultCachePath = path.join(path.resolve(rootDir, "mokosh-cache"), "graph.json");
+  const defaultCachePath = path.join(path.resolve(rootDir, DEFAULT_CACHE_DIR), DEFAULT_CACHE_FILE);
 
   const resolvedEntryPoints = entryPoints.length > 0 ? entryPoints : (config.entryPoints ?? []);
 
-  const resolvedCachePath =
-    cachePath !== defaultCachePath
-      ? (cachePath ?? defaultCachePath)
-      : config.cachePath
-        ? path.resolve(rootDir, config.cachePath)
-        : (cachePath ?? defaultCachePath);
+  const resolvedCachePath = resolveCachePath(
+    cachePath,
+    defaultCachePath,
+    config.cachePath,
+    rootDir,
+  );
 
   const scanOptions: ScanOptions = {
     ...(config.ignoreDirs !== undefined && { additionalIgnoreDirs: config.ignoreDirs }),

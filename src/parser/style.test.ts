@@ -37,6 +37,12 @@ describe("CSS", { tags: ["parseStyleFile"] }, () => {
     const { category } = parseStyleFile("a.css", content);
     expect(category).toBe("ui");
   });
+
+  test("custom properties → no exports/tags (out of scope for this pass)", () => {
+    const { exports, tags } = parseStyleFile("a.css", `:root { --color-primary: #f00; }`);
+    expect(exports).toEqual([]);
+    expect(tags).toEqual([]);
+  });
 });
 
 // ─── SCSS / Sass ──────────────────────────────────────────────────────────────
@@ -134,6 +140,61 @@ describe("SCSS barrel detection", { tags: ["parseStyleFile"] }, () => {
   });
 });
 
+describe("SCSS exports", { tags: ["parseStyleFile"] }, () => {
+  test("root-level $variable → export", () => {
+    const { exports } = parseStyleFile("a.scss", `$primary: #f00;`);
+    expect(exports).toMatchObject([{ name: "primary" }]);
+  });
+
+  test("@mixin with params → export with signature", () => {
+    const { exports } = parseStyleFile("a.scss", `@mixin foo($a, $b: 10px) { color: red; }`);
+    expect(exports).toMatchObject([{ name: "foo", signature: "foo($a, $b: 10px)" }]);
+  });
+
+  test("@function with params → export with signature", () => {
+    const { exports } = parseStyleFile("a.scss", `@function double($n) { @return $n * 2; }`);
+    expect(exports).toMatchObject([{ name: "double", signature: "double($n)" }]);
+  });
+
+  test("@mixin with no params → export with no signature", () => {
+    const { exports } = parseStyleFile("a.scss", `@mixin reset { margin: 0; }`);
+    expect(exports).toMatchObject([{ name: "reset" }]);
+    expect(exports[0]?.signature).toBeUndefined();
+  });
+
+  test("private $_variable → excluded from exports", () => {
+    const { exports } = parseStyleFile("a.scss", `$_internal: 4px;`);
+    expect(exports).toEqual([]);
+  });
+
+  test("private @mixin -hidden → excluded from exports", () => {
+    const { exports } = parseStyleFile("a.scss", `@mixin -hidden() { color: red; }`);
+    expect(exports).toEqual([]);
+  });
+
+  test("variable nested inside a rule body → excluded (root-level only)", () => {
+    const { exports } = parseStyleFile("a.scss", `.btn { $local: red; color: $local; }`);
+    expect(exports).toEqual([]);
+  });
+});
+
+describe("SCSS tags", { tags: ["parseStyleFile"] }, () => {
+  test("$variable → variable tag", () => {
+    const { tags } = parseStyleFile("a.scss", `$primary: #f00;`);
+    expect(tags).toMatchObject([{ name: "primary", kind: "variable" }]);
+  });
+
+  test("@mixin → function tag", () => {
+    const { tags } = parseStyleFile("a.scss", `@mixin foo($a) { color: red; }`);
+    expect(tags).toMatchObject([{ name: "foo", kind: "function" }]);
+  });
+
+  test("@function → function tag", () => {
+    const { tags } = parseStyleFile("a.scss", `@function double($n) { @return $n * 2; }`);
+    expect(tags).toMatchObject([{ name: "double", kind: "function" }]);
+  });
+});
+
 // ─── Less ─────────────────────────────────────────────────────────────────────
 
 describe("Less", { tags: ["parseStyleFile"] }, () => {
@@ -171,6 +232,25 @@ describe("Less", { tags: ["parseStyleFile"] }, () => {
   test("@import inside // comment → ignored", () => {
     const { imports } = parseStyleFile("a.less", `// @import "hidden.less";`);
     expect(imports).toHaveLength(0);
+  });
+});
+
+describe("Less exports", { tags: ["parseStyleFile"] }, () => {
+  test("root-level @variable → export", () => {
+    const { exports, tags } = parseStyleFile("a.less", `@primary: #f00;`);
+    expect(exports).toMatchObject([{ name: "primary" }]);
+    expect(tags).toMatchObject([{ name: "primary", kind: "variable" }]);
+  });
+
+  test("@variable used only as a value inside a rule → excluded", () => {
+    const { exports } = parseStyleFile("a.less", `.btn { color: @primary; }`);
+    expect(exports).toEqual([]);
+  });
+
+  test("mixin definition .foo() {} → not extracted (explicit scope boundary)", () => {
+    const { exports, tags } = parseStyleFile("a.less", `.foo(@a, @b) { color: @a; }`);
+    expect(exports).toEqual([]);
+    expect(tags).toEqual([]);
   });
 });
 

@@ -8,6 +8,8 @@ export const EXPORT_TRACKING_TYPES: ReadonlySet<FileType> = new Set<FileType>([
   "javascript",
   "python",
   "go",
+  "scss",
+  "less",
 ]);
 
 /** File types whose parser records which named symbols each import edge pulls in (`ImportEdge.symbols`). */

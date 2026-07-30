@@ -1,7 +1,7 @@
-/** Parses CSS and Less files using PostCSS to extract @import edges. */
+/** Parses CSS and Less files using PostCSS to extract @import edges, plus root-level Less variable exports. */
 import postcss from "postcss";
 import * as less from "postcss-less";
-import type { ImportEdge } from "../../types/node";
+import type { ExportedSymbol, ImportEdge, StructuredTag } from "../../types/node";
 
 const lessParser = less as {
   parse: postcss.Parser<postcss.Root>;
@@ -185,22 +185,60 @@ export function parseCssContent(
 }
 
 /**
+ * @description Walks the root-level nodes of a parsed Less AST and collects `@variable: value;`
+ *   declarations as the file's exported surface. `postcss-less` represents these as `atrule` nodes
+ *   carrying a non-standard `value` property (unlike real at-rules such as `@media`/`@import`, which
+ *   never have one) — that's the reliable signal used to tell a variable apart from a directive.
+ *   Mixin *definitions* (`.name(...) { }`) are deliberately not extracted — distinguishing a definition
+ *   from an ordinary rule with a parenthesized selector, or from a mixin *call* (`.name();`), needs
+ *   deeper Less semantics than a straight AST walk gives for free.
+ * @param {postcss.Root} root - The parsed Less AST
+ * @returns {{ exports: ExportedSymbol[]; tags: StructuredTag[] }} Root-level Less variable exports and their matching declaration tags
+ */
+function extractLessVariableExports(root: postcss.Root): {
+  exports: ExportedSymbol[];
+  tags: StructuredTag[];
+} {
+  const exports: ExportedSymbol[] = [];
+  const tags: StructuredTag[] = [];
+
+  for (const node of root.nodes ?? []) {
+    if (node.type !== "atrule") continue;
+    const { value } = node as unknown as { value?: string };
+    if (value === undefined) continue;
+    const name = node.name;
+    if (!name) continue;
+    exports.push({ name });
+    tags.push({ name, kind: "variable" });
+  }
+
+  return { exports, tags };
+}
+
+/**
  * @description Parses a Less file and returns its import edges alongside the PostCSS AST.
  *   Falls back to regex-only extraction when `postcss-less` throws, so mixed or malformed Less files still yield at least the `@import` edges.
+ *   Also extracts root-level `@variable` declarations as the file's exports and matching declaration tags.
  * @param {string} content - Raw Less file contents
  * @param {string} filePath - Absolute path of the file; used as `fromPath` on each returned edge
- * @returns {{ imports: ImportEdge[]; root: postcss.Root }} The collected import edges and the PostCSS root (may be empty on parse failure)
+ * @returns {{ imports: ImportEdge[]; root: postcss.Root; exports: ExportedSymbol[]; tags: StructuredTag[] }} The collected import edges, the PostCSS root (may be empty on parse failure), and the file's exported surface
  */
 export function parseLessContent(
   content: string,
   filePath: string,
-): { imports: ImportEdge[]; root: postcss.Root } {
+): { imports: ImportEdge[]; root: postcss.Root; exports: ExportedSymbol[]; tags: StructuredTag[] } {
   try {
     const root = lessParser.parse(content);
-    return { imports: collectEdgesFromRoot(root, filePath), root };
+    const { exports, tags } = extractLessVariableExports(root);
+    return { imports: collectEdgesFromRoot(root, filePath), root, exports, tags };
   } catch {
     // Fallback when content mixes non-Less syntax (e.g., bare `import` without @).
     // Use regex to extract @import edges only; barrel detection gets an empty root.
-    return { imports: regexFallbackImports(content, filePath), root: postcss.parse("") };
+    return {
+      imports: regexFallbackImports(content, filePath),
+      root: postcss.parse(""),
+      exports: [],
+      tags: [],
+    };
   }
 }

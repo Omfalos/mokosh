@@ -67,6 +67,19 @@ describe("getLanguageCoverage", { tags: ["getLanguageCoverage", "Graph", "FileNo
     ]);
   });
 
+  test("reports exportsTracked for SCSS and Less (root-level variable/mixin/function exports)", () => {
+    const graph = makeGraph([makeNode("src/a.scss", "scss"), makeNode("src/b.less", "less")]);
+
+    const coverage = getLanguageCoverage(graph);
+
+    expect(coverage).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "scss", exportsTracked: true }),
+        expect.objectContaining({ type: "less", exportsTracked: true }),
+      ]),
+    );
+  });
+
   test("sorts by file count descending", () => {
     const graph = makeGraph([
       makeNode("src/a.lua", "lua"),
