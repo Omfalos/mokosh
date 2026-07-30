@@ -60,7 +60,7 @@ describe("getLanguageCoverage", { tags: ["getLanguageCoverage", "Graph", "FileNo
       {
         type: "lua",
         fileCount: 1,
-        exportsTracked: false,
+        exportsTracked: true,
         importSymbolsTracked: false,
         callEdgesTracked: false,
       },
@@ -76,6 +76,22 @@ describe("getLanguageCoverage", { tags: ["getLanguageCoverage", "Graph", "FileNo
       expect.arrayContaining([
         expect.objectContaining({ type: "scss", exportsTracked: true }),
         expect.objectContaining({ type: "less", exportsTracked: true }),
+      ]),
+    );
+  });
+
+  test("reports exportsTracked for Lua and CoffeeScript (module-table / module.exports exports)", () => {
+    const graph = makeGraph([
+      makeNode("src/a.lua", "lua"),
+      makeNode("src/b.coffee", "coffeescript"),
+    ]);
+
+    const coverage = getLanguageCoverage(graph);
+
+    expect(coverage).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "lua", exportsTracked: true }),
+        expect.objectContaining({ type: "coffeescript", exportsTracked: true }),
       ]),
     );
   });

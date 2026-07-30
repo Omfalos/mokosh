@@ -1,7 +1,7 @@
-/** Parses Lua source files via luaparse to extract require() dependency edges and @tag annotations. */
-import type { Chunk, Node } from "luaparse";
+/** Parses Lua source files via luaparse to extract require() dependency edges, module exports, and @tag annotations. */
+import type { Chunk, Node, Statement } from "luaparse";
 import luaparse from "luaparse";
-import type { ImportEdge } from "../../types/node";
+import type { ExportedSymbol, ImportEdge } from "../../types/node";
 import { isStyleFile } from "../file-type";
 import type { ParseResult } from "../types";
 import { stripQuotes } from "../utils";
@@ -98,28 +98,117 @@ function collectRequireEdges(ast: Chunk, filePath: string): ImportEdge[] {
 }
 
 /**
- * @description Parses a Lua source file using luaparse to extract `require()` dependency edges
- *   and `@tag` comment annotations. Falls back to an empty import list if the file contains
- *   syntax errors.
+ * @description Collects the names of top-level local variables initialized as an empty (or any)
+ *   table constructor — the conventional `local M = {}` module-table idiom — so that later
+ *   assignments to `M.<field>` can be recognized as module exports.
+ * @param topLevelStatements - Statements at the root of the chunk body.
+ * @returns Set of identifier names bound to a table constructor at the top level.
+ */
+function collectModuleTableNames(topLevelStatements: Statement[]): Set<string> {
+  const moduleTableNames = new Set<string>();
+  for (const statement of topLevelStatements) {
+    if (statement.type !== "LocalStatement") continue;
+    statement.variables.forEach((variable, index) => {
+      const initializer = statement.init[index];
+      if (initializer?.type === "TableConstructorExpression") {
+        moduleTableNames.add(variable.name);
+      }
+    });
+  }
+  return moduleTableNames;
+}
+
+/**
+ * @description Extracts one export symbol per field of a `return { ... }` table literal, the
+ *   other conventional Lua export idiom alongside the `local M = {}` module table.
+ * @param topLevelStatements - Statements at the root of the chunk body.
+ * @returns Export symbols named after each `TableKeyString` field in the trailing return table.
+ */
+function collectReturnTableExports(topLevelStatements: Statement[]): ExportedSymbol[] {
+  const lastStatement = topLevelStatements[topLevelStatements.length - 1];
+  if (lastStatement?.type !== "ReturnStatement") return [];
+  const returnedTable = lastStatement.arguments[0];
+  if (returnedTable?.type !== "TableConstructorExpression") return [];
+
+  const exportedSymbols: ExportedSymbol[] = [];
+  for (const field of returnedTable.fields) {
+    if (field.type === "TableKeyString") exportedSymbols.push({ name: field.key.name });
+  }
+  return exportedSymbols;
+}
+
+/**
+ * @description Walks the top-level chunk statements to collect Lua module exports: fields
+ *   assigned onto a `local M = {}` module table (via `function M.foo()` or `M.foo = ...`),
+ *   fields of a trailing `return { ... }` table literal, and non-local top-level function
+ *   declarations (which are visible as Lua globals).
+ * @param ast - The parsed luaparse AST root.
+ * @returns One export symbol per discovered module member.
+ */
+function collectExports(ast: Chunk): ExportedSymbol[] {
+  const topLevelStatements = ast.body;
+  const moduleTableNames = collectModuleTableNames(topLevelStatements);
+  const exportedSymbols: ExportedSymbol[] = collectReturnTableExports(topLevelStatements);
+
+  for (const statement of topLevelStatements) {
+    if (statement.type === "FunctionDeclaration") {
+      if (statement.identifier?.type === "MemberExpression") {
+        if (
+          statement.identifier.base.type === "Identifier" &&
+          moduleTableNames.has(statement.identifier.base.name)
+        ) {
+          exportedSymbols.push({ name: statement.identifier.identifier.name });
+        }
+      } else if (statement.identifier?.type === "Identifier" && !statement.isLocal) {
+        exportedSymbols.push({ name: statement.identifier.name });
+      }
+    } else if (statement.type === "AssignmentStatement") {
+      for (const variable of statement.variables) {
+        if (
+          variable.type === "MemberExpression" &&
+          variable.base.type === "Identifier" &&
+          moduleTableNames.has(variable.base.name)
+        ) {
+          exportedSymbols.push({ name: variable.identifier.name });
+        }
+      }
+    }
+  }
+
+  const seenNames = new Set<string>();
+  return exportedSymbols.filter((symbol) => {
+    if (seenNames.has(symbol.name)) return false;
+    seenNames.add(symbol.name);
+    return true;
+  });
+}
+
+/**
+ * @description Parses a Lua source file using luaparse to extract `require()` dependency edges,
+ *   module exports (the `local M = {}` / `return { ... }` idioms plus global function
+ *   declarations), and `@tag` comment annotations. Falls back to empty imports/exports if the
+ *   file contains syntax errors.
  * @param filePath - Path to the Lua file; used as the source on emitted edges and for test-file classification.
  * @param content - Raw Lua source text.
- * @returns Parsed imports, empty exports list, extracted tags, and resolved category.
+ * @returns Parsed imports, exports, extracted tags, and resolved category.
  */
 export function parseLua(filePath: string, content: string): ParseResult {
   const tagNames = extractTagAnnotations(content);
   const category = classifyCategory(filePath, tagNames);
 
   let imports: ImportEdge[] = [];
+  let exports: ExportedSymbol[] = [];
   try {
     const ast: Chunk = luaparse.parse(content);
     imports = collectRequireEdges(ast, filePath);
+    exports = collectExports(ast);
   } catch (_parseError) {
     // Ignore parse errors
   }
 
   return {
     imports,
-    exports: [],
+    exports,
     tags: Array.from(tagNames).map((name) => ({ name, kind: "comment-marker" as const })),
     category,
   };
