@@ -4,7 +4,8 @@ import type { CommandContext } from "./types";
 
 /**
  * @description Scans every file's per-function complexity breakdown and prints functions/methods
- *   at or above `--complexity-threshold`, sorted worst-first. TypeScript/JavaScript only.
+ *   at or above `--complexity-threshold`, sorted worst-first. Populated for TypeScript/JavaScript,
+ *   Go, and Python.
  * @param {CommandContext} ctx - Shared command context; `ctx.metric`, `ctx.complexityThreshold`, and `ctx.limit` tune the scan.
  */
 export async function run(ctx: CommandContext): Promise<void> {

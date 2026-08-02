@@ -160,7 +160,7 @@ npx @omfalos/mokosh --query "category:logic,tag:auth" src/index.ts
 - `--find-uncovered`: List non-test files whose line coverage is below the configured threshold (requires `coverageReportPath` in `mokosh.config.*`). Use `--feature-threshold` to override the default 80 % threshold.
 - `--callers`: List files whose exported functions call into a given file. Requires `--file <path>`. More precise than `--find-unused` because it uses call edges rather than import edges.
 - `--file <path>`: Target file for `--callers`.
-- `--find-symbol`: Find every file that exports a symbol by exact name. Requires `--function <name>`. Precision varies by language: call-edge callers for TS/JS, named-import tracking for Python, whole-file dependents otherwise.
+- `--find-symbol`: Find every file that exports a symbol by exact name. Requires `--function <name>`. Precision varies by language: call-edge callers for TS/JS/Go/Python (coverage differs per language, see [ADR-011](./docs/adr-011-go-python-call-edges.md)), whole-file dependents otherwise.
 - `--query <query>`: Filter the output graph using a query string. Supported keys: `path`, `type`, `category`, `tag`, `external`, `importsFile`, `importedBy`, `minImports`, `maxImports`, `minSize`, `maxSize`, `hasDocstring`, `sort`, `limit`. Example: `category:logic,hasDocstring:false`.
 - `--query-help`: Print the full query filter reference and examples.
 - `--silent`: Suppress progress output on stderr.
@@ -257,3 +257,6 @@ For detailed information on each process, check the following guides:
 - [ADR-006: Responsibility Graph — Semantic Role Assignment](./docs/adr-006-responsibility-graph.md)
 - [ADR-007: Go Import Resolution](./docs/adr-007-go-resolution.md)
 - [ADR-008: Tag Applier Strategy Architecture](./docs/adr-008-tag-applier-strategies.md)
+- [ADR-009: AST Library for Markdown Parsing](./docs/adr-009-markdown-parsing.md)
+- [ADR-010: Worker-Pool Parallel Parsing](./docs/adr-010-parallel-parsing.md)
+- [ADR-011: Extending Complexity and Call Edges to Go and Python](./docs/adr-011-go-python-call-edges.md)

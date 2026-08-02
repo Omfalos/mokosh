@@ -35,8 +35,8 @@ The query is a comma-separated string of `key:value` pairs.
 | `hasDocstring` | Matches nodes that have (`true`) or lack (`false`) a JSDoc description on the first statement. | `hasDocstring:true` |
 | `minCoverage` / `maxCoverage` | Line coverage % is at least/at most N. No-data nodes are excluded from `minCoverage`, treated as 0% for `maxCoverage`. | `minCoverage:80` |
 | `minExportUsage` / `maxExportUsage` | Average `exportUsageRatio` (0–1) is at least/at most N. Same no-data convention as coverage. | `maxExportUsage:0.2` |
-| `minComplexity` / `maxComplexity` | McCabe cyclomatic complexity is at least/at most N. No-data nodes (non-TS/JS files) excluded from `min`, treated as 0 for `max`. | `minComplexity:15` |
-| `minCognitiveComplexity` / `maxCognitiveComplexity` | Cognitive complexity is at least/at most N. Same no-data convention as complexity. | `minCognitiveComplexity:10` |
+| `minComplexity` / `maxComplexity` | McCabe cyclomatic complexity is at least/at most N (see [Architecture: Complexity metrics](./architecture.md)). No-data nodes (languages other than TS/JS/Go/Python) excluded from `min`, treated as 0 for `max`. | `minComplexity:15` |
+| `minCognitiveComplexity` / `maxCognitiveComplexity` | Cognitive complexity is at least/at most N (see [Architecture: Complexity metrics](./architecture.md)). Same no-data convention as complexity. | `minCognitiveComplexity:10` |
 | `minCommits` / `maxCommits` | `commitCount90d` is at least/at most N (requires `gitStats: true`). Same no-data convention. | `minCommits:5` |
 | `isDocumented` | Matches nodes that have (`true`) or lack (`false`) at least one markdown doc referencing them. | `isDocumented:false` |
 | `isStale` | Matches nodes flagged as doc-stale (`true`) by `check-doc-drift`, i.e. `staleFor` is non-empty. | `isStale:true` |

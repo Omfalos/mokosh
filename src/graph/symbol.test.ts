@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import type { FileNode, ImportEdge } from "../types/node";
+import type { FileNode } from "../types/node";
 import type { FileType } from "../types/parse";
 import { Graph } from "./model";
 import { findSymbol } from "./symbol";
@@ -8,29 +8,18 @@ function makeNode(
   p: string,
   type: FileType,
   exports: string[] = [],
-  opts: { callEdges?: FileNode["callEdges"]; imports?: ImportEdge[] } = {},
+  opts: { callEdges?: FileNode["callEdges"] } = {},
 ): FileNode {
   return {
     path: p,
     type,
     category: "logic",
-    imports: opts.imports ?? [],
+    imports: [],
     exports: exports.map((name) => ({ name })),
     tags: [],
     mtime: 0,
     size: 0,
     ...(opts.callEdges ? { callEdges: opts.callEdges } : {}),
-  };
-}
-
-function importEdge(fromPath: string, toPath: string, symbols?: string[]): ImportEdge {
-  return {
-    fromPath,
-    toPath,
-    isStyle: false,
-    rawSpecifier: toPath,
-    type: "static",
-    symbols,
   };
 }
 
@@ -67,31 +56,30 @@ describe("findSymbol", { tags: ["findSymbol", "Graph", "FileNode", "symbol"] }, 
     expect(matches[0]?.callers).toEqual([]);
   });
 
-  test("Python match uses import-symbol precision, filtered to edges naming this symbol", () => {
+  test("Python match uses call precision now that the parser tracks call edges", () => {
     const graph = makeGraph([
       makeNode("src/utils.py", "python", ["helper", "other_helper"]),
       makeNode("src/main.py", "python", [], {
-        imports: [importEdge("src/main.py", "src/utils.py", ["helper"])],
-      }),
-      makeNode("src/unrelated.py", "python", [], {
-        imports: [importEdge("src/unrelated.py", "src/utils.py", ["other_helper"])],
+        callEdges: [{ from: "run", to: "helper", toFile: "src/utils.py" }],
       }),
     ]);
     const matches = findSymbol(graph, "helper");
     expect(matches).toHaveLength(1);
-    expect(matches[0]?.precision).toBe("import-symbol");
-    expect(matches[0]?.importers).toEqual([{ file: "src/main.py", symbols: ["helper"] }]);
+    expect(matches[0]?.precision).toBe("call");
+    expect(matches[0]?.callers).toEqual([{ file: "src/main.py", callerFunction: "run" }]);
   });
 
-  test("Go match falls back to file-level precision via whole-file dependents", () => {
+  test("Go match uses call precision now that the parser tracks call edges", () => {
     const graph = makeGraph([
       makeNode("src/util.go", "go", ["Helper"]),
-      makeNode("src/main.go", "go", [], { imports: [importEdge("src/main.go", "src/util.go")] }),
+      makeNode("src/main.go", "go", [], {
+        callEdges: [{ from: "Run", to: "Helper", toFile: "src/util.go" }],
+      }),
     ]);
     const matches = findSymbol(graph, "Helper");
     expect(matches).toHaveLength(1);
-    expect(matches[0]?.precision).toBe("file-level");
-    expect(matches[0]?.importers).toEqual([{ file: "src/main.go" }]);
+    expect(matches[0]?.precision).toBe("call");
+    expect(matches[0]?.callers).toEqual([{ file: "src/main.go", callerFunction: "Run" }]);
   });
 
   test("languages that never populate exports never produce a match", () => {

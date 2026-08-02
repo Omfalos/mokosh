@@ -11,8 +11,9 @@ export type { CalleeEntry, CallerEntry, FunctionCallInfo } from "./types";
  * field matches `functionName`. Callees are found by looking at the defining
  * file's `callEdges` for edges whose `from` field matches `functionName`.
  *
- * Call edges are populated only for TypeScript/JavaScript files. Functions in
- * other language files will return empty `callers` and `callees` arrays.
+ * Call edges are populated only for TypeScript/JavaScript, Go, and Python files
+ * (see `CALL_EDGE_TYPES` in `../language-support`). Functions in other language
+ * files will return empty `callers` and `callees` arrays.
  *
  * @param {Graph} graph - The import graph that carries `callEdges` on each node.
  * @param {string} functionName - Exact name of the function to look up.

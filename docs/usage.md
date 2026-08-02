@@ -45,11 +45,11 @@ npx mokosh [options] <entry-point1> <entry-point2> ...
 | `--feature-graph` | Group files into feature domains under their hub orchestrators. |
 | `--call-graph --function <name>` | Look up callers and callees for a named function. |
 | `--with-edge-detail` | Include per-edge call-site detail on `--call-graph` output. |
-| `--find-symbol --function <name>` | Find every file that exports a symbol by exact name, with the best available caller/importer info per match (call-edge precision for TS/JS, named-import for Python, file-level dependents otherwise). |
+| `--find-symbol --function <name>` | Find every file that exports a symbol by exact name, with the best available caller/importer info per match (call-edge precision for TS/JS/Go/Python — coverage differs per language, see ADR-011 — file-level dependents otherwise). |
 | `--api-surface` | Output the public API surface (expands `export *` chains). |
 | `--apply-tags` | Write `@tag` annotations into test files from graph tags. |
 | `--dry-run` | Preview `--apply-tags` changes without writing to disk. |
-| `--find-complex-functions` | List functions/methods at or above `--complexity-threshold`, sorted worst-first. TypeScript/JavaScript only. |
+| `--find-complex-functions` | List functions/methods at or above `--complexity-threshold`, sorted worst-first. Populated for TypeScript/JavaScript, Go, and Python. |
 | `--metric <cognitiveComplexity\|complexity>` | Which score `--find-complex-functions` sorts/thresholds on. Default: `cognitiveComplexity`. |
 | `--complexity-threshold <N>` | Minimum score for `--find-complex-functions` to include a function. Default: `10`. |
 | `--limit <N>` | Max results returned by `--find-complex-functions`. |

@@ -48,14 +48,14 @@ describe("getLanguageCoverage", { tags: ["getLanguageCoverage", "Graph", "FileNo
         fileCount: 1,
         exportsTracked: true,
         importSymbolsTracked: true,
-        callEdgesTracked: false,
+        callEdgesTracked: true,
       },
       {
         type: "go",
         fileCount: 1,
         exportsTracked: true,
         importSymbolsTracked: false,
-        callEdgesTracked: false,
+        callEdgesTracked: true,
       },
       {
         type: "lua",

@@ -62,15 +62,15 @@ Responsibility: analyse a single file and return its imports, exports, tags, and
 - **Tags**: `StructuredTag[]` — `{ name, kind }` where `kind` is one of: `function`, `class`, `variable`, `type`, `import`, `comment-marker`. Five extraction strategies — see [Test Tags](./test-tags.md).
 - **Category**: `logic | ui | test | config | barrel | type-only | other` — inferred from imports, exports, naming, and file content.
 - **File description**: The JSDoc comment on the first statement of a JS/TS file is stored as `node.description`, enabling `hasDocstring` queries.
-- **Call edges** (TS/JS non-test files): Cross-file function calls are recorded as `CallEdge { from, to, toFile }` on `FileNode.callEdges`. After path resolution in `GraphBuilder` they become queryable via `graph.getCallers()` and `graph.traverseCalls()`.
+- **Call edges** (non-test files, TS/JS/Go/Python): Cross-file function calls are recorded as `CallEdge { from, to, toFile }` on `FileNode.callEdges`. After path resolution in `GraphBuilder` they become queryable via `graph.getCallers()` and `graph.traverseCalls()`. Coverage differs by language — see [ADR-011](adr-011-go-python-call-edges.md).
 
-### Complexity metrics (`src/parser/complexity.ts`)
+### Complexity metrics (`src/parser/complexity.ts`, `src/parser/complexity/go.ts`, `src/parser/complexity/python.ts`)
 
-For TypeScript and JavaScript files, the parser computes:
-- **McCabe cyclomatic complexity** — counts independent decision paths (base 1): `if`, ternary, loops, `switch case`, `catch`, `&&`/`||`/`??`.
-- **Cognitive complexity** — nesting-penalised difficulty score. Structural nodes add `1 + depth` and increase nesting; `else if` / `else` and logical operators add 1 with no nesting bonus.
+For TypeScript, JavaScript, Go, and Python files, the parser computes:
+- **[McCabe cyclomatic complexity](https://www.literateprogramming.com/mccabe.pdf)** (McCabe, 1976) — counts independent decision paths (base 1): `if`/`elif`, ternary, loops, `switch`/`case`, `catch`/`except`, `&&`/`||`/`??`/`and`/`or`.
+- **Cognitive complexity** — a nesting-penalised difficulty score modeled after [SonarSource's Cognitive Complexity whitepaper](https://www.sonarsource.com/docs/CognitiveComplexity.pdf) (not SonarSource's own implementation — mokosh's version is a simplified reimplementation of the same idea). Structural nodes add `1 + depth` and increase nesting; `else if` / `else` and logical operators add 1 with no nesting bonus.
 
-Both are stored on `FileNode` as `complexity` and `cognitiveComplexity`.
+Both are stored on `FileNode` as `complexity` and `cognitiveComplexity`. Go and Python walk their own Lezer-based ASTs rather than the TypeScript compiler API; Python's `if`/`elif`/`else` and `try`/`except` chains are flat sibling sequences rather than nested nodes, so its branch-walking logic differs from the shared TS/Go pattern even though the scoring model is the same. See [ADR-011](adr-011-go-python-call-edges.md) for the Go/Python extraction design, and `src/parser/complexity.ts` / `src/parser/complexity/go.ts` / `src/parser/complexity/python.ts` for the implementations.
 
 ---
 

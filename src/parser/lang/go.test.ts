@@ -141,6 +141,22 @@ describe("exported symbols", { tags: ["go", "parseGo"] }, () => {
     const { exports } = parseGo("main.go", src);
     expect(exports.filter((e) => e.name === "Handler")).toHaveLength(1);
   });
+
+  test("exported receiver method → exported symbol", () => {
+    const { exports } = parseGo(
+      "main.go",
+      `type Receiver struct{}\nfunc (r *Receiver) Method(x int) int { return x }`,
+    );
+    expect(exports).toContainEqual({ name: "Method" });
+  });
+
+  test("unexported receiver method → not exported", () => {
+    const { exports } = parseGo(
+      "main.go",
+      `type Receiver struct{}\nfunc (r *Receiver) method(x int) int { return x }`,
+    );
+    expect(exports.map((e) => e.name)).not.toContain("method");
+  });
 });
 
 // ─── @tag markers ─────────────────────────────────────────────────────────────

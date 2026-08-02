@@ -46,7 +46,7 @@ After import and export collection, `collectRawCallEdges` runs a second AST pass
 **Scope constraints (deliberate)**:
 - Tracked callers (`from`): top-level exported functions and methods/constructors of any named class. Unexported private helpers (non-class functions) are out of scope.
 - Only directly imported symbols are tracked as callees (`to`). Calls through re-exported objects, chained member access, or dynamic dispatch are not captured.
-- Only TypeScript/JavaScript files produce call edges. All other parsers return no `rawCallEdges`.
+- At the time of this ADR, only TypeScript/JavaScript files produced call edges. Go and Python gained their own call-edge extraction later — see [ADR-011](./adr-011-go-python-call-edges.md), which follows this same `RawCallEdge → CallEdge` pipeline but adapts the extraction rules to each language's own scoping model.
 
 The output is a `RawCallEdge[]` on `ParseResult` — specifiers are still unresolved strings at this point.
 

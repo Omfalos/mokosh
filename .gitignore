@@ -13,7 +13,8 @@ lodash-add.json
 mokosh-self.json
 mokosh-check.json
 mokosh-self-cache.json
-example/
+example/*
+!example/full-house/
 test-example/
 test-traverse/
 test-unused-unit/

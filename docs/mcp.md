@@ -177,7 +177,7 @@ Find non-test files whose line coverage is below a threshold. Requires a prior `
 
 ### `find_complex_functions`
 
-Scan every file's per-function complexity breakdown and return functions/methods at or above a threshold, sorted worst-first. TypeScript/JavaScript only.
+Scan every file's per-function complexity breakdown and return functions/methods at or above a threshold, sorted worst-first. Populated for TypeScript/JavaScript, Go, and Python (see [ADR-011](./adr-011-go-python-call-edges.md)).
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -322,7 +322,7 @@ Groups files by domain: returns which files each feature hub (high-import orches
 
 ### `get_call_graph`
 
-Look up callers and callees for a named function. Returns the file that defines the function, all files/functions that call it, and all files/functions it calls. Always requires a function name — never returns the full call graph unfiltered. Call edges are only populated for TypeScript/JavaScript files.
+Look up callers and callees for a named function. Returns the file that defines the function, all files/functions that call it, and all files/functions it calls. Always requires a function name — never returns the full call graph unfiltered. Call edges are populated for TypeScript/JavaScript, Go, and Python files (see [ADR-011](./adr-011-go-python-call-edges.md) for per-language coverage differences).
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -340,9 +340,8 @@ match. Precision depends on what the defining file's language parser tracks:
 
 | Precision | Languages | What `callers`/`importers` means |
 |---|---|---|
-| `call` | TypeScript/JavaScript | Function-level callers via call edges |
-| `import-symbol` | Python | Files that import this exact symbol by name |
-| `file-level` | Go, and everything else with populated exports | Whole-file dependents — an importer might not use this specific export |
+| `call` | TypeScript/JavaScript, Go, Python | Function-level callers via call edges — coverage differs per language, see [ADR-011](./adr-011-go-python-call-edges.md) |
+| `file-level` | Lua, CoffeeScript, SCSS/Less, and everything else with populated exports | Whole-file dependents — an importer might not use this specific export |
 
 Files whose parser never populates `exports` at all (CoffeeScript, LiveScript, Lua, Gherkin,
 Markdown, CSS/SCSS/Stylus) never produce a match — a name that only exists in one of those files

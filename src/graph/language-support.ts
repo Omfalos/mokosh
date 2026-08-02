@@ -25,6 +25,8 @@ export const IMPORT_SYMBOL_TYPES: ReadonlySet<FileType> = new Set<FileType>([
 export const CALL_EDGE_TYPES: ReadonlySet<FileType> = new Set<FileType>([
   "typescript",
   "javascript",
+  "go",
+  "python",
 ]);
 
 export interface LanguageCoverage {

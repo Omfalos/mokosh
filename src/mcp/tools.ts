@@ -164,7 +164,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "find_complex_functions",
     description:
-      "Find individual functions/methods above a cognitive (or cyclomatic) complexity threshold, sorted worst-first. Requires a prior analyze() call. TypeScript/JavaScript only.",
+      "Find individual functions/methods above a cognitive (or cyclomatic) complexity threshold, sorted worst-first. Requires a prior analyze() call. Populated for TypeScript/JavaScript, Go, and Python.",
     inputSchema: {
       type: "object",
       properties: {
@@ -368,7 +368,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "find_symbol",
     description:
-      "Find every file that exports a symbol by exact name, with the best available usage info per match. Precision varies by the defining file's language: TypeScript/JavaScript gets function-level callers (via call edges); Python gets named-import tracking (which files import this exact symbol); everything else (Go, CoffeeScript, LiveScript, Lua, Gherkin, Markdown, CSS/SCSS/Stylus) falls back to whole-file dependents, which is import-level only — a listed importer might not even use this specific export. Files whose parser never records exports (CoffeeScript, LiveScript, Lua, Gherkin, Markdown, CSS/SCSS/Stylus) never appear as matches, so a name that only exists in one of those returns an empty result, same as a typo. Each match's `precision` field is 'call' | 'import-symbol' | 'file-level' — check it before trusting caller/importer results as symbol-exact.",
+      "Find every file that exports a symbol by exact name, with the best available usage info per match. Precision varies by the defining file's language: TypeScript/JavaScript, Go, and Python get function-level callers (via call edges) — though coverage differs per language (Go only tracks package-qualified calls, Python only tracks bare calls to `from module import name` symbols); everything else (CoffeeScript, LiveScript, Lua, Gherkin, Markdown, CSS/SCSS/Stylus) falls back to whole-file dependents, which is import-level only — a listed importer might not even use this specific export. Files whose parser never records exports (CoffeeScript, LiveScript, Lua, Gherkin, Markdown, CSS/SCSS/Stylus) never appear as matches, so a name that only exists in one of those returns an empty result, same as a typo. Each match's `precision` field is 'call' | 'file-level' — check it before trusting caller/importer results as symbol-exact.",
     inputSchema: {
       type: "object",
       properties: {

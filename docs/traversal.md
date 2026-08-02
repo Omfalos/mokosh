@@ -100,7 +100,7 @@ graph.traverseCalls('src/utils/logger.ts', (node) => {
 }, { direction: 'outgoing' });
 ```
 
-Call edges are only emitted for non-test TypeScript/JavaScript files. They record the specific function names:
+Call edges are only emitted for non-test files, and only TypeScript/JavaScript, Go, and Python parsers produce them. Coverage differs by language: TS/JS tracks calls to any directly imported symbol; Go tracks package-qualified calls (`pkg.Func()`, the only cross-package call form Go has); Python tracks bare calls to `from <module> import <name>` symbols only — `import module; module.func()` member access isn't captured (see [ADR-011](./adr-011-go-python-call-edges.md)). They record the specific function names:
 
 ```typescript
 // Each CallEdge: { from: string, to: string, toFile: string }

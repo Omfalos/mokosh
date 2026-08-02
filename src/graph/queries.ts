@@ -166,7 +166,8 @@ export interface FindComplexFunctionsOptions {
 
 /**
  * @description Scans every file's per-function complexity breakdown and returns functions/methods
- *   at or above the given threshold, sorted worst-first. TypeScript/JavaScript only.
+ *   at or above the given threshold, sorted worst-first. Populated for TypeScript/JavaScript, Go,
+ *   and Python.
  * @param graph - The graph to scan.
  * @param options - `metric` picks which score to threshold/sort on (default `cognitiveComplexity`); `threshold` is the minimum score to include (default 10); `limit` caps the results (default 20).
  * @returns Matching functions, sorted worst-first.

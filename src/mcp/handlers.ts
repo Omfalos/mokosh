@@ -351,8 +351,8 @@ export async function handleCheckDocDrift(
 
 /**
  * @description Scans every file's per-function complexity breakdown and returns functions/methods
- *   at or above the given threshold, sorted worst-first. TypeScript/JavaScript only — files
- *   without a `functions` breakdown contribute no results.
+ *   at or above the given threshold, sorted worst-first. Populated for TypeScript/JavaScript, Go,
+ *   and Python — files without a `functions` breakdown contribute no results.
  * @param cache - Session state holding the cached graph.
  * @param args - `root` selects the graph; `metric` picks which score to threshold/sort on
  *   (default `cognitiveComplexity`); `threshold` is the minimum score to include (default 10);

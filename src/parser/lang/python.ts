@@ -1,9 +1,10 @@
 /** Parses Python source files using the Lezer parser to extract import edges, exports, and tag annotations. */
 import path from "node:path";
-import type { SyntaxNode } from "@lezer/common";
+import type { SyntaxNode, Tree } from "@lezer/common";
 import { parser } from "@lezer/python";
 import type { ExportedSymbol, ImportEdge } from "../../types/node";
-import type { ParseResult } from "../types";
+import { collectFunctionComplexity, computeComplexity } from "../complexity/python";
+import type { ParseResult, RawCallEdge } from "../types";
 
 const TEST_LIBS = new Set(["pytest", "unittest", "nose", "hypothesis"]);
 
@@ -66,11 +67,19 @@ export function parsePython(filePath: string, content: string): ParseResult {
   const category = resolveCategory(baseName, imports, tags);
   if (category === "test") tags.add("test");
 
+  const { complexity, cognitiveComplexity } = computeComplexity(tree.topNode);
+  const functions = collectFunctionComplexity(tree, content);
+  const rawCallEdges = category === "test" ? [] : collectRawCallEdges(tree, content);
+
   return {
     imports,
     exports,
     tags: Array.from(tags).map((name) => ({ name, kind: "comment-marker" as const })),
     category,
+    rawCallEdges,
+    complexity,
+    cognitiveComplexity,
+    ...(functions.length > 0 ? { functions } : {}),
   };
 }
 
@@ -191,6 +200,138 @@ function collectImportedNames(start: SyntaxNode | null, src: string): string[] {
     childNode = childNode.nextSibling;
   }
   return names;
+}
+
+// ─── call-edge extraction ──────────────────────────────────────────────────────
+
+/**
+ * @description Builds a map from each name bound by a `from <module> import <name> [as alias]`
+ *   statement to that module's raw specifier (mirroring the specifier computation in
+ *   `extractFromImport`, including alias resolution and relative-import prefixing). Bare
+ *   `import <module>` statements are not included: unqualified calls can't tell which bound
+ *   module a member access like `module.func()` belongs to, so — matching the TS parser's
+ *   documented exclusion of "calls through chained member access" — only directly named imports
+ *   are tracked as callable symbols.
+ * @param {Tree} tree - The parsed @lezer/python tree.
+ * @param {string} content - Full source text.
+ * @returns {Map<string, string>} Local (possibly aliased) name → raw import specifier.
+ */
+function buildImportSymbolMap(tree: Tree, content: string): Map<string, string> {
+  const symbolMap = new Map<string, string>();
+  const cursor = tree.cursor();
+
+  do {
+    if (cursor.name !== "ImportStatement") continue;
+    const node = cursor.node;
+    const fromKw = node.firstChild;
+    if (fromKw?.type.name !== "from") continue;
+
+    let importKw: SyntaxNode | null = fromKw.nextSibling;
+    while (importKw && importKw.type.name !== "import") importKw = importKw.nextSibling;
+    if (!importKw) continue;
+
+    const rawModule = content.slice(fromKw.to, importKw.from).trim();
+    let dotCount = 0;
+    while (dotCount < rawModule.length && rawModule[dotCount] === ".") dotCount++;
+    const modulePart = rawModule.slice(dotCount);
+    const prefix = dotCount <= 1 ? "./" : "../".repeat(dotCount - 1);
+
+    let child: SyntaxNode | null = importKw.nextSibling;
+    while (child) {
+      if (child.type.name === "VariableName") {
+        const importedName = content.slice(child.from, child.to);
+        let localName = importedName;
+        if (child.nextSibling?.type.name === "as") {
+          const aliasNode = child.nextSibling.nextSibling;
+          if (aliasNode?.type.name === "VariableName") {
+            localName = content.slice(aliasNode.from, aliasNode.to);
+            child = aliasNode;
+          }
+        }
+        const specifier =
+          dotCount === 0
+            ? rawModule
+            : modulePart
+              ? prefix + modulePart.replace(/\./g, "/")
+              : prefix + importedName;
+        symbolMap.set(localName, specifier);
+      }
+      child = child.nextSibling;
+    }
+  } while (cursor.next());
+
+  return symbolMap;
+}
+
+/**
+ * @description Walks every top-level `FunctionDefinition` and every method directly inside a
+ *   `ClassDefinition`'s body, recording a `RawCallEdge` for each bare call (`func(...)`) whose
+ *   callee resolves to a name bound by a `from <module> import <name>` statement. Methods are
+ *   qualified as `ClassName.methodName`, mirroring the TS parser's convention.
+ * @param {Tree} tree - The parsed @lezer/python tree.
+ * @param {string} content - Full source text.
+ * @returns {RawCallEdge[]} One edge per call to a known imported symbol.
+ */
+function collectRawCallEdges(tree: Tree, content: string): RawCallEdge[] {
+  const importSymbols = buildImportSymbolMap(tree, content);
+  const edges: RawCallEdge[] = [];
+
+  function walkBody(node: SyntaxNode, callerName: string): void {
+    if (node.type.name === "CallExpression" && node.firstChild?.type.name === "VariableName") {
+      const calleeNode = node.firstChild;
+      const calleeName = content.slice(calleeNode.from, calleeNode.to);
+      const toSpecifier = importSymbols.get(calleeName);
+      if (toSpecifier) edges.push({ from: callerName, to: calleeName, toSpecifier });
+    }
+    let child = node.firstChild;
+    while (child) {
+      walkBody(child, callerName);
+      child = child.nextSibling;
+    }
+  }
+
+  function walkChildren(node: SyntaxNode): void {
+    let child = node.firstChild;
+    while (child) {
+      walk(child);
+      child = child.nextSibling;
+    }
+  }
+
+  function walk(node: SyntaxNode): void {
+    if (node.type.name === "ClassDefinition") {
+      const classNameNode = node.getChild("VariableName");
+      const className = classNameNode
+        ? content.slice(classNameNode.from, classNameNode.to)
+        : undefined;
+      const body = node.getChild("Body");
+      if (body) {
+        let child = body.firstChild;
+        while (child) {
+          if (child.type.name === "FunctionDefinition") {
+            const fnNameNode = child.getChild("VariableName");
+            const fnName = fnNameNode ? content.slice(fnNameNode.from, fnNameNode.to) : undefined;
+            if (fnName) walkBody(child, className ? `${className}.${fnName}` : fnName);
+          } else {
+            walk(child);
+          }
+          child = child.nextSibling;
+        }
+      }
+      return;
+    }
+
+    if (node.type.name === "FunctionDefinition") {
+      const nameNode = node.getChild("VariableName");
+      if (nameNode) walkBody(node, content.slice(nameNode.from, nameNode.to));
+      return;
+    }
+
+    walkChildren(node);
+  }
+
+  walk(tree.topNode);
+  return edges;
 }
 
 // ─── helpers ──────────────────────────────────────────────────────────────────

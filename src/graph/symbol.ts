@@ -1,10 +1,10 @@
 /** Symbol-name lookup across the whole graph — generalizes queryCallGraph beyond TS/JS functions. */
 import type { NodeCategory } from "../types/parse";
-import { CALL_EDGE_TYPES, IMPORT_SYMBOL_TYPES } from "./language-support";
+import { CALL_EDGE_TYPES } from "./language-support";
 import type { Graph } from "./model";
 import { getDependents } from "./queries";
 
-export type SymbolPrecision = "call" | "import-symbol" | "file-level";
+export type SymbolPrecision = "call" | "file-level";
 
 export interface SymbolCaller {
   file: string;
@@ -27,9 +27,11 @@ export interface SymbolMatch {
 /**
  * @description Finds every file that exports a symbol by name, with the best available
  *   usage info per match. Precision depends on what the defining file's language parser
- *   tracks: TS/JS gets function-level callers via call edges, Python gets named-import
- *   tracking, everything else falls back to whole-file dependents (import-level, not
- *   symbol-level — the file might not even use this specific export).
+ *   tracks: TS/JS, Go, and Python get function-level callers via call edges (`"call"`);
+ *   everything else falls back to whole-file dependents (`"file-level"` — import-level, not
+ *   symbol-level, since the file might not even use this specific export). Coverage still
+ *   differs across the `"call"` languages: TS/JS tracks any directly imported symbol, Go only
+ *   package-qualified calls, Python only bare calls to `from <module> import <name>` symbols.
  * @param graph - The graph to search.
  * @param name - Exact export name to look up.
  * @returns One entry per file that exports `name`; empty if no file does (including
@@ -50,21 +52,6 @@ export function findSymbol(graph: Graph, name: string): SymbolMatch[] {
         }
       }
       matches.push({ path: node.path, category: node.category, precision: "call", callers });
-    } else if (IMPORT_SYMBOL_TYPES.has(node.type)) {
-      const importers: SymbolImporter[] = [];
-      for (const other of graph.nodes.values()) {
-        for (const edge of other.imports) {
-          if (edge.toPath === node.path && edge.symbols?.includes(name)) {
-            importers.push({ file: other.path, symbols: edge.symbols });
-          }
-        }
-      }
-      matches.push({
-        path: node.path,
-        category: node.category,
-        precision: "import-symbol",
-        importers,
-      });
     } else {
       const importers = getDependents(graph, node.path).map((dependent) => ({
         file: dependent.path,
