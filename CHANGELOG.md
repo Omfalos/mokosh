@@ -1,3 +1,9 @@
+## [0.3.0](https://github.com/Omfalos/mokosh/compare/v0.2.0...v0.3.0) (2026-08-05)
+
+### Features
+
+* **parser:** extend complexity, call edges, and exports to Go/Python/LiveScript ([632c3fb](https://github.com/Omfalos/mokosh/commit/632c3fb2a5082794d9173cb470895236f2bcb099))
+
 ## [0.2.0](https://github.com/Omfalos/mokosh/compare/v0.1.11...v0.2.0) (2026-07-30)
 
 ### Features
