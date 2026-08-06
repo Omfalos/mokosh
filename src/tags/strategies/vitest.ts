@@ -27,10 +27,11 @@ export class VitestStrategy implements TagApplierStrategy {
     const sf = ts.createSourceFile(path.basename(absPath), stripped, ts.ScriptTarget.Latest, true);
     const calls = findTopLevelCalls(sf);
 
-    if (calls.length === 0) return stripped;
+    const [firstCall] = calls;
+    if (!firstCall) return stripped;
 
     // Idempotency check — if first call already has the exact sorted tags, nothing to do
-    const existing = readArrayProp(calls[0]!, "tags", sf);
+    const existing = readArrayProp(firstCall, "tags", sf);
     const sortedTags = [...tags].sort();
     if (existing !== null && JSON.stringify([...existing].sort()) === JSON.stringify(sortedTags)) {
       return stripped;

@@ -145,7 +145,9 @@ describe("hasCoverageData", () => {
 
   test("true when at least one node has coveragePct", () => {
     const graph = makeGraph();
-    graph.nodes.get("src/a.ts")!.coveragePct = 50;
+    const node = graph.nodes.get("src/a.ts");
+    expect(node).toBeDefined();
+    if (node) node.coveragePct = 50;
     expect(hasCoverageData(graph)).toBe(true);
   });
 });

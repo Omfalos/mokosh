@@ -174,7 +174,8 @@ const STRING_FLAGS = new Set(
 function sanitizeTokens(cliTokens: string[]): string[] {
   const result: string[] = [];
   for (let i = 0; i < cliTokens.length; i++) {
-    const token = cliTokens[i]!;
+    const token = cliTokens[i];
+    if (token === undefined) continue;
     if (!token.startsWith("--")) {
       result.push(token);
     } else if (STRING_FLAGS.has(token)) {

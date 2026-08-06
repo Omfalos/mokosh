@@ -38,10 +38,11 @@ export class PlaywrightStrategy implements TagApplierStrategy {
     const sf = ts.createSourceFile(path.basename(absPath), source, ts.ScriptTarget.Latest, true);
     const calls = findTopLevelCalls(sf);
 
-    if (calls.length === 0) return source;
+    const [firstCall] = calls;
+    if (!firstCall) return source;
 
     // Idempotency: compare normalised existing tags with computed tags
-    const rawExisting = readArrayProp(calls[0]!, "tag", sf);
+    const rawExisting = readArrayProp(firstCall, "tag", sf);
     const sortedTags = [...tags].sort();
     if (
       rawExisting !== null &&

@@ -1,5 +1,13 @@
 import { describe, expect, test } from "vitest";
 import { createStrategies, detectFrameworkFromImports, getStrategyForFile } from "./index";
+import type { TagApplierStrategy } from "./types";
+
+/** Unwraps the strategy lookup, failing the test loudly instead of propagating `null`. */
+function mustFindStrategy(file: string, strategies: TagApplierStrategy[]): TagApplierStrategy {
+  const strategy = getStrategyForFile(file, strategies);
+  if (!strategy) throw new Error(`No strategy matched ${file}`);
+  return strategy;
+}
 
 describe("detectFrameworkFromImports", () => {
   test("detects playwright from @playwright/test import", () => {
@@ -34,25 +42,25 @@ describe("createStrategies auto-detection", () => {
 
     const playwrightFile = "/repo/e2e/login.spec.ts";
     const playwrightSource = 'import { test } from "@playwright/test";\ntest("login", () => {});\n';
-    const playwrightStrategy = getStrategyForFile(playwrightFile, strategies)!;
+    const playwrightStrategy = mustFindStrategy(playwrightFile, strategies);
     const playwrightResult = playwrightStrategy.apply(playwrightFile, playwrightSource, ["auth"]);
     expect(playwrightResult).toContain('tag: ["@auth"]');
 
     const cypressFile = "/repo/cypress/e2e/login.cy.ts";
     const cypressSource = 'import "cypress";\ndescribe("login", () => {});\n';
-    const cypressStrategy = getStrategyForFile(cypressFile, strategies)!;
+    const cypressStrategy = mustFindStrategy(cypressFile, strategies);
     const cypressResult = cypressStrategy.apply(cypressFile, cypressSource, ["auth"]);
     expect(cypressResult).toContain('tags: ["@auth"]');
 
     const jestFile = "/repo/src/login.test.ts";
     const jestSource = 'import { test } from "@jest/globals";\ntest("login", () => {});\n';
-    const jestStrategy = getStrategyForFile(jestFile, strategies)!;
+    const jestStrategy = mustFindStrategy(jestFile, strategies);
     const jestResult = jestStrategy.apply(jestFile, jestSource, ["auth"]);
     expect(jestResult).toContain("@group auth");
 
     const globalsFile = "/repo/src/login.spec.ts";
     const globalsSource = 'test("login", () => {});\n';
-    const globalsStrategy = getStrategyForFile(globalsFile, strategies)!;
+    const globalsStrategy = mustFindStrategy(globalsFile, strategies);
     const globalsResult = globalsStrategy.apply(globalsFile, globalsSource, ["auth"]);
     expect(globalsResult).toContain('tags: ["auth"]');
   });
@@ -61,7 +69,7 @@ describe("createStrategies auto-detection", () => {
     const strategies = createStrategies("playwright");
     const file = "/repo/src/login.spec.ts";
     const source = 'test("login", () => {});\n';
-    const strategy = getStrategyForFile(file, strategies)!;
+    const strategy = mustFindStrategy(file, strategies);
     const result = strategy.apply(file, source, ["auth"]);
     expect(result).toContain('tag: ["@auth"]');
   });
@@ -75,11 +83,11 @@ describe("createStrategies auto-detection", () => {
     const source = 'test("login", () => {});\n';
 
     const e2eFile = "/repo/tests/e2e/login.spec.ts";
-    const e2eStrategy = getStrategyForFile(e2eFile, strategies)!;
+    const e2eStrategy = mustFindStrategy(e2eFile, strategies);
     expect(e2eStrategy.apply(e2eFile, source, ["auth"])).toContain('tag: ["@auth"]');
 
     const unitFile = "/repo/tests/unit/login.spec.ts";
-    const unitStrategy = getStrategyForFile(unitFile, strategies)!;
+    const unitStrategy = mustFindStrategy(unitFile, strategies);
     expect(unitStrategy.apply(unitFile, source, ["auth"])).toContain("@group auth");
   });
 
@@ -87,7 +95,7 @@ describe("createStrategies auto-detection", () => {
     const strategies = createStrategies("vitest", { "tests/e2e/**": "playwright" }, "/repo");
     const source = 'import { describe, test } from "vitest";\ntest("login", () => {});\n';
     const file = "/repo/tests/e2e/login.spec.ts";
-    const strategy = getStrategyForFile(file, strategies)!;
+    const strategy = mustFindStrategy(file, strategies);
     expect(strategy.apply(file, source, ["auth"])).toContain('tags: ["auth"]');
   });
 
@@ -95,7 +103,7 @@ describe("createStrategies auto-detection", () => {
     const strategies = createStrategies("jest", { "tests/e2e/**": "playwright" }, "/repo");
     const source = 'test("login", () => {});\n';
     const file = "/repo/src/login.spec.ts";
-    const strategy = getStrategyForFile(file, strategies)!;
+    const strategy = mustFindStrategy(file, strategies);
     expect(strategy.apply(file, source, ["auth"])).toContain("@group auth");
   });
 });

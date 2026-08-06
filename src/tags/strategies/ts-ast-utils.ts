@@ -97,7 +97,7 @@ export function buildInjectReplacement(
   if (call.arguments.length === 0) return null;
 
   for (let i = 1; i < call.arguments.length; i++) {
-    const arg = call.arguments[i]!;
+    const arg = at(call.arguments, i);
     if (!ts.isObjectLiteralExpression(arg)) continue;
 
     const existingProp = arg.properties.find(
@@ -122,7 +122,7 @@ export function buildInjectReplacement(
   }
 
   // No options object — insert before the callback (last argument)
-  const callback = call.arguments[call.arguments.length - 1]!;
+  const callback = at(call.arguments, call.arguments.length - 1);
   return {
     start: callback.getStart(sf),
     end: callback.getStart(sf),
@@ -146,7 +146,7 @@ export function buildRemoveReplacement(
 ): Replacement | null {
   const args = call.arguments;
   for (let i = 1; i < args.length; i++) {
-    const arg = args[i]!;
+    const arg = at(args, i);
     if (!ts.isObjectLiteralExpression(arg)) continue;
 
     const idx = arg.properties.findIndex(
@@ -160,7 +160,7 @@ export function buildRemoveReplacement(
       return { start: at(args, i - 1).getEnd(), end: arg.getEnd(), text: "" };
     }
 
-    const prop = arg.properties[idx]!;
+    const prop = at(arg.properties, idx);
     if (idx === arg.properties.length - 1) {
       // Last property — also remove the preceding comma
       return { start: at(arg.properties, idx - 1).getEnd(), end: prop.getEnd(), text: "" };

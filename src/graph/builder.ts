@@ -54,7 +54,7 @@ function commonAncestorDir(absPaths: string[], rootDir: string): string {
   if (absPaths.length === 0) return rootDir;
 
   const segmentLists = absPaths.map((p) => path.dirname(p).split(path.sep));
-  let common = segmentLists[0]!;
+  let common = segmentLists[0] ?? [];
   for (const segments of segmentLists.slice(1)) {
     let i = 0;
     while (i < common.length && i < segments.length && common[i] === segments[i]) i++;
@@ -221,7 +221,8 @@ export class GraphBuilder {
     let count = 0;
     const stack = [dir];
     while (stack.length > 0) {
-      const current = stack.pop()!;
+      const current = stack.pop();
+      if (current === undefined) continue;
       let entries: fs.Dirent[];
       try {
         entries = fs.readdirSync(current, { withFileTypes: true });

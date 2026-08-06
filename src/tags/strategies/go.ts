@@ -29,7 +29,7 @@ function buildBuildTag(tags: string[]): string {
 function readExistingTags(source: string): string[] | null {
   const match = MOKOSH_BUILD_TAG_RE.exec(source);
   if (!match) return null;
-  const line = match[0]!;
+  const line = match[0] ?? "";
   const re = /mokosh_([a-zA-Z0-9_-]+)/g;
   const tags: string[] = [];
   let tagMatch = re.exec(line);
@@ -71,7 +71,7 @@ export class GoStrategy implements TagApplierStrategy {
     const packageMatch = PACKAGE_LINE_RE.exec(source);
     if (!packageMatch) return source;
 
-    const insertAt = packageMatch.index!;
+    const insertAt = packageMatch.index;
     return `${source.slice(0, insertAt) + buildTag}\n${source.slice(insertAt)}`;
   }
 }
