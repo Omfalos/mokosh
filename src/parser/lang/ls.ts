@@ -4,7 +4,7 @@ import ls from "livescript";
 import type { ExportedSymbol, ImportEdge } from "../../types/node";
 import { isStyleFile } from "../file-type";
 import type { ParseResult } from "../types";
-import { stripQuotes } from "../utils";
+import { classifyTestOrLogic, extractTagAnnotations, stripQuotes } from "../utils";
 
 interface LiveScriptNode {
   constructor: { name: string };
@@ -27,37 +27,6 @@ interface LiveScriptNode {
     key?: LiveScriptNode & { name?: string };
   }>;
   [key: string]: unknown;
-}
-
-/**
- * @description Scans raw source text for `@tag` comment markers and collects the tag
- *   names they carry. Runs before AST parsing so tags are available for classification.
- * @param content - Raw source text of the LiveScript file.
- * @returns A set of tag name strings found in `@tag` annotations.
- */
-function extractTags(content: string): Set<string> {
-  const tags = new Set<string>();
-  const tagRegex = /@tag\s+([a-zA-Z0-9_-]+)/g;
-  let match = tagRegex.exec(content);
-  while (match !== null) {
-    if (match[1]) tags.add(match[1]);
-    match = tagRegex.exec(content);
-  }
-  return tags;
-}
-
-/**
- * @description Determines whether a file is a test or production-logic file by checking
- *   path conventions (.test., .spec.) and the presence of an explicit `@tag test` annotation.
- * @param filePath - Absolute or relative path to the file being classified.
- * @param tags - Tag names extracted from the file's comments.
- * @returns "test" if the file is identified as a test file, "logic" otherwise.
- */
-function classifyFile(filePath: string, tags: Set<string>): "test" | "logic" {
-  const lower = filePath.toLowerCase();
-  return lower.includes(".test.") || lower.includes(".spec.") || tags.has("test")
-    ? "test"
-    : "logic";
 }
 
 /**
@@ -234,8 +203,8 @@ function collectEdges(
  * @returns A ParseResult with collected imports, exports, extracted tags, and the file category.
  */
 export function parseLiveScript(filePath: string, content: string): ParseResult {
-  const tags = extractTags(content);
-  const category = classifyFile(filePath, tags);
+  const tags = extractTagAnnotations(content);
+  const category = classifyTestOrLogic(filePath, tags);
   let imports: ImportEdge[] = [];
   const exports: ExportedSymbol[] = [];
 

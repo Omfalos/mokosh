@@ -1,4 +1,5 @@
 /** Shared TypeScript AST helpers for framework-specific tag injection strategies. */
+import path from "node:path";
 import ts from "typescript";
 
 export interface Replacement {
@@ -196,3 +197,57 @@ export const TS_EXTENSIONS = new Set([
   ".mjs",
   ".cjs",
 ]);
+
+/**
+ * @description Strips a leading `@` from each tag so previously injected, `@`-prefixed tags
+ *   can be compared against freshly computed (unprefixed) tag names.
+ * @param {string[]} raw - Tag strings as read from the source, possibly `@`-prefixed.
+ * @returns {string[]} The same tags with any leading `@` removed.
+ */
+export function stripAtPrefix(raw: string[]): string[] {
+  return raw.map((tag) => (tag.startsWith("@") ? tag.slice(1) : tag));
+}
+
+/**
+ * @description Shared `apply()` body for frameworks that store tags as a single array-valued
+ *   options property (e.g. Cypress's `tags`, Playwright's `tag`), each entry conventionally
+ *   prefixed with `@`. Parses the file, finds top-level describe/test/it calls, checks
+ *   idempotency against the existing (unprefixed) tag set, then injects or removes the property.
+ * @param {string} absPath - Absolute file path (used for parser diagnostics only, not I/O).
+ * @param {string} source - Current file contents.
+ * @param {string[]} tags - Sorted, unique tag names to write. An empty array removes the property.
+ * @param {string} propName - Name of the options property this framework uses (e.g. `"tags"` or `"tag"`).
+ * @returns {string} Potentially modified source (equal to `source` when no change is needed).
+ */
+export function applyAtPrefixedTagProp(
+  absPath: string,
+  source: string,
+  tags: string[],
+  propName: string,
+): string {
+  const sf = ts.createSourceFile(path.basename(absPath), source, ts.ScriptTarget.Latest, true);
+  const calls = findTopLevelCalls(sf);
+
+  const [firstCall] = calls;
+  if (!firstCall) return source;
+
+  const rawExisting = readArrayProp(firstCall, propName, sf);
+  const sortedTags = [...tags].sort();
+  if (
+    rawExisting !== null &&
+    JSON.stringify(stripAtPrefix(rawExisting).sort()) === JSON.stringify(sortedTags)
+  ) {
+    return source;
+  }
+
+  const literal = toArrayLiteral(sortedTags.map((tag) => `@${tag}`));
+  const replacements = calls.flatMap((call) => {
+    const replacement =
+      tags.length === 0
+        ? buildRemoveReplacement(call, propName, sf)
+        : buildInjectReplacement(call, propName, literal, sf);
+    return replacement ? [replacement] : [];
+  });
+
+  return replacements.length > 0 ? applyReplacements(source, replacements) : source;
+}

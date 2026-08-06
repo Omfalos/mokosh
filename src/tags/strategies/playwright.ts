@@ -5,27 +5,8 @@
  * Filter at CI time with: `playwright test --grep @tagname`
  */
 import path from "node:path";
-import ts from "typescript";
-import {
-  applyReplacements,
-  buildInjectReplacement,
-  buildRemoveReplacement,
-  findTopLevelCalls,
-  readArrayProp,
-  TS_EXTENSIONS,
-  toArrayLiteral,
-} from "./ts-ast-utils";
+import { applyAtPrefixedTagProp, TS_EXTENSIONS } from "./ts-ast-utils";
 import type { TagApplierStrategy } from "./types";
-
-function toPlaywrightLiteral(tags: string[]): string {
-  // Playwright tag convention: prefix each name with '@'
-  return toArrayLiteral(tags.map((tag) => `@${tag}`));
-}
-
-function normaliseExisting(raw: string[]): string[] {
-  // Strip @ prefix so we can compare against unprefixed computed tags
-  return raw.map((tag) => (tag.startsWith("@") ? tag.slice(1) : tag));
-}
 
 export class PlaywrightStrategy implements TagApplierStrategy {
   readonly name = "playwright";
@@ -35,30 +16,6 @@ export class PlaywrightStrategy implements TagApplierStrategy {
   }
 
   apply(absPath: string, source: string, tags: string[]): string {
-    const sf = ts.createSourceFile(path.basename(absPath), source, ts.ScriptTarget.Latest, true);
-    const calls = findTopLevelCalls(sf);
-
-    const [firstCall] = calls;
-    if (!firstCall) return source;
-
-    // Idempotency: compare normalised existing tags with computed tags
-    const rawExisting = readArrayProp(firstCall, "tag", sf);
-    const sortedTags = [...tags].sort();
-    if (
-      rawExisting !== null &&
-      JSON.stringify(normaliseExisting(rawExisting).sort()) === JSON.stringify(sortedTags)
-    ) {
-      return source;
-    }
-
-    const replacements = calls.flatMap((call) => {
-      const replacement =
-        tags.length === 0
-          ? buildRemoveReplacement(call, "tag", sf)
-          : buildInjectReplacement(call, "tag", toPlaywrightLiteral(sortedTags), sf);
-      return replacement ? [replacement] : [];
-    });
-
-    return replacements.length > 0 ? applyReplacements(source, replacements) : source;
+    return applyAtPrefixedTagProp(absPath, source, tags, "tag");
   }
 }

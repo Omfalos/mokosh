@@ -3,7 +3,7 @@ import coffee from "coffeescript";
 import type { ExportedSymbol, ImportEdge } from "../../types/node";
 import { isStyleFile } from "../file-type";
 import type { ParseResult } from "../types";
-import { stripQuotes } from "../utils";
+import { classifyTestOrLogic, extractTagAnnotations, stripQuotes } from "../utils";
 
 interface StringLiteralNode {
   value: string;
@@ -50,38 +50,6 @@ function identifierName(node: CoffeeNode | undefined): string | undefined {
   if (typeof node.value === "string") return node.value;
   if (typeof node.base?.value === "string") return node.base.value;
   return undefined;
-}
-
-/**
- * @description Scans raw source text for `@tag <name>` comment annotations and collects
- *   the tag names. Runs before category resolution so `@tag test` can influence classification.
- * @param content - Raw source text to scan.
- * @returns Set of tag name strings found in `@tag` annotations.
- */
-function extractTags(content: string): Set<string> {
-  const tags = new Set<string>();
-  const tagRegex = /@tag\s+([a-zA-Z0-9_-]+)/g;
-  let match = tagRegex.exec(content);
-  while (match !== null) {
-    if (match[1]) tags.add(match[1]);
-    match = tagRegex.exec(content);
-  }
-  return tags;
-}
-
-/**
- * @description Determines whether a file is a test or production-logic file by checking
- *   path naming conventions (`.test.`, `.spec.`) and explicit `@tag test` annotations.
- * @param filePath - Path to the file being classified.
- * @param tags - Tag names extracted from the file's content.
- * @returns `"test"` if the file is a test file, `"logic"` otherwise.
- */
-function resolveCategory(filePath: string, tags: Set<string>): "test" | "logic" {
-  const lower = filePath.toLowerCase();
-  if (lower.includes(".test.") || lower.includes(".spec.") || tags.has("test")) {
-    return "test";
-  }
-  return "logic";
 }
 
 /**
@@ -249,8 +217,8 @@ function traverse(
  * @returns Parsed imports, exports, extracted tags, and resolved category.
  */
 export function parseCoffeeScript(filePath: string, content: string): ParseResult {
-  const tags = extractTags(content);
-  const category = resolveCategory(filePath, tags);
+  const tags = extractTagAnnotations(content);
+  const category = classifyTestOrLogic(filePath, tags);
   const imports: ImportEdge[] = [];
   const exports: ExportedSymbol[] = [];
 

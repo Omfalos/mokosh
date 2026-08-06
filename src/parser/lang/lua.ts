@@ -4,37 +4,7 @@ import luaparse from "luaparse";
 import type { ExportedSymbol, ImportEdge } from "../../types/node";
 import { isStyleFile } from "../file-type";
 import type { ParseResult } from "../types";
-import { stripQuotes } from "../utils";
-
-/**
- * @description Extracts `@tag <name>` comment annotations from raw Lua source text.
- * @param {string} content - Raw Lua source text.
- * @returns {Set<string>} The set of distinct tag names found in `content`.
- */
-function extractTagAnnotations(content: string): Set<string> {
-  const tagNames = new Set<string>();
-  const tagAnnotationRegex = /@tag\s+([a-zA-Z0-9_-]+)/g;
-  let annotationMatch = tagAnnotationRegex.exec(content);
-  while (annotationMatch !== null) {
-    if (annotationMatch[1]) tagNames.add(annotationMatch[1]);
-    annotationMatch = tagAnnotationRegex.exec(content);
-  }
-  return tagNames;
-}
-
-/**
- * @description Classifies a Lua file as `"test"` or `"logic"` based on its filename
- *   (`.test.` / `.spec.` substrings) or the presence of an explicit `@tag test` annotation.
- * @param {string} filePath - Path to the Lua file.
- * @param {Set<string>} tagNames - Tag names already extracted from the file's comments.
- * @returns {"test" | "logic"} The resolved file category.
- */
-function classifyCategory(filePath: string, tagNames: Set<string>): "test" | "logic" {
-  const lowerCasePath = filePath.toLowerCase();
-  const isTest =
-    lowerCasePath.includes(".test.") || lowerCasePath.includes(".spec.") || tagNames.has("test");
-  return isTest ? "test" : "logic";
-}
+import { classifyTestOrLogic, extractTagAnnotations, stripQuotes } from "../utils";
 
 /**
  * @description Recursively walks a luaparse AST and returns a `require()` dependency edge for
@@ -194,7 +164,7 @@ function collectExports(ast: Chunk): ExportedSymbol[] {
  */
 export function parseLua(filePath: string, content: string): ParseResult {
   const tagNames = extractTagAnnotations(content);
-  const category = classifyCategory(filePath, tagNames);
+  const category = classifyTestOrLogic(filePath, tagNames);
 
   let imports: ImportEdge[] = [];
   let exports: ExportedSymbol[] = [];
