@@ -48,7 +48,7 @@ function getText(result: ToolResult): string {
 }
 
 describe("mokosh MCP server", { tags: ["createMcpServer", "mcp"] }, () => {
-  test("listTools returns all 22 tools", async () => {
+  test("listTools returns all 23 tools", async () => {
     const client = await makeClient();
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual([
@@ -72,6 +72,7 @@ describe("mokosh MCP server", { tags: ["createMcpServer", "mcp"] }, () => {
       "get_type_graph",
       "get_workspace_affected",
       "get_workspace_packages",
+      "list_tags",
       "propose_tags",
       "query",
     ]);
@@ -217,6 +218,42 @@ describe("mokosh MCP server", { tags: ["createMcpServer", "mcp"] }, () => {
       expect(data.unusedFiles).toContain("orphan.js");
       expect(data.unusedFiles).not.toContain("main.js");
       expect(data.unusedFiles).not.toContain("a.js");
+    });
+
+    test("reuses the cached graph when entryPoints is omitted", async () => {
+      const root = makeProject("mcp-unused-cached", {
+        "main.js": "import './a.js'",
+        "a.js": "",
+        "orphan.js": "",
+      });
+      const client = await makeClient();
+      await client.callTool({ name: "analyze", arguments: { root, entryPoints: ["main.js"] } });
+
+      const data = parseText(
+        await client.callTool({ name: "find_unused", arguments: { root } }),
+      ) as { unusedFiles: string[] };
+      expect(data.unusedFiles).toContain("orphan.js");
+      expect(data.unusedFiles).not.toContain("main.js");
+    });
+  });
+
+  describe("list_tags", () => {
+    test("returns distinct tags with counts from the cached graph", async () => {
+      const root = makeProject("mcp-list-tags", {
+        "a.js": "// @auth\nexport function login() {}",
+        "b.js": "import './a.js'",
+      });
+      const client = await makeClient();
+      await client.callTool({ name: "analyze", arguments: { root, entryPoints: ["b.js"] } });
+
+      const data = parseText(await client.callTool({ name: "list_tags", arguments: { root } })) as {
+        tags: Array<{ name: string; count: number }>;
+        count: number;
+      };
+      expect(data.count).toBe(data.tags.length);
+      for (const tag of data.tags) {
+        expect(tag.count).toBeGreaterThan(0);
+      }
     });
   });
 

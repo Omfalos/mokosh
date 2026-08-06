@@ -602,7 +602,7 @@ function collectRawCallEdges(ctx: ParseContext, sourceFile: ts.SourceFile): void
       continue;
     }
     if (ts.isClassDeclaration(stmt) && stmt.name) {
-      collectClassMethodCallEdges(stmt, importSymbolMap, edges);
+      collectClassMethodCallEdges(stmt, stmt.name.text, importSymbolMap, edges);
     }
   }
 }
@@ -612,15 +612,17 @@ function collectRawCallEdges(ctx: ParseContext, sourceFile: ts.SourceFile): void
  *   call edges for any imported symbol invocations found in their bodies.
  *   Edge `from` fields are formatted as `ClassName.methodName` (or `ClassName.constructor`).
  * @param {ts.ClassDeclaration} classDecl - The class declaration to walk.
+ * @param {string} className - The class's name, pre-extracted by the caller (which already
+ *   narrowed `classDecl.name` to non-null before calling in).
  * @param {Map<string, string>} importSymbolMap - Maps local import names to their module specifiers.
  * @param {RawCallEdge[]} edges - Accumulator array that receives discovered edges.
  */
 function collectClassMethodCallEdges(
   classDecl: ts.ClassDeclaration,
+  className: string,
   importSymbolMap: Map<string, string>,
   edges: RawCallEdge[],
 ): void {
-  const className = classDecl.name!.text;
   for (const member of classDecl.members) {
     if (ts.isMethodDeclaration(member) && member.body && ts.isIdentifier(member.name)) {
       walkCallExpressions(member.body, `${className}.${member.name.text}`, importSymbolMap, edges);

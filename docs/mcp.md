@@ -154,7 +154,7 @@ Scans the project directory and compares against the reachable graph. Returns fi
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `root` | `string` | yes | |
-| `entryPoints` | `string[]` | yes | Entry points relative to `root` |
+| `entryPoints` | `string[]` | no | Entry points relative to `root`. Omit to reuse the cached graph from a prior `analyze` call instead of rebuilding. |
 
 **Returns:** `{ unusedFiles: string[], count: number }`
 
@@ -170,6 +170,20 @@ Find non-test files whose line coverage is below a threshold. Requires a prior `
 | `coverageThreshold` | `number` | no | Line coverage % below which a file is considered uncovered. Overrides the config value (default: `80`). |
 
 **Returns:** `{ threshold, uncovered: Array<{ file, coveragePct }>, count: number }`
+
+**Requires:** a prior `analyze` call for the same `root`.
+
+---
+
+### `list_tags`
+
+Lists every distinct tag name present in the graph, with how many nodes carry it. Call this before querying with `tag:<name>` to avoid a speculative filter silently returning zero results. Includes all tag kinds — a superset of what `query`'s `slim` mode keeps (`slim` only retains `comment-marker` and `import` tags).
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `root` | `string` | yes | |
+
+**Returns:** `{ tags: Array<{ name, count }>, count: number }`, sorted by count descending.
 
 **Requires:** a prior `analyze` call for the same `root`.
 

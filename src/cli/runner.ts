@@ -28,6 +28,7 @@ import { run as runFindUnused } from "./commands/find-unused";
 import { run as runGraphOutput } from "./commands/graph-output";
 import { runInitConfig } from "./commands/init-config";
 import { runInitSkill } from "./commands/init-skill";
+import { run as runListTags } from "./commands/list-tags";
 import { run as runModuleResponsibility } from "./commands/module-responsibility";
 import { run as runProposeTags } from "./commands/propose-tags";
 import { run as runTypeGraph } from "./commands/type-graph";
@@ -50,6 +51,7 @@ const WATCHABLE_COMMANDS = new Set<CommandHandler>([
   runFindComplexFunctions,
   runCheckCycles,
   runCheckDocDrift,
+  runListTags,
 ]);
 
 /**
@@ -134,6 +136,7 @@ function computeAutoScan(parsed: ParsedArgs): boolean {
     parsed.dependents ||
     parsed.affected ||
     parsed.findUncovered ||
+    parsed.listTags ||
     parsed.findComplexFunctions ||
     parsed.typeGraph ||
     parsed.moduleResponsibility ||
@@ -166,6 +169,7 @@ export function resolveCommandHandler(parsed: ParsedArgs): CommandHandler {
     { name: "--check-cycles", flag: parsed.checkCycles, handler: runCheckCycles },
     { name: "--check-doc-drift", flag: parsed.checkDocDrift, handler: runCheckDocDrift },
     { name: "--find-uncovered", flag: parsed.findUncovered, handler: runFindUncovered },
+    { name: "--list-tags", flag: parsed.listTags, handler: runListTags },
     { name: "--callers", flag: parsed.callers, handler: runCallers },
     { name: "--dependencies", flag: parsed.dependencies, handler: runDependencies },
     { name: "--dependents", flag: parsed.dependents, handler: runDependents },
@@ -220,7 +224,7 @@ async function runWatchLoop(
 ): Promise<void> {
   if (!WATCHABLE_COMMANDS.has(handler)) {
     console.error(
-      "Error: --watch is only supported with the default output, --query, --callers, --dependencies, --dependents, --affected, --find-uncovered, --find-complex-functions, --check-cycles, and --check-doc-drift",
+      "Error: --watch is only supported with the default output, --query, --callers, --dependencies, --dependents, --affected, --find-uncovered, --find-complex-functions, --check-cycles, --check-doc-drift, and --list-tags",
     );
     process.exit(1);
   }
@@ -278,7 +282,7 @@ export async function run(): Promise<void> {
   const ctx: CommandContext = {
     graph,
     rootDir,
-    entryPoints: resolvedEntryPoints.map((entryPath) => entryPath.replace(rootDir + "/", "")),
+    entryPoints: resolvedEntryPoints.map((entryPath) => entryPath.replace(`${rootDir}/`, "")),
     scanOptions,
     rawConfig: config.rawConfig,
     featureThreshold: parsed.featureThreshold,

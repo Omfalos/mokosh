@@ -1,6 +1,6 @@
 import path from "node:path";
 import { describe, expect, test } from "vitest";
-import { createImportMap } from "../../src/index";
+import { createImportMap } from "../../src/";
 
 /**
  * Regression test for two style-parsing/resolution bugs fixed together:

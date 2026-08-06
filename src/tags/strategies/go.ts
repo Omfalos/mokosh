@@ -72,6 +72,6 @@ export class GoStrategy implements TagApplierStrategy {
     if (!packageMatch) return source;
 
     const insertAt = packageMatch.index!;
-    return source.slice(0, insertAt) + buildTag + "\n" + source.slice(insertAt);
+    return `${source.slice(0, insertAt) + buildTag}\n${source.slice(insertAt)}`;
   }
 }

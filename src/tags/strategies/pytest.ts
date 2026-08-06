@@ -79,7 +79,7 @@ export class PytestStrategy implements TagApplierStrategy {
     const importLine = hasImport ? "" : "import pytest\n";
     const separator = before.endsWith("\n\n") ? "" : "\n";
 
-    return before + separator + importLine + pytestmarkLine + "\n" + after;
+    return `${before + separator + importLine + pytestmarkLine}\n${after}`;
   }
 }
 
@@ -88,19 +88,15 @@ function findImportBlockEnd(source: string): number {
   const lines = source.split("\n");
   let lastImportLine = -1;
 
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]!.trimStart();
-    if (line.startsWith("import ") || line.startsWith("from ")) {
+  lines.forEach((line, i) => {
+    if (line.trimStart().startsWith("import ") || line.trimStart().startsWith("from ")) {
       lastImportLine = i;
     }
-  }
+  });
 
   if (lastImportLine < 0) return 0;
 
   // Compute character offset of the end of that line
-  let offset = 0;
-  for (let i = 0; i <= lastImportLine; i++) {
-    offset += lines[i]!.length + 1; // +1 for \n
-  }
+  const offset = lines.slice(0, lastImportLine + 1).reduce((sum, line) => sum + line.length + 1, 0); // +1 for \n
   return offset;
 }

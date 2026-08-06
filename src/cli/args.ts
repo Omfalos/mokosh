@@ -18,6 +18,7 @@ export interface ParsedArgs {
   checkCycles: boolean;
   checkDocDrift: boolean;
   findUncovered: boolean;
+  listTags: boolean;
   callers: boolean;
   file: string | undefined;
   silent: boolean;
@@ -121,6 +122,7 @@ export const OPTIONS = {
   "check-cycles": { type: "boolean" },
   "check-doc-drift": { type: "boolean" },
   "find-uncovered": { type: "boolean" },
+  "list-tags": { type: "boolean" },
   callers: { type: "boolean" },
   silent: { type: "boolean" },
   "query-help": { type: "boolean" },
@@ -207,24 +209,24 @@ export function parseArgs(cliTokens: string[]): ParsedArgs {
     options: OPTIONS,
   });
 
-  const cacheValue = values["cache"];
-  const configValue = values["config"];
-  const metricRaw = values["metric"];
+  const cacheValue = values.cache;
+  const configValue = values.config;
+  const metricRaw = values.metric;
 
   return {
     rootDir,
     cachePath: cacheValue ? path.resolve(rootDir, cacheValue) : defaultCachePath,
     configPath: configValue ? path.resolve(rootDir, configValue) : undefined,
-    query: values["query"],
-    file: values["file"],
-    typeFilter: values["type"],
-    functionName: values["function"],
-    filterPaths: parseCsv(values["paths"]),
+    query: values.query,
+    file: values.file,
+    typeFilter: values.type,
+    functionName: values.function,
+    filterPaths: parseCsv(values.paths),
     featureThreshold: parseOptionalInt(values["feature-threshold"]),
     minOutDegree: parseOptionalInt(values["min-out-degree"]),
-    mermaid: values["mermaid"] ?? false,
+    mermaid: values.mermaid ?? false,
     proposeTags: values["propose-tags"] ?? false,
-    plain: values["plain"] ?? false,
+    plain: values.plain ?? false,
     affectedTests: values["affected-tests"] ?? false,
     detectFeatures: values["detect-features"] ?? false,
     findUnused: values["find-unused"] ?? false,
@@ -232,10 +234,11 @@ export function parseArgs(cliTokens: string[]): ParsedArgs {
     checkCycles: values["check-cycles"] ?? false,
     checkDocDrift: values["check-doc-drift"] ?? false,
     findUncovered: values["find-uncovered"] ?? false,
-    callers: values["callers"] ?? false,
-    silent: values["silent"] ?? false,
+    listTags: values["list-tags"] ?? false,
+    callers: values.callers ?? false,
+    silent: values.silent ?? false,
     queryHelp: values["query-help"] ?? false,
-    help: cliTokens.length === 0 || (values["help"] ?? false),
+    help: cliTokens.length === 0 || (values.help ?? false),
     typeGraph: values["type-graph"] ?? false,
     moduleResponsibility: values["module-responsibility"] ?? false,
     featureGraph: values["feature-graph"] ?? false,
@@ -246,26 +249,26 @@ export function parseArgs(cliTokens: string[]): ParsedArgs {
     dryRun: values["dry-run"] ?? false,
     initSkill: values["init-skill"] ?? false,
     initConfig: values["init-config"] ?? false,
-    force: values["force"] ?? false,
-    dependencies: values["dependencies"] ?? false,
-    dependents: values["dependents"] ?? false,
-    affected: values["affected"] ?? false,
+    force: values.force ?? false,
+    dependencies: values.dependencies ?? false,
+    dependents: values.dependents ?? false,
+    affected: values.affected ?? false,
     testsOnly: values["tests-only"] ?? false,
     changedSymbols: parseCsv(values["changed-symbols"]),
-    cached: values["cached"] ?? false,
-    depth: parseOptionalInt(values["depth"]),
+    cached: values.cached ?? false,
+    depth: parseOptionalInt(values.depth),
     withMeta: values["with-meta"] ?? false,
     withEdgeDetail: values["with-edge-detail"] ?? false,
     findComplexFunctions: values["find-complex-functions"] ?? false,
     metric:
       metricRaw === "complexity" || metricRaw === "cognitiveComplexity" ? metricRaw : undefined,
     complexityThreshold: parseOptionalInt(values["complexity-threshold"]),
-    limit: parseOptionalInt(values["limit"]),
+    limit: parseOptionalInt(values.limit),
     workspacePackages: values["workspace-packages"] ?? false,
     workspaceAffected: values["workspace-affected"] ?? false,
     clearCache: values["clear-cache"] ?? false,
-    slim: values["slim"] ?? false,
-    watch: values["watch"] ?? false,
+    slim: values.slim ?? false,
+    watch: values.watch ?? false,
     entryPoints: positionals,
   };
 }

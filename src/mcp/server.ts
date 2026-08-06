@@ -43,8 +43,10 @@ import {
   handleGetTypeGraph,
   handleGetWorkspaceAffected,
   handleGetWorkspacePackages,
+  handleListTags,
   handleProposeTags,
   handleQuery,
+  type ListTagsArgs,
   type ProposeTagsArgs,
   type QueryArgs,
   type ToolArgs,
@@ -82,6 +84,7 @@ export function createMcpServer(): Server {
       find_symbol: (args) => handleFindSymbol(cache, args as FindSymbolArgs),
       find_unused: (args) => handleFindUnused(cache, args as FindUnusedArgs),
       find_uncovered: (args) => handleFindUncovered(cache, args as FindUncoveredArgs),
+      list_tags: (args) => handleListTags(cache, args as ListTagsArgs),
       check_doc_drift: (args) => handleCheckDocDrift(cache, args as CheckDocDriftArgs),
       find_complex_functions: (args) =>
         handleFindComplexFunctions(cache, args as FindComplexFunctionsArgs),

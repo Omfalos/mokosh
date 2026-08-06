@@ -21,6 +21,7 @@ function makeParsedArgs(overrides: Partial<ParsedArgs> = {}): ParsedArgs {
     checkCycles: false,
     checkDocDrift: false,
     findUncovered: false,
+    listTags: false,
     callers: false,
     file: undefined,
     silent: false,

@@ -68,8 +68,9 @@ export type GetCallersArgs = {
   withEdgeDetail?: boolean;
 };
 export type FindSymbolArgs = { root: string; name: string };
-export type FindUnusedArgs = { root: string; entryPoints: string[] };
+export type FindUnusedArgs = { root: string; entryPoints?: string[] };
 export type FindUncoveredArgs = { root: string; coverageThreshold?: number };
+export type ListTagsArgs = { root: string };
 export type CheckDocDriftArgs = { root: string };
 export type FindComplexFunctionsArgs = {
   root: string;
@@ -113,6 +114,7 @@ export type ToolArgs =
   | FindSymbolArgs
   | FindUnusedArgs
   | FindUncoveredArgs
+  | ListTagsArgs
   | CheckDocDriftArgs
   | FindComplexFunctionsArgs
   | ProposeTagsArgs
@@ -281,17 +283,46 @@ export async function handleGetCallers(
 /**
  * @description Scans the entire project directory and compares against the graph reachable
  *   from `entryPoints`, returning files that exist on disk but are never imported — candidates for deletion.
+ *   When `entryPoints` is omitted, reuses the cached graph from a prior `analyze` call instead of rebuilding.
  * @param cache - Session state used to build or retrieve the graph.
- * @param args - `root` is the project directory; `entryPoints` seeds the reachability walk.
+ * @param args - `root` is the project directory; `entryPoints` seeds the reachability walk (omit to reuse the cache).
  * @returns TextResponse with `{ unusedFiles, count }` listing files unreachable from any entry point.
  */
 export async function handleFindUnused(cache: SessionState, args: FindUnusedArgs) {
   const { root, entryPoints } = args;
-  const resolvedEntries = entryPoints.map((ep) => path.resolve(root, ep));
-  const graph = await cache.getOrBuild(root, resolvedEntries);
+  const graph = entryPoints
+    ? await cache.getOrBuild(
+        root,
+        entryPoints.map((ep) => path.resolve(root, ep)),
+      )
+    : await cache.ensureFresh(root);
   const allFiles = getAllProjectFiles(root);
   const unusedFiles = graph.findUnusedFiles(allFiles);
   return text({ unusedFiles, count: unusedFiles.length });
+}
+
+/**
+ * @description Lists every distinct tag name present in the graph, with how many nodes carry it —
+ *   lets an AI discover what `tag:<name>` values exist before querying, instead of guessing and
+ *   getting a silent empty result. Includes all tag kinds (declaration, import, marker, comment,
+ *   option-bag), not just the subset kept in `query`'s `slim` output.
+ * @param cache - Session state holding the cached graph.
+ * @param args - `root` selects the graph.
+ * @returns TextResponse with `{ tags, count }` where `tags` is `{ name, count }[]` sorted by count descending.
+ */
+export async function handleListTags(cache: SessionState, args: ListTagsArgs) {
+  const { root } = args;
+  const graph = await cache.ensureFresh(root);
+  const counts = new Map<string, number>();
+  for (const node of graph.nodes.values()) {
+    for (const tag of node.tags) {
+      counts.set(tag.name, (counts.get(tag.name) ?? 0) + 1);
+    }
+  }
+  const tags = [...counts.entries()]
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count);
+  return text({ tags, count: tags.length });
 }
 
 /**

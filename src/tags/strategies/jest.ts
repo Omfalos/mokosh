@@ -23,7 +23,7 @@ const GROUP_BLOCK_RE = /^\/\*\*\n(?: \* @group .+\n)+ \*\/\n+/;
 const GROUP_LINE_RE = /^ \* @group (.+)$/gm;
 
 function buildBlock(tags: string[]): string {
-  return ["/**", ...tags.map((tag) => ` * @group ${tag}`), " */"].join("\n") + "\n\n";
+  return `${["/**", ...tags.map((tag) => ` * @group ${tag}`), " */"].join("\n")}\n\n`;
 }
 
 function readExistingGroups(block: string): string[] {

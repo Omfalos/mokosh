@@ -14,6 +14,7 @@ import {
   handleGetDependents,
   handleGetWorkspaceAffected,
   handleGetWorkspacePackages,
+  handleListTags,
   handleProposeTags,
   handleQuery,
 } from "./handlers";
@@ -403,6 +404,20 @@ describe("handleFindUnused", {
     expect(data.unusedFiles).not.toContain("src/a.ts");
     expect(data.count).toBe(data.unusedFiles.length);
   });
+
+  test("reuses the cached graph via ensureFresh when entryPoints is omitted", async () => {
+    const cache = makeCache();
+
+    const data = parse(await handleFindUnused(cache, { root: ROOT })) as {
+      unusedFiles: string[];
+      count: number;
+    };
+
+    expect(cache.ensureFresh).toHaveBeenCalledWith(ROOT);
+    expect(cache.getOrBuild).not.toHaveBeenCalled();
+    expect(data.unusedFiles).toContain("src/orphan.ts");
+    expect(data.count).toBe(data.unusedFiles.length);
+  });
 });
 
 describe("handleFindSymbol", {
@@ -681,6 +696,63 @@ describe("handleQuery", {
     });
 
     expect(result.content[0]?.text).toContain("graph TD");
+  });
+});
+
+describe("handleListTags", {
+  tags: [
+    "Graph",
+    "SerializedGraph",
+    "SessionState",
+    "cache",
+    "graph",
+    "handleFindUnused",
+    "handleListTags",
+    "handleQuery",
+    "handlers",
+  ],
+}, () => {
+  test("returns every distinct tag with its node count, sorted by count descending", async () => {
+    const data = parse(await handleListTags(makeCache(), { root: ROOT })) as {
+      tags: Array<{ name: string; count: number }>;
+      count: number;
+    };
+
+    expect(data.tags).toEqual(
+      expect.arrayContaining([
+        { name: "auth", count: 1 },
+        { name: "a", count: 1 },
+      ]),
+    );
+    expect(data.count).toBe(data.tags.length);
+  });
+
+  test("returns an empty list for a graph with no tags", async () => {
+    const cache = makeCache();
+    (cache.ensureFresh as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      Graph.deserialize({
+        nodes: [
+          {
+            path: "src/untagged.ts",
+            type: "typescript",
+            category: "logic",
+            tags: [],
+            imports: [],
+            exports: [],
+            mtime: 0,
+            size: 0,
+          },
+        ],
+      }),
+    );
+
+    const data = parse(await handleListTags(cache, { root: ROOT })) as {
+      tags: unknown[];
+      count: number;
+    };
+
+    expect(data.tags).toEqual([]);
+    expect(data.count).toBe(0);
   });
 });
 

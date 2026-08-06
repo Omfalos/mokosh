@@ -9,6 +9,22 @@ export interface Replacement {
 
 const ANNOTATABLE_NAMES = new Set(["describe", "test", "it"]);
 
+/**
+ * @description Bounds-checked array access. Throws instead of silently returning `undefined`
+ *   when `index` is out of range — used in place of `arr[index]!` so a violated invariant fails
+ *   loudly instead of propagating `undefined` into position math.
+ * @param {readonly T[]} arr - Array to index into.
+ * @param {number} index - Index expected to be in range.
+ * @returns {T} The element at `index`.
+ */
+function at<T>(arr: readonly T[], index: number): T {
+  const value = arr[index];
+  if (value === undefined) {
+    throw new Error(`Index ${index} out of bounds (length ${arr.length})`);
+  }
+  return value;
+}
+
 /** Returns top-level describe/test/it call expressions from a parsed source file. */
 export function findTopLevelCalls(sourceFile: ts.SourceFile): ts.CallExpression[] {
   const calls: ts.CallExpression[] = [];
@@ -141,16 +157,16 @@ export function buildRemoveReplacement(
 
     if (arg.properties.length === 1) {
       // Remove the entire options argument including the preceding `, `
-      return { start: args[i - 1]!.getEnd(), end: arg.getEnd(), text: "" };
+      return { start: at(args, i - 1).getEnd(), end: arg.getEnd(), text: "" };
     }
 
     const prop = arg.properties[idx]!;
     if (idx === arg.properties.length - 1) {
       // Last property — also remove the preceding comma
-      return { start: arg.properties[idx - 1]!.getEnd(), end: prop.getEnd(), text: "" };
+      return { start: at(arg.properties, idx - 1).getEnd(), end: prop.getEnd(), text: "" };
     }
     // Not last — remove the property and the following separator
-    return { start: prop.getStart(sf), end: arg.properties[idx + 1]!.getStart(sf), text: "" };
+    return { start: prop.getStart(sf), end: at(arg.properties, idx + 1).getStart(sf), text: "" };
   }
   return null;
 }

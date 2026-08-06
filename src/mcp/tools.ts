@@ -122,14 +122,31 @@ export const TOOL_DEFINITIONS = [
   {
     name: "find_unused",
     description:
-      "Find files in the project that are not reachable from any entry point. Useful before cleanup passes.",
+      "Find files in the project that are not reachable from any entry point. Useful before cleanup passes. Omit entryPoints to reuse the cached graph from a prior analyze() call instead of rebuilding.",
     inputSchema: {
       type: "object",
       properties: {
         root: { type: "string" },
-        entryPoints: { type: "array", items: { type: "string" } },
+        entryPoints: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Entry point files relative to root. Omit to reuse the cached graph from a prior analyze() call.",
+        },
       },
-      required: ["root", "entryPoints"],
+      required: ["root"],
+    },
+  },
+  {
+    name: "list_tags",
+    description:
+      "List every distinct tag name present in the graph, with how many nodes carry each one. Call this before querying with tag:<name> to avoid a speculative filter silently returning zero results. Includes all tag kinds — a superset of what query's slim mode keeps (slim only retains comment-marker and import tags).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        root: { type: "string", description: "Absolute path to the project root" },
+      },
+      required: ["root"],
     },
   },
   {
@@ -259,7 +276,7 @@ export const TOOL_DEFINITIONS = [
         slim: {
           type: "boolean",
           description:
-            "Compact response mode (default: true). Returns export names, meaningful tags, and a flat importsFiles path list — no edge objects, no mtime/size. Pass false only when full edge metadata is needed.",
+            "Compact response mode (default: true). Returns export names, meaningful tags, and a flat importsFiles path list — no edge objects, no mtime/size. Tags are filtered to kinds comment-marker and import only; function/class/variable/type/library tags are dropped in slim output. Use list_tags to see the full tag inventory, or pass slim: false to get every tag kind on matching nodes.",
         },
       },
       required: ["root", "filter"],

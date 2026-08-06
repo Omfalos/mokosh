@@ -9,9 +9,7 @@ const BLOCK_REGEX = /# <mokosh-tags>[\s\S]*?# <\/mokosh-tags>\n*/;
 const EXISTING_TAG_REGEX = /^@([a-zA-Z0-9_-]+)/gm;
 
 function buildBlock(tags: string[]): string {
-  return (
-    ["# <mokosh-tags>", ...tags.map((tag) => `@${tag}`), "# </mokosh-tags>"].join("\n") + "\n\n"
-  );
+  return `${["# <mokosh-tags>", ...tags.map((tag) => `@${tag}`), "# </mokosh-tags>"].join("\n")}\n\n`;
 }
 
 function readManualTags(content: string): Set<string> {

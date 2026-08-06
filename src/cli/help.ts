@@ -16,6 +16,8 @@ Options:
   --find-unused               Find files that are not reachable from entry points
   --exclude-tests             Exclude test files from --find-unused output
   --find-uncovered            List non-test files whose coverage is below the threshold (requires coverageReportPath in config)
+  --list-tags                 List every distinct tag in the graph with its per-node count, sorted
+                               by count descending (use with --plain for a bare name list)
   --callers                   List files whose exported functions call into --file
   --file <path>               Target file for --callers/--dependencies/--dependents/--affected/--workspace-affected
   --check-cycles              Check for circular dependencies; exits non-zero if found (CI gate)
@@ -65,7 +67,8 @@ MCP parity (mirrors the MCP server's tools for use when MCP is unavailable):
                                 precision for TS/JS, named-import for Python, file-level otherwise)
   --watch                      Re-run on file changes. Supported with the default output, --query,
                                 --callers, --dependencies, --dependents, --affected, --find-uncovered,
-                                --find-complex-functions, --check-cycles, and --check-doc-drift only.
+                                --find-complex-functions, --check-cycles, --check-doc-drift, and
+                                --list-tags only.
 
 Notes:
   Add mokosh-cache/ to your .gitignore to avoid committing the cache directory.

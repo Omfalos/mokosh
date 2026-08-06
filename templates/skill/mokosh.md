@@ -11,7 +11,7 @@ Prefer MCP over the CLI whenever both are available — it's cheaper in tokens a
 
 ## MCP: tool call order
 
-`analyze` must be called once per session before any other tool (except `find_unused` and `query` with explicit `entryPoints`, which can build their own graph). It builds and caches the graph, keyed by `root`.
+`analyze` must be called once per session before any other tool (except `find_unused` and `query`, which reuse the cached graph when `entryPoints` is omitted, or can build their own graph when it's supplied). It builds and caches the graph, keyed by `root`.
 
 ```
 analyze({ root: "<abs-path>", entryPoints: ["src/index.ts"] })
@@ -38,8 +38,9 @@ If source files are edited mid-session, call `clear_cache({ root })` before re-q
 | Tests affected by X | `get_affected({ root, file, testsOnly: true })` | `mokosh --affected-tests <file>` |
 | Who **calls into** X at runtime? | `get_callers({ root, file, depth: 1, withEdgeDetail: true })` | `mokosh --callers <file>` |
 | Callers/callees of a named function | `get_call_graph({ root, function: "name" })` | TS/JS only |
-| Unused files | `find_unused({ root, entryPoints: [...] })` | `mokosh --find-unused <entry>` |
+| Unused files | `find_unused({ root })` (reuses cache) or `find_unused({ root, entryPoints: [...] })` | `mokosh --find-unused <entry>` |
 | Circular dependencies | — | `mokosh <entry> --check-cycles` |
+| What tags exist? | `list_tags({ root })` | `mokosh <entry> --list-tags` |
 
 ### Quality signals
 
@@ -104,7 +105,7 @@ Use with `query({ root, filter: "..." })` via MCP or `--query "..."` via CLI. Al
 
 `category` values: `logic` · `ui` · `test` · `config` · `barrel` · `type-only` · `other`.
 
-`query` (MCP) defaults to `slim: true` — compact nodes with flat `importsFiles`, export names, and meaningful tags only. Pass `slim: false` only when full edge metadata is needed.
+`query` (MCP) defaults to `slim: true` — compact nodes with flat `importsFiles`, export names, and meaningful tags only. Tags are filtered to kinds `comment-marker` and `import`; `function`/`class`/`variable`/`type`/`library` tags are dropped in slim output. Call `list_tags` for the full tag inventory, or pass `slim: false` when full edge metadata is needed.
 
 Run `mokosh --query-help` (CLI) for the full reference at any time.
 

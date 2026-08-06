@@ -4,7 +4,7 @@ The mokosh MCP server is **always active** in this project (configured via `.mcp
 
 ## Tool call order
 
-`analyze` must be called once per session before any other tool (except `find_unused` and `query` with explicit `entryPoints`, which can build their own graph). It builds and caches the graph, keyed by `root`.
+`analyze` must be called once per session before any other tool (except `find_unused` and `query`, which reuse the cached graph when `entryPoints` is omitted, or can build their own graph when it's supplied). It builds and caches the graph, keyed by `root`.
 
 ```
 analyze({ root: "<abs-path>", entryPoints: ["src/index.ts"] })
@@ -31,7 +31,8 @@ If you edit source files mid-session, call `clear_cache({ root })` before re-que
 | Tests affected by X | `get_affected({ root, file, testsOnly: true })` | |
 | Who **calls into** X at runtime? | `get_callers({ root, file, depth: 1, withEdgeDetail: true })` | call-graph, not just imports — more precise than `get_affected` |
 | Callers/callees of a named function | `get_call_graph({ root, function: "parseFile" })` | TS/JS only; always needs a function name |
-| Unused files | `find_unused({ root, entryPoints: [...] })` | files unreachable from entry points |
+| Unused files | `find_unused({ root })` (reuses cache) or `find_unused({ root, entryPoints: [...] })` | files unreachable from entry points |
+| What tags exist? | `list_tags({ root })` | discover valid `tag:<name>` values before querying |
 
 ### Quality signals
 
@@ -101,7 +102,7 @@ All keys are **case-insensitive**. Multiple keys are **AND'd** together.
 
 **`category` values:** `logic` · `ui` · `test` · `config` · `barrel` · `type-only` · `other`
 
-`query` defaults to `slim: true` (compact nodes: flat `importsFiles` path list, export names, meaningful tags only, no edge objects/mtime/size). Pass `slim: false` only when full edge metadata is needed. `entryPoints` can be omitted to reuse the cached graph from `analyze`.
+`query` defaults to `slim: true` (compact nodes: flat `importsFiles` path list, export names, meaningful tags only, no edge objects/mtime/size). Tags are filtered to kinds `comment-marker` and `import`; `function`/`class`/`variable`/`type`/`library` tags are dropped in slim output — use `list_tags` for the full tag inventory, or `slim: false` for every tag kind. `entryPoints` can be omitted to reuse the cached graph from `analyze`.
 
 ## Common AI query patterns
 
