@@ -1,3 +1,14 @@
+## [0.3.1](https://github.com/Omfalos/mokosh/compare/v0.3.0...v0.3.1) (2026-08-06)
+
+### Features
+
+* **mcp:** add find_duplicates tool for cross-language duplicate detection ([22a4c5e](https://github.com/Omfalos/mokosh/commit/22a4c5e20e105084e3be8f693c9ab270d116ef1c))
+* **mcp:** add list_tags tool and reuse cache in find_unused ([08355e6](https://github.com/Omfalos/mokosh/commit/08355e685512ed6435cdae86dc85758eb32579a5))
+
+### Bug Fixes
+
+* **lint:** resolve all biome noNonNullAssertion warnings ([5c4df7f](https://github.com/Omfalos/mokosh/commit/5c4df7f7f7535d3a0208df4f844fc9a11d67dd47))
+
 ## [0.3.0](https://github.com/Omfalos/mokosh/compare/v0.2.0...v0.3.0) (2026-08-05)
 
 ### Features
