@@ -2,6 +2,7 @@ export * from "./api-surface";
 export * from "./builder";
 export * from "./call-graph";
 export * from "./change-impact-cache";
+export * from "./duplication";
 export * from "./features";
 export * from "./features/feature-graph";
 export * from "./model";

@@ -13,6 +13,18 @@ export interface LockFileData {
   dependencies: Record<string, { version: string; dependencies?: Record<string, string> }>;
 }
 
+/**
+ * Lock file basenames mokosh knows how to parse for version annotation. Exported so other
+ * features (e.g. `findDuplicates`) can exclude these files by the same single source of truth
+ * instead of re-declaring the list — a lock file's repeated JSON/YAML dependency blocks are
+ * real textual repetition, but not code duplication.
+ */
+export const LOCK_FILE_NAMES: readonly string[] = [
+  "package-lock.json",
+  "yarn.lock",
+  "pnpm-lock.yaml",
+];
+
 interface PkgData {
   version: string;
   dependencies?: Record<string, string>;
@@ -235,11 +247,14 @@ export function parsePnpmLock(filePath: string): LockFileData {
  * @returns Parsed lock file data from the first detected lock file, or `null` if none is found.
  */
 export function loadLockFile(rootDir: string): LockFileData | null {
-  const candidates: [string, (lockFilePath: string) => LockFileData][] = [
-    ["package-lock.json", parsePackageLock],
-    ["yarn.lock", parseYarnLock],
-    ["pnpm-lock.yaml", parsePnpmLock],
-  ];
+  const parsers: Record<string, (lockFilePath: string) => LockFileData> = {
+    "package-lock.json": parsePackageLock,
+    "yarn.lock": parseYarnLock,
+    "pnpm-lock.yaml": parsePnpmLock,
+  };
+  const candidates = LOCK_FILE_NAMES.map(
+    (filename) => [filename, parsers[filename] as (lockFilePath: string) => LockFileData] as const,
+  );
 
   for (const [filename, parser] of candidates) {
     const filePath = path.join(rootDir, filename);

@@ -9,6 +9,7 @@ import {
   type ClearCacheArgs,
   type DetectFeaturesArgs,
   type FindComplexFunctionsArgs,
+  type FindDuplicatesArgs,
   type FindSymbolArgs,
   type FindUncoveredArgs,
   type FindUnusedArgs,
@@ -29,6 +30,7 @@ import {
   handleClearCache,
   handleDetectFeatures,
   handleFindComplexFunctions,
+  handleFindDuplicates,
   handleFindSymbol,
   handleFindUncovered,
   handleFindUnused,
@@ -88,6 +90,7 @@ export function createMcpServer(): Server {
       check_doc_drift: (args) => handleCheckDocDrift(cache, args as CheckDocDriftArgs),
       find_complex_functions: (args) =>
         handleFindComplexFunctions(cache, args as FindComplexFunctionsArgs),
+      find_duplicates: (args) => handleFindDuplicates(cache, args as FindDuplicatesArgs),
       propose_tags: (args) => handleProposeTags(cache, args as ProposeTagsArgs),
       detect_features: (args) => handleDetectFeatures(cache, args as DetectFeaturesArgs),
       get_type_graph: (args) => handleGetTypeGraph(cache, args as GetTypeGraphArgs),

@@ -30,4 +30,5 @@ export interface CommandContext {
   limit: number | undefined;
   slim: boolean;
   testsOnly: boolean;
+  minDuplicateLines: number | undefined;
 }

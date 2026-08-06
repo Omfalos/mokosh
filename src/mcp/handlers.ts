@@ -8,11 +8,13 @@ import {
   buildResponsibilityGraph,
   buildTypeGraph,
   configToGraphOptions,
+  DEFAULT_IGNORE_DIRS,
   detectAllEntryPoints,
   detectFeatures,
   detectMonorepo,
   filterGraph,
   findComplexFunctions,
+  findDuplicates,
   findSymbol,
   Graph,
   getAffected,
@@ -78,6 +80,13 @@ export type FindComplexFunctionsArgs = {
   threshold?: number;
   limit?: number;
 };
+export type FindDuplicatesArgs = {
+  root: string;
+  minLines?: number;
+  ignoreLiterals?: boolean;
+  limit?: number;
+  ignoreDirs?: string[];
+};
 export type ProposeTagsArgs = {
   root: string;
   changedFiles?: string[];
@@ -117,6 +126,7 @@ export type ToolArgs =
   | ListTagsArgs
   | CheckDocDriftArgs
   | FindComplexFunctionsArgs
+  | FindDuplicatesArgs
   | ProposeTagsArgs
   | DetectFeaturesArgs
   | QueryArgs
@@ -398,6 +408,37 @@ export async function handleFindComplexFunctions(
   const graph = await cache.ensureFresh(root);
   const functions = findComplexFunctions(graph, { metric, threshold, limit });
   return text({ metric, threshold, functions, count: functions.length });
+}
+
+/**
+ * @description Scans every file in the graph for cross-file (and within-file) duplicated code,
+ *   returning the resulting blocks largest-first. Token-based rather than AST-based, so it
+ *   covers every language mokosh parses, not just the ones with per-function AST support. Lock
+ *   files and files under an ignored directory are excluded even when the graph itself contains
+ *   them — `graph.nodes` isn't ignore-rule-filtered for files reached via a resolved reference
+ *   rather than the initial FS walk (e.g. a Markdown doc's code-span reference to a build
+ *   artifact).
+ * @param cache - Session state holding the cached graph and, if `analyze` set one, this root's
+ *   config (read for its `ignoreDirs`).
+ * @param args - `root` selects the graph; `minLines` is the minimum block size to report
+ *   (default 6); `ignoreLiterals` toggles Type-2 vs Type-1 matching (default true); `ignoreDirs`
+ *   overrides which directory names are excluded (default: `DEFAULT_IGNORE_DIRS` merged with
+ *   this root's configured `ignoreDirs`, if any); `limit` caps the number of results returned
+ *   (default 50).
+ * @returns TextResponse with `{ minLines, groups, count }`.
+ */
+export async function handleFindDuplicates(
+  cache: SessionState,
+  args: FindDuplicatesArgs,
+): Promise<TextResponse> {
+  const { root, minLines = 6, ignoreLiterals = true, limit = 50 } = args;
+  const graph = await cache.ensureFresh(root);
+  const ignoreDirs = args.ignoreDirs ?? [
+    ...DEFAULT_IGNORE_DIRS,
+    ...(cache.getConfig(root)?.ignoreDirs ?? []),
+  ];
+  const groups = await findDuplicates(graph, root, { minLines, ignoreLiterals, limit, ignoreDirs });
+  return text({ minLines, groups, count: groups.length });
 }
 
 /**

@@ -48,7 +48,7 @@ function getText(result: ToolResult): string {
 }
 
 describe("mokosh MCP server", { tags: ["createMcpServer", "mcp"] }, () => {
-  test("listTools returns all 23 tools", async () => {
+  test("listTools returns all 24 tools", async () => {
     const client = await makeClient();
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual([
@@ -58,6 +58,7 @@ describe("mokosh MCP server", { tags: ["createMcpServer", "mcp"] }, () => {
       "clear_cache",
       "detect_features",
       "find_complex_functions",
+      "find_duplicates",
       "find_symbol",
       "find_uncovered",
       "find_unused",

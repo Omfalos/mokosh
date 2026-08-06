@@ -59,7 +59,13 @@ MCP parity (mirrors the MCP server's tools for use when MCP is unavailable):
   --find-complex-functions     List functions/methods at or above a complexity threshold, worst-first
   --metric <name>              cognitiveComplexity (default) | complexity — used by --find-complex-functions
   --complexity-threshold <N>   Minimum score to include (default: 10, use with --find-complex-functions)
-  --limit <N>                  Max results for --find-complex-functions (default: 20)
+  --limit <N>                  Max results for --find-complex-functions/--find-duplicates
+  --find-duplicates            Find duplicated code blocks (token-based, works for every parsed
+                                language), largest-first. Lock files and files under an ignored
+                                directory (--config's ignoreDirs, merged with the defaults) are
+                                always excluded
+  --min-duplicate-lines <N>    Minimum duplicated block size in lines to report (default: 6,
+                                use with --find-duplicates)
   --workspace-packages         List monorepo packages and their cross-package dependencies
   --workspace-affected         Cross-package blast-radius for --file in a monorepo
   --find-symbol                Find every file that exports --function <name> by exact name, with
@@ -67,7 +73,8 @@ MCP parity (mirrors the MCP server's tools for use when MCP is unavailable):
                                 precision for TS/JS, named-import for Python, file-level otherwise)
   --watch                      Re-run on file changes. Supported with the default output, --query,
                                 --callers, --dependencies, --dependents, --affected, --find-uncovered,
-                                --find-complex-functions, --check-cycles, --check-doc-drift, and
+                                --find-complex-functions, --find-duplicates, --check-cycles,
+                                --check-doc-drift, and
                                 --list-tags only.
 
 Notes:

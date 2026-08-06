@@ -204,6 +204,37 @@ export const TOOL_DEFINITIONS = [
     },
   },
   {
+    name: "find_duplicates",
+    description:
+      "Find duplicated code blocks across the project, largest-first. Token-based (not AST-based), so it works uniformly across every language mokosh parses (TypeScript/JavaScript, Python, Go, CoffeeScript, LiveScript, Lua, Gherkin, style files, Markdown). Identifiers — and by default literals — are normalized before matching, so renamed-variable copies are still caught. Lock files (package-lock.json, yarn.lock, pnpm-lock.yaml) and files under an ignored directory are always excluded, even if the graph itself contains them. Requires a prior analyze() call.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        root: { type: "string", description: "Absolute path to the project root" },
+        minLines: {
+          type: "number",
+          description: "Minimum duplicated block size in lines to report (default: 6)",
+        },
+        ignoreLiterals: {
+          type: "boolean",
+          description:
+            "Normalize string/number literals too, not just identifiers, so only structural shape drives a match (default: true). Set false for stricter, exact-text-only matching.",
+        },
+        ignoreDirs: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Directory names to exclude, matched against any path segment (default: DEFAULT_IGNORE_DIRS merged with this root's configured ignoreDirs, if any). Pass [] to disable.",
+        },
+        limit: {
+          type: "number",
+          description: "Max duplicate blocks to return, largest-first (default: 50)",
+        },
+      },
+      required: ["root"],
+    },
+  },
+  {
     name: "propose_tags",
     description:
       "Propose what to run based on changed files. Pass changedFiles explicitly or omit to use git diff. format='tags' (default) returns test tags for CI tag-filtering; format='paths' returns test file paths ready to pipe directly to a test runner (e.g. vitest). Feature hubs act as traversal boundaries in both modes.",

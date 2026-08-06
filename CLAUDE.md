@@ -109,6 +109,10 @@ src/
     workspace-model.ts  WorkspaceGraph — holds per-package graphs, cross-package traversal
     features/
       index.ts        detectFeatures() — finds high-out-degree orchestrator/aggregator files
+    duplication/
+      tokenizer.ts    language-agnostic tokenizer — per-FileType comment stripping + identifier/literal normalization
+      shingle.ts      sliding-window token hashing + chain-merging into duplicate blocks
+      index.ts        findDuplicates() — works for every parsed language (token-based, not AST-based; see docs/adr-012-duplicate-detection.md)
 
   parser/
     types.ts          parser-local types (ParseResult, etc.)
@@ -167,6 +171,7 @@ src/
       detect-features.ts --detect-features
       find-uncovered.ts --find-uncovered
       find-unused.ts    --find-unused
+      find-duplicates.ts --find-duplicates
       propose-tags.ts   --propose-tags
       types.ts          shared command types
       utils.ts          shared command utilities
@@ -218,7 +223,7 @@ Run `mokosh --query-help` for the full reference.
 
 Always available in this project — configured in `.mcp.json`. **Prefer MCP tools over the CLI** for any dependency query. See `/mokosh` skill for the full tool reference.
 
-Call order: `analyze` first (builds + caches graph), then any of: `get_dependencies`, `get_dependents`, `get_affected`, `propose_tags`, `propose_affected_tests`, `detect_features`, `query`, `find_unused`.
+Call order: `analyze` first (builds + caches graph), then any of: `get_dependencies`, `get_dependents`, `get_affected`, `propose_tags`, `propose_affected_tests`, `detect_features`, `query`, `find_unused`, `find_duplicates`.
 
 `query` defaults to `slim: true` — compact nodes with `importsFiles` (flat path list), export names, and meaningful tags only. Pass `slim: false` only when full edge metadata is needed.
 

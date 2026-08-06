@@ -40,6 +40,7 @@ If you edit source files mid-session, call `clear_cache({ root })` before re-que
 |------|----------|-------|
 | Undertested files | `find_uncovered({ root, coverageThreshold })` | needs `coverageReportPath` in mokosh.config |
 | Complexity hotspots | `find_complex_functions({ root, metric, threshold, limit })` | `metric`: `cognitiveComplexity` (default) or `complexity`; TS/JS only |
+| Duplicated code | `find_duplicates({ root, minLines, ignoreLiterals, limit })` | token-based, works for every parsed language |
 | High-degree hubs / orchestrators | `detect_features({ root })` | sorted by import count |
 | What does each file own? | `get_module_responsibility({ root, paths? })` | semantic role, JSDoc, exports, owning feature hub |
 | Group files by owning feature | `get_feature_graph({ root, minOutDegree })` | cheapest way to answer "what's in feature X" |

@@ -57,6 +57,8 @@ function makeParsedArgs(overrides: Partial<ParsedArgs> = {}): ParsedArgs {
     metric: undefined,
     complexityThreshold: undefined,
     limit: undefined,
+    findDuplicates: false,
+    minDuplicateLines: undefined,
     workspacePackages: false,
     workspaceAffected: false,
     clearCache: false,

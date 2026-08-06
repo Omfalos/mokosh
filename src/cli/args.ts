@@ -54,6 +54,8 @@ export interface ParsedArgs {
   metric: "cognitiveComplexity" | "complexity" | undefined;
   complexityThreshold: number | undefined;
   limit: number | undefined;
+  findDuplicates: boolean;
+  minDuplicateLines: number | undefined;
   workspacePackages: boolean;
   workspaceAffected: boolean;
   clearCache: boolean;
@@ -151,6 +153,8 @@ export const OPTIONS = {
   metric: { type: "string" },
   "complexity-threshold": { type: "string" },
   limit: { type: "string" },
+  "find-duplicates": { type: "boolean" },
+  "min-duplicate-lines": { type: "string" },
   "workspace-packages": { type: "boolean" },
   "workspace-affected": { type: "boolean" },
   "clear-cache": { type: "boolean" },
@@ -265,6 +269,8 @@ export function parseArgs(cliTokens: string[]): ParsedArgs {
       metricRaw === "complexity" || metricRaw === "cognitiveComplexity" ? metricRaw : undefined,
     complexityThreshold: parseOptionalInt(values["complexity-threshold"]),
     limit: parseOptionalInt(values.limit),
+    findDuplicates: values["find-duplicates"] ?? false,
+    minDuplicateLines: parseOptionalInt(values["min-duplicate-lines"]),
     workspacePackages: values["workspace-packages"] ?? false,
     workspaceAffected: values["workspace-affected"] ?? false,
     clearCache: values["clear-cache"] ?? false,

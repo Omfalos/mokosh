@@ -1,4 +1,7 @@
-import { describe, expect, test, vi } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { WorkspaceGraph } from "../graph/workspace-model";
 import { Graph } from "../index";
 import type { SerializedGraph } from "../types/graph";
@@ -7,6 +10,7 @@ import {
   handleAnalyze,
   handleDetectFeatures,
   handleFindComplexFunctions,
+  handleFindDuplicates,
   handleFindSymbol,
   handleFindUnused,
   handleGetAffected,
@@ -538,6 +542,124 @@ describe("handleFindComplexFunctions", {
     ) as { functions: Array<{ name: string }> };
 
     expect(data.functions.map((f) => f.name)).toEqual(["gnarly"]);
+  });
+});
+
+describe("handleFindDuplicates", {
+  tags: [
+    "Graph",
+    "SerializedGraph",
+    "SessionState",
+    "cache",
+    "graph",
+    "handleFindDuplicates",
+    "handlers",
+  ],
+}, () => {
+  let root: string;
+
+  afterEach(() => {
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  function makeDuplicatesCache(graph: Graph, config?: { ignoreDirs?: string[] }): SessionState {
+    return {
+      ensureFresh: vi.fn().mockResolvedValue(graph),
+      getConfig: vi.fn().mockReturnValue(config),
+    } as unknown as SessionState;
+  }
+
+  function makeNode(relPath: string, type: "typescript" | "unknown" = "typescript") {
+    return {
+      path: relPath,
+      type,
+      category: "logic" as const,
+      tags: [],
+      imports: [],
+      exports: [],
+      mtime: 0,
+      size: 0,
+    };
+  }
+
+  const DUPLICATED_BLOCK = [
+    "function computeTotal(items) {",
+    "  let sum = 0;",
+    "  for (let i = 0; i < items.length; i++) {",
+    "    sum += items[i].price;",
+    "  }",
+    "  return sum;",
+    "}",
+  ].join("\n");
+
+  test("finds a duplicated block across files, re-reading content from disk", async () => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), "mokosh-handlers-duplicates-"));
+    fs.writeFileSync(path.join(root, "a.ts"), DUPLICATED_BLOCK);
+    fs.writeFileSync(path.join(root, "b.ts"), DUPLICATED_BLOCK.replace(/items/g, "orders"));
+    const graph = Graph.deserialize({ nodes: [makeNode("a.ts"), makeNode("b.ts")] });
+
+    const data = parse(
+      await handleFindDuplicates(makeDuplicatesCache(graph), { root, minLines: 4 }),
+    ) as { minLines: number; groups: Array<{ occurrences: unknown[] }>; count: number };
+
+    expect(data.minLines).toBe(4);
+    expect(data.count).toBeGreaterThan(0);
+    expect(data.groups[0]?.occurrences).toHaveLength(2);
+  });
+
+  test("always excludes lock files, even when the graph itself contains them", async () => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), "mokosh-handlers-duplicates-"));
+    const lockBlock = Array.from(
+      { length: 15 },
+      (_, i) => `    "pkg${i}": { "version": "1.0.${i}" },`,
+    ).join("\n");
+    fs.writeFileSync(path.join(root, "package-lock.json"), `{\n${lockBlock}\n${lockBlock}\n}`);
+    const graph = Graph.deserialize({ nodes: [makeNode("package-lock.json", "unknown")] });
+
+    const data = parse(
+      await handleFindDuplicates(makeDuplicatesCache(graph), { root, minLines: 3 }),
+    ) as { count: number };
+
+    expect(data.count).toBe(0);
+  });
+
+  test("merges this root's configured ignoreDirs with the defaults", async () => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), "mokosh-handlers-duplicates-"));
+    fs.mkdirSync(path.join(root, "vendor"));
+    fs.writeFileSync(path.join(root, "vendor/a.ts"), DUPLICATED_BLOCK);
+    fs.writeFileSync(path.join(root, "b.ts"), DUPLICATED_BLOCK);
+    const graph = Graph.deserialize({
+      nodes: [makeNode("vendor/a.ts"), makeNode("b.ts")],
+    });
+
+    const data = parse(
+      await handleFindDuplicates(makeDuplicatesCache(graph, { ignoreDirs: ["vendor"] }), {
+        root,
+        minLines: 4,
+      }),
+    ) as { count: number };
+
+    expect(data.count).toBe(0);
+  });
+
+  test("an explicit ignoreDirs argument overrides the config default", async () => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), "mokosh-handlers-duplicates-"));
+    fs.mkdirSync(path.join(root, "vendor"));
+    fs.writeFileSync(path.join(root, "vendor/a.ts"), DUPLICATED_BLOCK);
+    fs.writeFileSync(path.join(root, "b.ts"), DUPLICATED_BLOCK);
+    const graph = Graph.deserialize({
+      nodes: [makeNode("vendor/a.ts"), makeNode("b.ts")],
+    });
+
+    const data = parse(
+      await handleFindDuplicates(makeDuplicatesCache(graph, { ignoreDirs: ["vendor"] }), {
+        root,
+        minLines: 4,
+        ignoreDirs: [],
+      }),
+    ) as { count: number };
+
+    expect(data.count).toBeGreaterThan(0);
   });
 });
 

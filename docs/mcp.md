@@ -206,6 +206,24 @@ Scan every file's per-function complexity breakdown and return functions/methods
 
 ---
 
+### `find_duplicates`
+
+Find duplicated code blocks across the project, largest-first. Token-based (not AST-based), so it works uniformly across every language mokosh parses — TypeScript/JavaScript, Python, Go, CoffeeScript, LiveScript, Lua, Gherkin, style files, and Markdown (see [ADR-012](./adr-012-duplicate-detection.md)). Identifiers — and by default literals — are normalized before matching, so renamed-variable copies are still caught. Lock files (`package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`) and files under an ignored directory are always excluded, even if the graph itself contains them — `graph.nodes` isn't reliably ignore-rule-filtered for files reached via a resolved reference rather than the initial scan (e.g. a Markdown doc's code-span mention of a build artifact).
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `root` | `string` | yes | |
+| `minLines` | `number` | no | Minimum duplicated block size in lines to report (default: `6`) |
+| `ignoreLiterals` | `boolean` | no | Normalize string/number literals too, not just identifiers, so only structural shape drives a match (default: `true`). Set `false` for stricter, exact-text-only matching |
+| `ignoreDirs` | `string[]` | no | Directory names to exclude, matched against any path segment (default: `DEFAULT_IGNORE_DIRS` merged with this root's configured `ignoreDirs`, if any). Pass `[]` to disable |
+| `limit` | `number` | no | Max duplicate blocks to return, largest-first (default: `50`) |
+
+**Returns:** `{ minLines, groups: Array<{ occurrences: [{ file, startLine, endLine }, { file, startLine, endLine }], lines, tokens }>, count: number }`. Each group is a pair of occurrences — a block duplicated across three files is reported as three pairs, not one three-way group.
+
+**Requires:** a prior `analyze` call for the same `root`.
+
+---
+
 ### `propose_tags`
 
 Backward-traverses from each changed file to find affected test files. Feature hub files (high out-degree) short-circuit the traversal and emit a `feature:<name>` tag to prevent tag explosion.
