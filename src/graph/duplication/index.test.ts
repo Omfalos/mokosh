@@ -56,7 +56,7 @@ describe("findDuplicates", () => {
       ["b.ts", "typescript"],
     ]);
 
-    const groups = await findDuplicates(graph, root, { minLines: 4, windowSize: 8 });
+    const { groups } = await findDuplicates(graph, root, { minLines: 4, windowSize: 8 });
     expect(groups.length).toBeGreaterThan(0);
     const files = groups[0]?.occurrences.map((o) => o.file).sort();
     expect(files).toEqual(["a.ts", "b.ts"]);
@@ -89,7 +89,7 @@ describe("findDuplicates", () => {
       ["two.py", "python"],
     ]);
 
-    const groups = await findDuplicates(graph, root, { minLines: 3, windowSize: 6 });
+    const { groups } = await findDuplicates(graph, root, { minLines: 3, windowSize: 6 });
     const tsGroup = groups.find((g) => g.occurrences.every((o) => o.file.endsWith(".ts")));
     const pyGroup = groups.find((g) => g.occurrences.every((o) => o.file.endsWith(".py")));
     expect(tsGroup).toBeDefined();
@@ -113,10 +113,10 @@ describe("findDuplicates", () => {
     ]);
 
     const tooStrict = await findDuplicates(graph, root, { minLines: 100 });
-    expect(tooStrict).toHaveLength(0);
+    expect(tooStrict.groups).toHaveLength(0);
 
     const limited = await findDuplicates(graph, root, { minLines: 2, limit: 1 });
-    expect(limited.length).toBeLessThanOrEqual(1);
+    expect(limited.groups.length).toBeLessThanOrEqual(1);
   });
 
   test("skips files listed in the graph but missing on disk instead of throwing", async () => {
@@ -126,7 +126,7 @@ describe("findDuplicates", () => {
       ["missing.ts", "typescript"],
     ]);
 
-    await expect(findDuplicates(graph, root)).resolves.toEqual([]);
+    await expect(findDuplicates(graph, root)).resolves.toEqual({ groups: [], skippedBuckets: 0 });
   });
 
   test("always excludes lock files, even though their repeated structure would otherwise match", async () => {
@@ -145,7 +145,10 @@ describe("findDuplicates", () => {
       ["pnpm-lock.yaml", "unknown"],
     ]);
 
-    await expect(findDuplicates(graph, root, { minLines: 3 })).resolves.toEqual([]);
+    await expect(findDuplicates(graph, root, { minLines: 3 })).resolves.toEqual({
+      groups: [],
+      skippedBuckets: 0,
+    });
   });
 
   test("excludes files under a default-ignored directory (e.g. dist)", async () => {
@@ -167,7 +170,10 @@ describe("findDuplicates", () => {
       ["src/bundle.js", "javascript"],
     ]);
 
-    await expect(findDuplicates(graph, root, { minLines: 3 })).resolves.toEqual([]);
+    await expect(findDuplicates(graph, root, { minLines: 3 })).resolves.toEqual({
+      groups: [],
+      skippedBuckets: 0,
+    });
   });
 
   test("respects a custom ignoreDirs list", async () => {
@@ -191,11 +197,11 @@ describe("findDuplicates", () => {
 
     // "vendor" isn't in DEFAULT_IGNORE_DIRS, so by default it's still scanned...
     const withDefaults = await findDuplicates(graph, root, { minLines: 3 });
-    expect(withDefaults.length).toBeGreaterThan(0);
+    expect(withDefaults.groups.length).toBeGreaterThan(0);
 
     // ...but an explicit ignoreDirs excludes it.
     const withCustom = await findDuplicates(graph, root, { minLines: 3, ignoreDirs: ["vendor"] });
-    expect(withCustom).toEqual([]);
+    expect(withCustom.groups).toEqual([]);
   });
 
   test("does not match CSS rules with the same declaration shape but different values (ADR-013)", async () => {
@@ -208,7 +214,10 @@ describe("findDuplicates", () => {
       ["b.css", "css"],
     ]);
 
-    await expect(findDuplicates(graph, root, { minLines: 2 })).resolves.toEqual([]);
+    await expect(findDuplicates(graph, root, { minLines: 2 })).resolves.toEqual({
+      groups: [],
+      skippedBuckets: 0,
+    });
   });
 
   test("matches CSS rules with different selectors but an identical declaration body", async () => {
@@ -221,7 +230,7 @@ describe("findDuplicates", () => {
       ["b.css", "css"],
     ]);
 
-    const groups = await findDuplicates(graph, root, { minLines: 2 });
+    const { groups } = await findDuplicates(graph, root, { minLines: 2 });
     expect(groups).toHaveLength(1);
     expect(groups[0]?.family).toBe("style");
   });
@@ -257,7 +266,7 @@ describe("findDuplicates", () => {
       ["b.ts", "typescript"],
     ]);
 
-    const groups = await findDuplicates(graph, root, { minLines: 3, windowSize: 6 });
+    const { groups } = await findDuplicates(graph, root, { minLines: 3, windowSize: 6 });
 
     // Each family's genuine within-family duplicate is still found...
     const cssGroup = groups.find((g) => g.occurrences.every((o) => o.file.endsWith(".css")));
@@ -293,7 +302,7 @@ describe("findDuplicates", () => {
       ["d.ts", "typescript"],
     ]);
 
-    const groups = await findDuplicates(graph, root, { minLines: 4, windowSize: 8 });
+    const { groups } = await findDuplicates(graph, root, { minLines: 4, windowSize: 8 });
     const clones = groups.filter((g) => g.occurrences.every((o) => o.file.endsWith(".ts")));
     expect(clones).toHaveLength(1);
     expect(clones[0]?.occurrences.map((o) => o.file).sort()).toEqual([
@@ -335,7 +344,7 @@ describe("findDuplicates", () => {
       ["logic-b.ts", "typescript"],
     ]);
 
-    const groups = await findDuplicates(graph, root, { minLines: 4, windowSize: 8 });
+    const { groups } = await findDuplicates(graph, root, { minLines: 4, windowSize: 8 });
     expect(groups.some((g) => g.occurrences.some((o) => o.file.startsWith("schema-")))).toBe(false);
     expect(groups.some((g) => g.occurrences.some((o) => o.file.startsWith("logic-")))).toBe(true);
   });

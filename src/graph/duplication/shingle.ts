@@ -6,7 +6,8 @@
  * matches into one N-occurrence group instead of reporting C(N,2) near-identical pairs for a block
  * repeated N times. Shared by every language `tokenize()` supports — the shingling step itself has
  * no language awareness at all. See docs/adr-013-duplicate-detection-noise-reduction.md for the
- * noise this addresses.
+ * noise this addresses, and docs/adr-014-duplicate-detection-scale.md for why oversized hash
+ * buckets are capped below.
  */
 import type { DuplicateFamily } from "./families";
 import type { NormalizedToken } from "./tokenizer";
@@ -207,6 +208,21 @@ interface PairMatch {
 }
 
 /**
+ * Default cap on how many locations a single hash bucket may hold before its pairwise comparison
+ * is skipped outright. Comparison cost per bucket is O(k²) in the bucket's location count `k`; on
+ * a large enough repo, a single ubiquitous window (a common import line, a boilerplate header —
+ * exactly the kind of token pattern `maxPunctuationRatio` already exists to filter, but *before*
+ * chain-extension has run) can produce a bucket with thousands of locations, and just a handful of
+ * those buckets is enough to blow the total comparison count past what a single MCP call can
+ * finish inside its client's response timeout. Skipped buckets are almost always this kind of
+ * high-frequency boilerplate rather than a single large genuine clone (a real N-way clone repeated
+ * this often would itself be unusual), so the cap trades a small chance of under-reporting
+ * extremely widespread duplication for the pipeline finishing at all. See
+ * docs/adr-014-duplicate-detection-scale.md.
+ */
+const DEFAULT_MAX_BUCKET_SIZE = 400;
+
+/**
  * @description Builds duplicate groups from a set of files' token streams: hashes every
  *   `windowSize`-token sliding window per file, pairs up locations sharing a hash, chain-merges
  *   each chain-starting pair forward into the longest contiguous block it starts (exactly as a
@@ -224,14 +240,20 @@ interface PairMatch {
  * @param maxPunctuationRatio - Maximum fraction of a block's window that may be object/array-
  *   literal structural punctuation (default 0.5) — see {@link structuralPunctuationRatio}. Set
  *   to 1 to disable the gate.
- * @returns Duplicate blocks, each with two or more occurrences, sorted largest-first.
+ * @param maxBucketSize - Skip a hash bucket's O(k²) pairwise comparison entirely once it holds
+ *   more than this many locations (default {@link DEFAULT_MAX_BUCKET_SIZE}) — see the constant's
+ *   doc comment. Set to `Infinity` to disable.
+ * @returns Duplicate blocks, each with two or more occurrences, sorted largest-first, plus
+ *   `skippedBuckets` — how many hash buckets were dropped for exceeding `maxBucketSize` (0 when
+ *   the cap never triggered), so callers can surface that results may be incomplete.
  */
 export function findDuplicateGroups(
   files: FileTokens[],
   windowSize: number,
   minLines: number,
   maxPunctuationRatio = 0.5,
-): DuplicateGroup[] {
+  maxBucketSize = DEFAULT_MAX_BUCKET_SIZE,
+): { groups: DuplicateGroup[]; skippedBuckets: number } {
   const hashesByFile = new Map<string, string[]>();
   const tokensByFile = new Map<string, NormalizedToken[]>();
   const buckets = new Map<string, Location[]>();
@@ -250,9 +272,14 @@ export function findDuplicateGroups(
   }
 
   const pairMatches: PairMatch[] = [];
+  let skippedBuckets = 0;
 
   for (const locations of buckets.values()) {
     if (locations.length < 2) continue;
+    if (locations.length > maxBucketSize) {
+      skippedBuckets++;
+      continue;
+    }
     for (let i = 0; i < locations.length; i++) {
       for (let j = i + 1; j < locations.length; j++) {
         const a = locations[i] as Location;
@@ -331,5 +358,5 @@ export function findDuplicateGroups(
     groups.push({ occurrences, lines, tokens });
   }
 
-  return groups.sort((a, b) => b.lines - a.lines);
+  return { groups: groups.sort((a, b) => b.lines - a.lines), skippedBuckets };
 }

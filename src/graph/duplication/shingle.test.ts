@@ -10,7 +10,7 @@ function tok(text: string, startLine = 1): NormalizedToken[] {
 describe("findDuplicateGroups", () => {
   test("finds a cross-file duplicate block above minLines", () => {
     const shared = "a b c d e f g h i j k l m n o";
-    const groups = findDuplicateGroups(
+    const { groups } = findDuplicateGroups(
       [
         { file: "x.ts", tokens: tok(shared, 1) },
         { file: "y.ts", tokens: tok(shared, 100) },
@@ -24,7 +24,7 @@ describe("findDuplicateGroups", () => {
 
   test("chain-merges consecutive matching windows into one contiguous block", () => {
     const shared = "a b c d e f g h i j k l m n o p q r s t";
-    const groups = findDuplicateGroups(
+    const { groups } = findDuplicateGroups(
       [
         { file: "x.ts", tokens: tok(shared, 1) },
         { file: "y.ts", tokens: tok(shared, 1) },
@@ -39,7 +39,7 @@ describe("findDuplicateGroups", () => {
 
   test("respects minLines and drops short matches", () => {
     const shared = "a b c d e";
-    const groups = findDuplicateGroups(
+    const { groups } = findDuplicateGroups(
       [
         { file: "x.ts", tokens: tok(shared, 1) },
         { file: "y.ts", tokens: tok(shared, 1) },
@@ -52,7 +52,7 @@ describe("findDuplicateGroups", () => {
 
   test("does not report a same-file self-overlapping match", () => {
     const tokens = tok("a b c d e", 1);
-    const groups = findDuplicateGroups([{ file: "x.ts", tokens }], 5, 1);
+    const { groups } = findDuplicateGroups([{ file: "x.ts", tokens }], 5, 1);
     expect(groups).toHaveLength(0);
   });
 
@@ -60,13 +60,13 @@ describe("findDuplicateGroups", () => {
     const block = "a b c d e f";
     const filler = "z z z z z z z z z z";
     const tokens = [...tok(block, 1), ...tok(filler, 10), ...tok(block, 30)];
-    const groups = findDuplicateGroups([{ file: "x.ts", tokens }], 6, 3);
+    const { groups } = findDuplicateGroups([{ file: "x.ts", tokens }], 6, 3);
     expect(groups).toHaveLength(1);
     expect(groups[0]?.occurrences.every((o) => o.file === "x.ts")).toBe(true);
   });
 
   test("returns no groups when nothing repeats", () => {
-    const groups = findDuplicateGroups(
+    const { groups } = findDuplicateGroups(
       [
         { file: "x.ts", tokens: tok("a b c d e f g h", 1) },
         { file: "y.ts", tokens: tok("1 2 3 4 5 6 7 8", 1) },
@@ -82,7 +82,7 @@ describe("findDuplicateGroups", () => {
     const bigShared = "p q r s t u v w x y z 1 2 3 4 5 6 7 8 9";
     // Distinct, non-matching filler between the two shared blocks in each file prevents the
     // chain-merge from bridging them into a single block, so two separate groups are expected.
-    const groups = findDuplicateGroups(
+    const { groups } = findDuplicateGroups(
       [
         {
           file: "a.ts",
@@ -104,7 +104,7 @@ describe("findDuplicateGroups", () => {
 
   test("clusters a block repeated across three files into one group instead of three pairs", () => {
     const shared = "a b c d e f g h i j k l m n o";
-    const groups = findDuplicateGroups(
+    const { groups } = findDuplicateGroups(
       [
         { file: "x.ts", tokens: tok(shared, 1) },
         { file: "y.ts", tokens: tok(shared, 100) },
@@ -127,7 +127,7 @@ describe("findDuplicateGroups", () => {
   test("does not shrink a strong match's length because the same file has a separate, shorter match elsewhere", () => {
     const longShared = "a b c d e f g h i j k l m n o p q r s t";
     const shortShared = "z z z z z";
-    const groups = findDuplicateGroups(
+    const { groups } = findDuplicateGroups(
       [
         {
           file: "x.ts",
@@ -153,7 +153,7 @@ describe("findDuplicateGroups", () => {
     // has the same punctuation density, ruling out a shorter internal sub-window slipping under
     // the threshold even though the overall block is schema-shaped.
     const schemaShaped = Array.from({ length: 8 }, () => "{ ID : STR }").join(" ");
-    const groups = findDuplicateGroups(
+    const { groups } = findDuplicateGroups(
       [
         { file: "a.ts", tokens: tok(schemaShaped, 1) },
         { file: "b.ts", tokens: tok(schemaShaped, 1) },
@@ -166,7 +166,7 @@ describe("findDuplicateGroups", () => {
 
   test("does not gate a block with normal keyword/operator density even when repetitive", () => {
     const block = "function ID ( ID ) { let ID = NUM ; return ID + ID ; }";
-    const groups = findDuplicateGroups(
+    const { groups } = findDuplicateGroups(
       [
         { file: "a.ts", tokens: tok(block, 1) },
         { file: "b.ts", tokens: tok(block, 1) },
@@ -179,7 +179,7 @@ describe("findDuplicateGroups", () => {
 
   test("maxPunctuationRatio: 1 disables the structural-punctuation gate", () => {
     const schemaShaped = "ID : { ID : ID , ID : ID , ID : ID , ID : ID , ID : ID }";
-    const groups = findDuplicateGroups(
+    const { groups } = findDuplicateGroups(
       [
         { file: "a.ts", tokens: tok(schemaShaped, 1) },
         { file: "b.ts", tokens: tok(schemaShaped, 1) },
@@ -189,5 +189,22 @@ describe("findDuplicateGroups", () => {
       1,
     );
     expect(groups.length).toBeGreaterThan(0);
+  });
+
+  test("maxBucketSize: skips a hash bucket's pairwise comparison once it exceeds the cap, reporting it in skippedBuckets", () => {
+    const shared = "a b c d e f g h i j k l m n o";
+    // 30 files all sharing one window — a bucket of 30 locations, comfortably over a cap of 5.
+    const files = Array.from({ length: 30 }, (_, i) => ({
+      file: `f${i}.ts`,
+      tokens: tok(shared, 1),
+    }));
+
+    const uncapped = findDuplicateGroups(files, 5, 3, 0.5, Infinity);
+    expect(uncapped.skippedBuckets).toBe(0);
+    expect(uncapped.groups.length).toBeGreaterThan(0);
+
+    const capped = findDuplicateGroups(files, 5, 3, 0.5, 5);
+    expect(capped.skippedBuckets).toBeGreaterThan(0);
+    expect(capped.groups).toHaveLength(0);
   });
 });

@@ -221,10 +221,13 @@ Lock files (`package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`) and files under 
 | `minLines` | `number` | no | Minimum duplicated block size in lines to report (default: `6`) |
 | `ignoreLiterals` | `boolean` | no | Normalize string/number literals too, not just identifiers, so only structural shape drives a match (default: `true`). Set `false` for stricter, exact-text-only matching |
 | `maxPunctuationRatio` | `number` | no | Maximum fraction of a token-shingled block's window that may be object/array-literal structural punctuation (`{ } : , [ ]`) (default: `0.5`). Filters out blocks that are mostly schema/object-literal shape instead of substantive shared logic. Doesn't apply to the CSS/Less/SCSS structural comparator. Set `1` to disable |
+| `maxBucketSize` | `number` | no | Skip a hash bucket's pairwise comparison once it holds more than this many matching locations (default: `400`). Bounds worst-case scan time on large repos where a single pathologically common token window would otherwise blow up quadratically — see [ADR-014](./adr-014-duplicate-detection-scale.md). Set a very large number to disable |
 | `ignoreDirs` | `string[]` | no | Directory names to exclude, matched against any path segment (default: `DEFAULT_IGNORE_DIRS` merged with this root's configured `ignoreDirs`, if any). Pass `[]` to disable |
 | `limit` | `number` | no | Max duplicate blocks to return, largest-first (default: `50`) |
 
-**Returns:** `{ minLines, groups: Array<{ occurrences: Array<{ file, startLine, endLine }>, lines, tokens, family: "style" | "code" }>, count: number }`. Each group has two or more occurrences — every block that pairwise chain-matches another is clustered into one group, so a block duplicated across three files is reported as one three-occurrence group, not three pairs.
+On large repos, tokenizing is offloaded to a `piscina` worker pool once the candidate file count reaches 20 (same pattern and threshold as `GraphBuilder`'s parse pool, [ADR-010](./adr-010-parallel-parsing.md)) — see [ADR-014](./adr-014-duplicate-detection-scale.md).
+
+**Returns:** `{ minLines, groups: Array<{ occurrences: Array<{ file, startLine, endLine }>, lines, tokens, family: "style" | "code" }>, count: number, skippedBuckets: number }`. Each group has two or more occurrences — every block that pairwise chain-matches another is clustered into one group, so a block duplicated across three files is reported as one three-occurrence group, not three pairs. A non-zero `skippedBuckets` means some pathologically common token windows were skipped for scan-time safety (see `maxBucketSize`), so results may under-report unusually widespread duplication.
 
 **Requires:** a prior `analyze` call for the same `root`.
 

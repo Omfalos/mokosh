@@ -1,7 +1,7 @@
 import { defineConfig } from "tsup";
 
 export default defineConfig({
-  entry: ["src/index.ts", "src/cli.ts", "src/mcp.ts", "src/parse-worker.ts"],
+  entry: ["src/index.ts", "src/cli.ts", "src/mcp.ts", "src/parse-worker.ts", "src/duplication-worker.ts"],
   format: ["cjs", "esm"],
   dts: true,
   splitting: false,

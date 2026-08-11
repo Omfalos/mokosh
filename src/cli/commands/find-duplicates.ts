@@ -20,6 +20,10 @@ export async function run(ctx: CommandContext): Promise<void> {
     ...(scanOptions.ignoreDirs ?? DEFAULT_IGNORE_DIRS),
     ...(scanOptions.additionalIgnoreDirs ?? []),
   ];
-  const groups = await findDuplicates(graph, rootDir, { minLines, limit, ignoreDirs });
-  console.log(JSON.stringify({ minLines, groups, count: groups.length }, null, 2));
+  const { groups, skippedBuckets } = await findDuplicates(graph, rootDir, {
+    minLines,
+    limit,
+    ignoreDirs,
+  });
+  console.log(JSON.stringify({ minLines, groups, count: groups.length, skippedBuckets }, null, 2));
 }

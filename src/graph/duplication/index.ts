@@ -13,9 +13,15 @@
  * reference per ADR-009). A doc that merely *mentions* `dist/parse-worker.js` in backticks can
  * pull that build artifact into the graph as a real node, ignore-dir or extension notwithstanding.
  * So this module applies its own filtering rather than trusting the graph's membership.
+ *
+ * On large repos, tokenizing thousands of files in-process can itself take long enough to blow
+ * past an MCP client's response timeout, so tokenizing is optionally offloaded to a `piscina`
+ * worker pool — same pattern and same threshold rationale as `GraphBuilder`'s `parseFile` pool,
+ * see docs/adr-010-parallel-parsing.md and docs/adr-014-duplicate-detection-scale.md.
  */
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import Piscina from "piscina";
 import { DEFAULT_IGNORE_DIRS } from "../../const";
 import { LOCK_FILE_NAMES } from "../../parser/lockfile";
 import type { FileType } from "../../types/parse";
@@ -24,6 +30,14 @@ import { type DuplicateFamily, getDuplicateFamily } from "./families";
 import { type DuplicateGroup, type FileTokens, findDuplicateGroups } from "./shingle";
 import { findStyleBlockDuplicates, type StyleSourceFile } from "./style-blocks";
 import { tokenize } from "./tokenizer";
+
+/** Below this many candidate files, worker-pool spin-up cost outweighs the parallelism benefit —
+ *  tokenize in-process instead. Mirrors `GraphBuilder`'s `DEFAULT_MIN_FILES_FOR_POOL`. */
+const DEFAULT_MIN_FILES_FOR_POOL = 20;
+
+/** Configures whether/how tokenizing is offloaded to a `piscina` worker pool. `false` always
+ *  tokenizes in-process. */
+export type ParallelTokenizingOption = boolean | { minFiles?: number; maxThreads?: number };
 
 export type { DuplicateFamily } from "./families";
 export type { DuplicateGroup, DuplicateOccurrence } from "./shingle";
@@ -49,11 +63,29 @@ export interface FindDuplicatesOptions {
    *  CSS/Less/SCSS structural comparator, which already matches on literal declaration content.
    *  Set to 1 to disable. See docs/adr-013-duplicate-detection-noise-reduction.md. */
   maxPunctuationRatio?: number | undefined;
+  /** Skip a hash bucket's O(k²) pairwise comparison once it holds more than this many locations
+   *  (default 400) — bounds worst-case scan time on large repos where a single ubiquitous token
+   *  window (a common import line, a boilerplate header) would otherwise blow past what a single
+   *  scan can finish in. Set `Infinity` to disable. See docs/adr-014-duplicate-detection-scale.md. */
+  maxBucketSize?: number | undefined;
   /** Caps the number of duplicate blocks returned, largest-first (default 50). */
   limit?: number | undefined;
   /** Directory names to exclude, matched against any path segment (default `DEFAULT_IGNORE_DIRS`
    *  — `node_modules`, `dist`, `.git`, `mokosh-cache`, `coverage`, etc.). Pass `[]` to disable. */
   ignoreDirs?: readonly string[] | undefined;
+  /** Controls worker-pool offloading of per-file tokenizing (default `true`): offloads once the
+   *  candidate file count reaches `minFiles` (default 20, matching `GraphBuilder`'s parse pool);
+   *  `false` always tokenizes in-process; an object overrides `minFiles`/`maxThreads`. See
+   *  docs/adr-014-duplicate-detection-scale.md. */
+  parallelTokenizing?: ParallelTokenizingOption | undefined;
+}
+
+export interface FindDuplicatesResult {
+  /** Duplicate blocks, largest-first, capped at `limit`. */
+  groups: DuplicateGroup[];
+  /** How many hash buckets were skipped for exceeding `maxBucketSize` — a non-zero count means
+   *  results may under-report duplication that's unusually widespread (see `maxBucketSize`). */
+  skippedBuckets: number;
 }
 
 /**
@@ -101,72 +133,127 @@ function isUnderIgnoredDir(relPath: string, ignoreDirs: readonly string[]): bool
  *   token-shingle path only (CSS/Less/SCSS always match on literal declaration content);
  *   `maxPunctuationRatio` gates out token-shingle blocks that are mostly object/array-literal
  *   structural punctuation (e.g. schema/object-literal boilerplate) rather than substantive
- *   shared logic; `ignoreDirs` excludes files under matching directory names; `limit` caps
- *   results. Lock files are always excluded, independent of `ignoreDirs`.
- * @returns Duplicate blocks (each tagged with its `family`), two or more occurrences per block —
- *   every block that pairwise chain-matches another is clustered into one group instead of one
- *   per pair — sorted largest-first across all families.
+ *   shared logic; `maxBucketSize` bounds worst-case scan time on large repos by skipping
+ *   pathologically common hash buckets; `ignoreDirs` excludes files under matching directory
+ *   names; `limit` caps results; `parallelTokenizing` offloads per-file tokenizing to a worker
+ *   pool once the candidate file count is large enough to be worth it. Lock files are always
+ *   excluded, independent of `ignoreDirs`.
+ * @returns `groups` — duplicate blocks (each tagged with its `family`), two or more occurrences
+ *   per block, every block that pairwise chain-matches another clustered into one group instead
+ *   of one per pair, sorted largest-first across all families — plus `skippedBuckets` (see
+ *   {@link FindDuplicatesResult}).
  */
 export async function findDuplicates(
   graph: Graph,
   rootDir: string,
   options: FindDuplicatesOptions = {},
-): Promise<DuplicateGroup[]> {
+): Promise<FindDuplicatesResult> {
   const {
     minLines = 6,
     windowSize = 15,
     ignoreLiterals = true,
     maxPunctuationRatio = 0.5,
+    maxBucketSize,
     limit = 50,
     ignoreDirs = DEFAULT_IGNORE_DIRS,
+    parallelTokenizing = true,
   } = options;
 
   const nodes = [...graph.nodes.values()].filter(
     (node) => !isLockFile(node.path) && !isUnderIgnoredDir(node.path, ignoreDirs),
   );
-  const structuralStyleFiles: StyleSourceFile[] = [];
-  const filesByFamily = new Map<DuplicateFamily, FileTokens[]>();
-  await Promise.all(
-    nodes.map(async (node) => {
-      let source: string;
-      try {
-        source = await readFile(path.join(rootDir, node.path), "utf8");
-      } catch {
-        // File listed in the graph but no longer readable (deleted/moved since build) — skip.
-        return;
+
+  const pool = createTokenizingPool(parallelTokenizing, nodes.length);
+  try {
+    const structuralStyleFiles: StyleSourceFile[] = [];
+    const filesByFamily = new Map<DuplicateFamily, FileTokens[]>();
+    await Promise.all(
+      nodes.map(async (node) => {
+        let source: string;
+        try {
+          source = await readFile(path.join(rootDir, node.path), "utf8");
+        } catch {
+          // File listed in the graph but no longer readable (deleted/moved since build) — skip.
+          return;
+        }
+
+        if (STRUCTURAL_STYLE_TYPES.has(node.type)) {
+          structuralStyleFiles.push({ file: node.path, source, fileType: node.type });
+          return;
+        }
+
+        const family = getDuplicateFamily(node.type);
+        const tokens = pool
+          ? await pool.run({ source, fileType: node.type, ignoreLiterals })
+          : tokenize(source, node.type, ignoreLiterals);
+        const fileTokens: FileTokens = { file: node.path, tokens };
+        const bucket = filesByFamily.get(family);
+        if (bucket) bucket.push(fileTokens);
+        else filesByFamily.set(family, [fileTokens]);
+      }),
+    );
+
+    const groups: DuplicateGroup[] = findStyleBlockDuplicates(structuralStyleFiles, minLines);
+    let skippedBuckets = 0;
+
+    // Token-shingle matching never crosses a family boundary (see families.ts) — each family's
+    // shingle windows are hashed and chain-merged in isolation, so (e.g.) Stylus can never
+    // register as a "duplicate" of an unrelated TS/JS/Python shape, and vice versa.
+    for (const [family, fileTokens] of filesByFamily) {
+      const result = findDuplicateGroups(
+        fileTokens,
+        windowSize,
+        minLines,
+        maxPunctuationRatio,
+        maxBucketSize,
+      );
+      skippedBuckets += result.skippedBuckets;
+      for (const group of result.groups) {
+        groups.push({ ...group, family });
       }
-
-      if (STRUCTURAL_STYLE_TYPES.has(node.type)) {
-        structuralStyleFiles.push({ file: node.path, source, fileType: node.type });
-        return;
-      }
-
-      const family = getDuplicateFamily(node.type);
-      const fileTokens: FileTokens = {
-        file: node.path,
-        tokens: tokenize(source, node.type, ignoreLiterals),
-      };
-      const bucket = filesByFamily.get(family);
-      if (bucket) bucket.push(fileTokens);
-      else filesByFamily.set(family, [fileTokens]);
-    }),
-  );
-
-  const groups: DuplicateGroup[] = findStyleBlockDuplicates(structuralStyleFiles, minLines);
-
-  // Token-shingle matching never crosses a family boundary (see families.ts) — each family's
-  // shingle windows are hashed and chain-merged in isolation, so (e.g.) Stylus can never register
-  // as a "duplicate" of an unrelated TS/JS/Python shape, and vice versa.
-  for (const [family, fileTokens] of filesByFamily) {
-    for (const group of findDuplicateGroups(
-      fileTokens,
-      windowSize,
-      minLines,
-      maxPunctuationRatio,
-    )) {
-      groups.push({ ...group, family });
     }
-  }
 
-  return groups.sort((a, b) => b.lines - a.lines).slice(0, limit);
+    return { groups: groups.sort((a, b) => b.lines - a.lines).slice(0, limit), skippedBuckets };
+  } finally {
+    if (pool) await pool.destroy();
+  }
+}
+
+/**
+ * @description Decides whether to spin up a worker pool for tokenizing this scan's candidate
+ *   files, and constructs it if so — same shape as `GraphBuilder`'s `parseFile` pool (see
+ *   docs/adr-010-parallel-parsing.md), reused here because tokenizing thousands of files
+ *   in-process can itself take long enough to matter on a large repo. Pool construction is
+ *   wrapped in try/catch — a spawn failure (e.g. a sandboxed environment without `worker_threads`
+ *   permission) falls back to synchronous in-process tokenizing for the whole scan.
+ * @param option - `false` always tokenizes in-process; `true`/omitted offloads once
+ *   `candidateFileCount` reaches `minFiles` (default 20); an object overrides `minFiles`/
+ *   `maxThreads`.
+ * @param candidateFileCount - Number of files this scan will tokenize, already known up front
+ *   (unlike `GraphBuilder`'s discovery-driven traversal), so no pre-scan walk is needed here.
+ */
+function createTokenizingPool(
+  option: ParallelTokenizingOption,
+  candidateFileCount: number,
+): Piscina | null {
+  if (option === false) return null;
+
+  const opts = typeof option === "object" ? option : {};
+  const minFiles = opts.minFiles ?? DEFAULT_MIN_FILES_FOR_POOL;
+  if (candidateFileCount < minFiles) return null;
+
+  try {
+    // duplication/index.ts is bundled into dist/index.js (same tsup entry as builder.ts, which
+    // relies on the same fact for parse-worker.js — see docs/adr-010-parallel-parsing.md), so
+    // __dirname at runtime resolves to dist/, not dist/graph/duplication/.
+    return new Piscina({
+      filename: path.join(__dirname, "duplication-worker.js"),
+      ...(opts.maxThreads !== undefined ? { maxThreads: opts.maxThreads } : {}),
+    });
+  } catch (err) {
+    process.stderr.write(
+      `\nWarning: failed to start duplicate-detection worker pool, falling back to synchronous tokenizing: ${err}\n`,
+    );
+    return null;
+  }
 }

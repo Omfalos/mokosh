@@ -85,6 +85,7 @@ export type FindDuplicatesArgs = {
   minLines?: number;
   ignoreLiterals?: boolean;
   maxPunctuationRatio?: number;
+  maxBucketSize?: number;
   limit?: number;
   ignoreDirs?: string[];
 };
@@ -428,26 +429,37 @@ export async function handleFindComplexFunctions(
  *   `ignoreDirs` overrides which directory names are excluded (default: `DEFAULT_IGNORE_DIRS`
  *   merged with this root's configured `ignoreDirs`, if any); `limit` caps the number of results
  *   returned (default 50).
- * @returns TextResponse with `{ minLines, groups, count }`.
+ * @returns TextResponse with `{ minLines, groups, count, skippedBuckets }` — a non-zero
+ *   `skippedBuckets` means some pathologically common token windows were skipped for scan-time
+ *   safety, so results may under-report unusually widespread duplication (see
+ *   docs/adr-014-duplicate-detection-scale.md).
  */
 export async function handleFindDuplicates(
   cache: SessionState,
   args: FindDuplicatesArgs,
 ): Promise<TextResponse> {
-  const { root, minLines = 6, ignoreLiterals = true, maxPunctuationRatio = 0.5, limit = 50 } = args;
+  const {
+    root,
+    minLines = 6,
+    ignoreLiterals = true,
+    maxPunctuationRatio = 0.5,
+    maxBucketSize,
+    limit = 50,
+  } = args;
   const graph = await cache.ensureFresh(root);
   const ignoreDirs = args.ignoreDirs ?? [
     ...DEFAULT_IGNORE_DIRS,
     ...(cache.getConfig(root)?.ignoreDirs ?? []),
   ];
-  const groups = await findDuplicates(graph, root, {
+  const { groups, skippedBuckets } = await findDuplicates(graph, root, {
     minLines,
     ignoreLiterals,
     maxPunctuationRatio,
+    maxBucketSize,
     limit,
     ignoreDirs,
   });
-  return text({ minLines, groups, count: groups.length });
+  return text({ minLines, groups, count: groups.length, skippedBuckets });
 }
 
 /**
