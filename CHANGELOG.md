@@ -1,3 +1,9 @@
+## [0.4.0](https://github.com/Omfalos/mokosh/compare/v0.3.3...v0.4.0) (2026-08-11)
+
+### Bug Fixes
+
+* **duplication:** find_duplicates timeouts on large repos ([27950e7](https://github.com/Omfalos/mokosh/commit/27950e7c8d7374114da18c3c0dc3f04c05020db3))
+
 ## [0.3.3](https://github.com/Omfalos/mokosh/compare/v0.3.2...v0.3.3) (2026-08-11)
 
 ### Bug Fixes
