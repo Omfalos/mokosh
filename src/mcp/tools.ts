@@ -206,7 +206,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "find_duplicates",
     description:
-      "Find duplicated code blocks across the project, largest-first. Token-based (not AST-based), so it works uniformly across every language mokosh parses (TypeScript/JavaScript, Python, Go, CoffeeScript, LiveScript, Lua, Gherkin, style files, Markdown). Identifiers — and by default literals — are normalized before matching, so renamed-variable copies are still caught. Lock files (package-lock.json, yarn.lock, pnpm-lock.yaml) and files under an ignored directory are always excluded, even if the graph itself contains them. Requires a prior analyze() call.",
+      "Find duplicated code blocks across the project, largest-first. Two matching strategies, picked per file: CSS/SCSS/Less are compared structurally by rule body — the literal, ordered property:value declarations a rule contains, independent of its selector — so a genuine copy-pasted declaration list is caught while rules that merely share shape (e.g. display:flex vs display:block) never match. Every other language mokosh parses (TypeScript/JavaScript, Python, Go, CoffeeScript, LiveScript, Lua, Gherkin, Markdown, and Stylus) runs a token-based shingle pipeline instead, partitioned by language family so matching never crosses between Stylus and code languages. Identifiers — and by default literals — are normalized before matching in the token-based path, so renamed-variable copies are still caught; blocks that are mostly object/array-literal structural punctuation (e.g. schema/object-literal boilerplate) rather than substantive shared logic are gated out. A block repeated N times across the project is reported once with N occurrences, not as separate pairs. Lock files (package-lock.json, yarn.lock, pnpm-lock.yaml) and files under an ignored directory are always excluded, even if the graph itself contains them. Requires a prior analyze() call.",
     inputSchema: {
       type: "object",
       properties: {
@@ -219,6 +219,11 @@ export const TOOL_DEFINITIONS = [
           type: "boolean",
           description:
             "Normalize string/number literals too, not just identifiers, so only structural shape drives a match (default: true). Set false for stricter, exact-text-only matching.",
+        },
+        maxPunctuationRatio: {
+          type: "number",
+          description:
+            "Maximum fraction of a token-shingled block's window that may be object/array-literal structural punctuation ({ } : , [ ]) (default: 0.5). Filters out blocks that are mostly schema/object-literal shape instead of substantive shared logic. Does not apply to the CSS/Less/SCSS structural comparator. Set 1 to disable.",
         },
         ignoreDirs: {
           type: "array",

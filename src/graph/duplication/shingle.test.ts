@@ -101,4 +101,93 @@ describe("findDuplicateGroups", () => {
       expect(groups[i - 1]?.lines).toBeGreaterThanOrEqual(groups[i]?.lines as number);
     }
   });
+
+  test("clusters a block repeated across three files into one group instead of three pairs", () => {
+    const shared = "a b c d e f g h i j k l m n o";
+    const groups = findDuplicateGroups(
+      [
+        { file: "x.ts", tokens: tok(shared, 1) },
+        { file: "y.ts", tokens: tok(shared, 100) },
+        { file: "z.ts", tokens: tok(shared, 200) },
+      ],
+      5,
+      3,
+    );
+    expect(groups).toHaveLength(1);
+    expect(groups[0]?.occurrences.map((o) => o.file).sort()).toEqual(["x.ts", "y.ts", "z.ts"]);
+  });
+
+  // Regression test for a real bug: an earlier clustering implementation unioned any two
+  // locations that pairwise chain-matched, transitively, and reported the *shortest* edge's
+  // length for the whole component. A file that has one strong, long match plus a separate,
+  // much shorter incidental match elsewhere got merged into one cluster and its long match was
+  // silently reported as short. Clustering must only merge pair-matches that share an exact
+  // occurrence (same file, same start/end line), so a strong match is never shortened by an
+  // unrelated, weaker one that happens to touch a different part of the same file.
+  test("does not shrink a strong match's length because the same file has a separate, shorter match elsewhere", () => {
+    const longShared = "a b c d e f g h i j k l m n o p q r s t";
+    const shortShared = "z z z z z";
+    const groups = findDuplicateGroups(
+      [
+        {
+          file: "x.ts",
+          tokens: [...tok(longShared, 1), ...tok("FILLER FILLER", 100), ...tok(shortShared, 200)],
+        },
+        { file: "y.ts", tokens: tok(longShared, 1) },
+        { file: "w.ts", tokens: tok(shortShared, 1) },
+      ],
+      5,
+      3,
+    );
+    const xy = groups.find(
+      (g) =>
+        g.occurrences.some((o) => o.file === "x.ts") &&
+        g.occurrences.some((o) => o.file === "y.ts"),
+    );
+    expect(xy?.lines).toBe(longShared.split(" ").length);
+  });
+
+  test("gates out a block dominated by object/array-literal structural punctuation", () => {
+    // Mimics normalized JSON-schema-shaped boilerplate: mostly { } : , [ ] with little else.
+    // A uniform repeating unit so every shingle window (regardless of chain length or alignment)
+    // has the same punctuation density, ruling out a shorter internal sub-window slipping under
+    // the threshold even though the overall block is schema-shaped.
+    const schemaShaped = Array.from({ length: 8 }, () => "{ ID : STR }").join(" ");
+    const groups = findDuplicateGroups(
+      [
+        { file: "a.ts", tokens: tok(schemaShaped, 1) },
+        { file: "b.ts", tokens: tok(schemaShaped, 1) },
+      ],
+      5,
+      3,
+    );
+    expect(groups).toHaveLength(0);
+  });
+
+  test("does not gate a block with normal keyword/operator density even when repetitive", () => {
+    const block = "function ID ( ID ) { let ID = NUM ; return ID + ID ; }";
+    const groups = findDuplicateGroups(
+      [
+        { file: "a.ts", tokens: tok(block, 1) },
+        { file: "b.ts", tokens: tok(block, 1) },
+      ],
+      5,
+      3,
+    );
+    expect(groups.length).toBeGreaterThan(0);
+  });
+
+  test("maxPunctuationRatio: 1 disables the structural-punctuation gate", () => {
+    const schemaShaped = "ID : { ID : ID , ID : ID , ID : ID , ID : ID , ID : ID }";
+    const groups = findDuplicateGroups(
+      [
+        { file: "a.ts", tokens: tok(schemaShaped, 1) },
+        { file: "b.ts", tokens: tok(schemaShaped, 1) },
+      ],
+      5,
+      3,
+      1,
+    );
+    expect(groups.length).toBeGreaterThan(0);
+  });
 });

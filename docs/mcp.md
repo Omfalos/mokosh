@@ -208,17 +208,23 @@ Scan every file's per-function complexity breakdown and return functions/methods
 
 ### `find_duplicates`
 
-Find duplicated code blocks across the project, largest-first. Token-based (not AST-based), so it works uniformly across every language mokosh parses — TypeScript/JavaScript, Python, Go, CoffeeScript, LiveScript, Lua, Gherkin, style files, and Markdown (see [ADR-012](./adr-012-duplicate-detection.md)). Identifiers — and by default literals — are normalized before matching, so renamed-variable copies are still caught. Lock files (`package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`) and files under an ignored directory are always excluded, even if the graph itself contains them — `graph.nodes` isn't reliably ignore-rule-filtered for files reached via a resolved reference rather than the initial scan (e.g. a Markdown doc's code-span mention of a build artifact).
+Find duplicated code blocks across the project, largest-first. Two matching strategies, picked per file by language (see [ADR-013](./adr-013-duplicate-detection-noise-reduction.md)):
+
+- **CSS/SCSS/Less** — compared *structurally* by rule body, reusing the same PostCSS AST the graph builder already parses: two rules match when they have the same literal, ordered `property: value` declarations, independent of selector name. A rule that merely shares declaration *shape* with another (`display: flex` vs `display: block`) never matches, since comparison is on the actual content, not a normalized token placeholder.
+- **Everything else** — TypeScript/JavaScript, Python, Go, CoffeeScript, LiveScript, Lua, Gherkin, Markdown, and Stylus (which has no shared PostCSS AST here) — runs the original token-based shingle pipeline (see [ADR-012](./adr-012-duplicate-detection.md)): comments are stripped, identifiers — and by default literals — are normalized to placeholders so renamed-variable copies still match, then a sliding token window is hashed and chain-merged. These files are further partitioned into language families (`style` for Stylus, `code` for the rest) so matching never crosses that boundary. Pair-matches that share an exact occurrence are then merged into one group, so a block repeated N times is reported once, with N occurrences, instead of once per pair — and blocks that are mostly object/array-literal structural punctuation (e.g. schema/object-literal boilerplate) rather than substantive shared logic are gated out via `maxPunctuationRatio`.
+
+Lock files (`package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`) and files under an ignored directory are always excluded, even if the graph itself contains them — `graph.nodes` isn't reliably ignore-rule-filtered for files reached via a resolved reference rather than the initial scan (e.g. a Markdown doc's code-span mention of a build artifact).
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `root` | `string` | yes | |
 | `minLines` | `number` | no | Minimum duplicated block size in lines to report (default: `6`) |
 | `ignoreLiterals` | `boolean` | no | Normalize string/number literals too, not just identifiers, so only structural shape drives a match (default: `true`). Set `false` for stricter, exact-text-only matching |
+| `maxPunctuationRatio` | `number` | no | Maximum fraction of a token-shingled block's window that may be object/array-literal structural punctuation (`{ } : , [ ]`) (default: `0.5`). Filters out blocks that are mostly schema/object-literal shape instead of substantive shared logic. Doesn't apply to the CSS/Less/SCSS structural comparator. Set `1` to disable |
 | `ignoreDirs` | `string[]` | no | Directory names to exclude, matched against any path segment (default: `DEFAULT_IGNORE_DIRS` merged with this root's configured `ignoreDirs`, if any). Pass `[]` to disable |
 | `limit` | `number` | no | Max duplicate blocks to return, largest-first (default: `50`) |
 
-**Returns:** `{ minLines, groups: Array<{ occurrences: [{ file, startLine, endLine }, { file, startLine, endLine }], lines, tokens }>, count: number }`. Each group is a pair of occurrences — a block duplicated across three files is reported as three pairs, not one three-way group.
+**Returns:** `{ minLines, groups: Array<{ occurrences: Array<{ file, startLine, endLine }>, lines, tokens, family: "style" | "code" }>, count: number }`. Each group has two or more occurrences — every block that pairwise chain-matches another is clustered into one group, so a block duplicated across three files is reported as one three-occurrence group, not three pairs.
 
 **Requires:** a prior `analyze` call for the same `root`.
 

@@ -1,8 +1,14 @@
 /**
  * Sliding-window (shingle) hashing over a normalized token stream, plus chain-merging of
- * consecutive matching windows into contiguous duplicate blocks. Shared by every language
- * `tokenize()` supports — the shingling step itself has no language awareness at all.
+ * consecutive matching windows into contiguous duplicate blocks, a structural-punctuation-density
+ * gate that drops blocks that are mostly object/array-literal shape (e.g. MCP tool `inputSchema`
+ * boilerplate) rather than substantive shared logic, and exact-occurrence clustering of pair-
+ * matches into one N-occurrence group instead of reporting C(N,2) near-identical pairs for a block
+ * repeated N times. Shared by every language `tokenize()` supports — the shingling step itself has
+ * no language awareness at all. See docs/adr-013-duplicate-detection-noise-reduction.md for the
+ * noise this addresses.
  */
+import type { DuplicateFamily } from "./families";
 import type { NormalizedToken } from "./tokenizer";
 
 /** One file's worth of tokens, kept together so a match can be traced back to its source. */
@@ -18,12 +24,20 @@ export interface DuplicateOccurrence {
 }
 
 export interface DuplicateGroup {
-  /** Two locations sharing this duplicated block. */
-  occurrences: [DuplicateOccurrence, DuplicateOccurrence];
-  /** Line span covered by the block (measured on the first occurrence). */
+  /** Every location sharing this duplicated block (two or more) — locations that pairwise
+   *  chain-match are clustered into one group instead of being reported once per pair, so a
+   *  block repeated N times produces one N-occurrence group, not C(N,2) near-identical ones. */
+  occurrences: DuplicateOccurrence[];
+  /** Line span of the largest single pairwise match clustered into this group (each pair's own
+   *  span is the shorter of its two occurrences) — the best-verified size for this block, not an
+   *  average or a value shrunk by a more weakly-matching cluster member. */
   lines: number;
   /** Token-window length backing this block, after chain-merging adjacent windows. */
   tokens: number;
+  /** Which language family both occurrences belong to (set by `findDuplicates`, which never
+   *  matches across families — see docs/adr-013-duplicate-detection-noise-reduction.md).
+   *  Absent when called directly with a token stream that isn't family-scoped, e.g. in tests. */
+  family?: DuplicateFamily | undefined;
 }
 
 interface Location {
@@ -106,22 +120,117 @@ function isChainStart(hashesByFile: Map<string, string[]>, a: Location, b: Locat
   return hashesA[a.windowIndex - 1] !== hashesB[b.windowIndex - 1];
 }
 
+/** Plain union-find over opaque string keys, path-compressed. Used below to cluster pair-matches
+ *  that share an *exact* occurrence — same file and identical start/end line — into one group,
+ *  rather than one report per pair. Deliberately not transitive over "chain-matches some other
+ *  location that chain-matches a third" in general: two different (file, start) locations can
+ *  each independently chain-match a shared window to very different lengths (e.g. one long
+ *  genuine clone plus, separately, several short internally-repeated sub-patterns within it), and
+ *  merging on that looser basis would force every member down to the shortest edge's length,
+ *  silently discarding the strongest match. Requiring an exact shared span sidesteps that: it
+ *  only fires when two independently-computed pair-matches agree on the very same block for one
+ *  of their two sides (the same repeated-boilerplate location matched against several others),
+ *  which is exactly the pair-explosion case this clustering targets. */
+class ExactOccurrenceUnionFind {
+  private readonly parent = new Map<string, string>();
+
+  private find(key: string): string {
+    if (!this.parent.has(key)) this.parent.set(key, key);
+    let root = key;
+    while (this.parent.get(root) !== root) root = this.parent.get(root) as string;
+    let cur = key;
+    while (cur !== root) {
+      const next = this.parent.get(cur) as string;
+      this.parent.set(cur, root);
+      cur = next;
+    }
+    return root;
+  }
+
+  union(keyA: string, keyB: string): void {
+    const rootA = this.find(keyA);
+    const rootB = this.find(keyB);
+    if (rootA !== rootB) this.parent.set(rootA, rootB);
+  }
+
+  root(key: string): string {
+    return this.find(key);
+  }
+}
+
+/** `"<file>#<startLine>#<endLine>"` — exact-span identity for one reported occurrence. */
+function occurrenceKey(occ: DuplicateOccurrence): string {
+  return `${occ.file}#${occ.startLine}#${occ.endLine}`;
+}
+
+/** Object/array-literal structural punctuation — braces, colons, commas, brackets. Deliberately
+ *  narrower than "all punctuation": parens and semicolons are just as common in ordinary control
+ *  flow and would blur the signal below. */
+const STRUCTURAL_PUNCTUATION = new Set(["{", "}", ":", ",", "[", "]"]);
+
+/**
+ * @description The fraction of a token window's texts that are object/array-literal structural
+ *   punctuation (`{ } : , [ ]`), used to gate out blocks that are mostly object-literal/schema
+ *   shape — e.g. MCP tool `inputSchema` boilerplate repeated across unrelated tool definitions —
+ *   rather than substantive shared logic. An earlier version of this gate measured *identifier*
+ *   diversity instead (rejecting windows where too few distinct token texts appear), but that
+ *   measure doesn't distinguish schema boilerplate from genuine duplication: table-driven test
+ *   fixtures (deliberately mirrored across, e.g., parallel Go/Python test suites) are just as
+ *   token-repetitive as schema boilerplate, so it silently discarded real matches. Punctuation
+ *   density instead targets the *shape* that's actually distinctive about object/schema literals
+ *   — dense braces/colons/commas relative to keywords and content — which genuine control-flow
+ *   logic and repeated test-fixture data don't share, verified empirically against mokosh's own
+ *   codebase (~0.60–0.74 for schema boilerplate vs. ~0.07–0.43 for real duplicated logic,
+ *   including table-driven test fixtures). See docs/adr-013-duplicate-detection-noise-reduction.md.
+ * @param tokens - The full token stream a window is sliced from.
+ * @param start - Window start index.
+ * @param length - Window length in tokens.
+ * @returns `structuralPunctuationTokens / length`, in `[0, 1]`.
+ */
+function structuralPunctuationRatio(
+  tokens: NormalizedToken[],
+  start: number,
+  length: number,
+): number {
+  let count = 0;
+  for (let i = start; i < start + length; i++) {
+    if (STRUCTURAL_PUNCTUATION.has((tokens[i] as NormalizedToken).text)) count++;
+  }
+  return count / length;
+}
+
+interface PairMatch {
+  occA: DuplicateOccurrence;
+  occB: DuplicateOccurrence;
+  lines: number;
+  tokens: number;
+}
+
 /**
  * @description Builds duplicate groups from a set of files' token streams: hashes every
- *   `windowSize`-token sliding window per file, pairs up locations sharing a hash, and
- *   chain-merges each pair forward into the longest contiguous duplicate block it starts.
+ *   `windowSize`-token sliding window per file, pairs up locations sharing a hash, chain-merges
+ *   each chain-starting pair forward into the longest contiguous block it starts (exactly as a
+ *   pairwise-only detector would), drops pairs whose block is mostly object/array-literal
+ *   structural punctuation rather than substantive content, then merges pair-matches that share
+ *   an exact occurrence (same file, same start/end line on one side) into a single group — so a
+ *   block repeated N times across the project is reported once, with N occurrences, instead of
+ *   once per pair, without shortening any individual match to accommodate an unrelated one.
  * @param files - Per-file normalized token streams (already comment-stripped and identifier/
  *   literal-normalized by `tokenize`).
  * @param windowSize - Shingle window length in tokens — the smallest duplicate this can find.
  * @param minLines - Minimum merged block size (in source lines) to report; smaller matches
  *   are almost always incidental (short getters, boilerplate imports) rather than real
  *   duplication.
- * @returns Duplicate blocks, each a pair of occurrences, sorted largest-first.
+ * @param maxPunctuationRatio - Maximum fraction of a block's window that may be object/array-
+ *   literal structural punctuation (default 0.5) — see {@link structuralPunctuationRatio}. Set
+ *   to 1 to disable the gate.
+ * @returns Duplicate blocks, each with two or more occurrences, sorted largest-first.
  */
 export function findDuplicateGroups(
   files: FileTokens[],
   windowSize: number,
   minLines: number,
+  maxPunctuationRatio = 0.5,
 ): DuplicateGroup[] {
   const hashesByFile = new Map<string, string[]>();
   const tokensByFile = new Map<string, NormalizedToken[]>();
@@ -140,7 +249,7 @@ export function findDuplicateGroups(
     }
   }
 
-  const groups: DuplicateGroup[] = [];
+  const pairMatches: PairMatch[] = [];
 
   for (const locations of buckets.values()) {
     if (locations.length < 2) continue;
@@ -154,13 +263,16 @@ export function findDuplicateGroups(
         const extra = extendChain(hashesByFile, a, b);
         const length = windowSize + extra;
 
+        const tokensA = tokensByFile.get(a.file) as NormalizedToken[];
+        if (structuralPunctuationRatio(tokensA, a.windowIndex, length) > maxPunctuationRatio)
+          continue;
+
         // Same-file self-overlap isn't a real duplicate (it's just the same span vs itself).
         if (a.file === b.file) {
           const [lo, hi] = a.windowIndex < b.windowIndex ? [a, b] : [b, a];
           if (lo.windowIndex + length > hi.windowIndex) continue;
         }
 
-        const tokensA = tokensByFile.get(a.file) as NormalizedToken[];
         const tokensB = tokensByFile.get(b.file) as NormalizedToken[];
         const occA: DuplicateOccurrence = {
           file: a.file,
@@ -178,9 +290,45 @@ export function findDuplicateGroups(
         );
         if (lines < minLines) continue;
 
-        groups.push({ occurrences: [occA, occB], lines, tokens: length });
+        pairMatches.push({ occA, occB, lines, tokens: length });
       }
     }
+  }
+
+  const clusters = new ExactOccurrenceUnionFind();
+  const occurrenceByKey = new Map<string, DuplicateOccurrence>();
+  for (const { occA, occB } of pairMatches) {
+    const keyA = occurrenceKey(occA);
+    const keyB = occurrenceKey(occB);
+    occurrenceByKey.set(keyA, occA);
+    occurrenceByKey.set(keyB, occB);
+    clusters.union(keyA, keyB);
+  }
+
+  const keysByRoot = new Map<string, Set<string>>();
+  for (const key of occurrenceByKey.keys()) {
+    const root = clusters.root(key);
+    const keys = keysByRoot.get(root);
+    if (keys) keys.add(key);
+    else keysByRoot.set(root, new Set([key]));
+  }
+
+  const groups: DuplicateGroup[] = [];
+  for (const keys of keysByRoot.values()) {
+    if (keys.size < 2) continue;
+    const occurrences = [...keys].map((key) => occurrenceByKey.get(key) as DuplicateOccurrence);
+    // Best (largest) individual pairwise match fully contained in this cluster — reported as the
+    // group's size, rather than a value shrunk by an unrelated, more weakly-matching member.
+    let lines = 0;
+    let tokens = windowSize;
+    for (const pm of pairMatches) {
+      if (!keys.has(occurrenceKey(pm.occA)) || !keys.has(occurrenceKey(pm.occB))) continue;
+      if (pm.lines > lines) {
+        lines = pm.lines;
+        tokens = pm.tokens;
+      }
+    }
+    groups.push({ occurrences, lines, tokens });
   }
 
   return groups.sort((a, b) => b.lines - a.lines);

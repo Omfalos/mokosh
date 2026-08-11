@@ -84,6 +84,7 @@ export type FindDuplicatesArgs = {
   root: string;
   minLines?: number;
   ignoreLiterals?: boolean;
+  maxPunctuationRatio?: number;
   limit?: number;
   ignoreDirs?: string[];
 };
@@ -421,23 +422,31 @@ export async function handleFindComplexFunctions(
  * @param cache - Session state holding the cached graph and, if `analyze` set one, this root's
  *   config (read for its `ignoreDirs`).
  * @param args - `root` selects the graph; `minLines` is the minimum block size to report
- *   (default 6); `ignoreLiterals` toggles Type-2 vs Type-1 matching (default true); `ignoreDirs`
- *   overrides which directory names are excluded (default: `DEFAULT_IGNORE_DIRS` merged with
- *   this root's configured `ignoreDirs`, if any); `limit` caps the number of results returned
- *   (default 50).
+ *   (default 6); `ignoreLiterals` toggles Type-2 vs Type-1 matching (default true);
+ *   `maxPunctuationRatio` gates out token-shingle blocks that are mostly object/array-literal
+ *   structural punctuation rather than substantive shared logic (default 0.5; set 1 to disable);
+ *   `ignoreDirs` overrides which directory names are excluded (default: `DEFAULT_IGNORE_DIRS`
+ *   merged with this root's configured `ignoreDirs`, if any); `limit` caps the number of results
+ *   returned (default 50).
  * @returns TextResponse with `{ minLines, groups, count }`.
  */
 export async function handleFindDuplicates(
   cache: SessionState,
   args: FindDuplicatesArgs,
 ): Promise<TextResponse> {
-  const { root, minLines = 6, ignoreLiterals = true, limit = 50 } = args;
+  const { root, minLines = 6, ignoreLiterals = true, maxPunctuationRatio = 0.5, limit = 50 } = args;
   const graph = await cache.ensureFresh(root);
   const ignoreDirs = args.ignoreDirs ?? [
     ...DEFAULT_IGNORE_DIRS,
     ...(cache.getConfig(root)?.ignoreDirs ?? []),
   ];
-  const groups = await findDuplicates(graph, root, { minLines, ignoreLiterals, limit, ignoreDirs });
+  const groups = await findDuplicates(graph, root, {
+    minLines,
+    ignoreLiterals,
+    maxPunctuationRatio,
+    limit,
+    ignoreDirs,
+  });
   return text({ minLines, groups, count: groups.length });
 }
 

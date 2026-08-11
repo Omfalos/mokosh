@@ -197,4 +197,146 @@ describe("findDuplicates", () => {
     const withCustom = await findDuplicates(graph, root, { minLines: 3, ignoreDirs: ["vendor"] });
     expect(withCustom).toEqual([]);
   });
+
+  test("does not match CSS rules with the same declaration shape but different values (ADR-013)", async () => {
+    root = setup({
+      "a.css": [".header {", "  display: flex;", "  color: red;", "}"].join("\n"),
+      "b.css": [".footer {", "  display: block;", "  color: blue;", "}"].join("\n"),
+    });
+    const graph = graphFor([
+      ["a.css", "css"],
+      ["b.css", "css"],
+    ]);
+
+    await expect(findDuplicates(graph, root, { minLines: 2 })).resolves.toEqual([]);
+  });
+
+  test("matches CSS rules with different selectors but an identical declaration body", async () => {
+    root = setup({
+      "a.css": [".header {", "  display: flex;", "  align-items: center;", "}"].join("\n"),
+      "b.css": [".footer {", "  display: flex;", "  align-items: center;", "}"].join("\n"),
+    });
+    const graph = graphFor([
+      ["a.css", "css"],
+      ["b.css", "css"],
+    ]);
+
+    const groups = await findDuplicates(graph, root, { minLines: 2 });
+    expect(groups).toHaveLength(1);
+    expect(groups[0]?.family).toBe("style");
+  });
+
+  test("never matches across the style/code family boundary, even with identical shape", async () => {
+    // CSS is matched structurally now (by literal declaration content, via
+    // findStyleBlockDuplicates), so this exercises that a genuine CSS duplicate and a genuine
+    // TS duplicate never get paired with each other, not that they'd otherwise collide on shape.
+    const cssBlock = [
+      ".header {",
+      "  display: flex;",
+      "  align-items: center;",
+      "  justify-content: space-between;",
+      "}",
+    ].join("\n");
+    const tsBlock = [
+      "function header() {",
+      "  display(flexValue);",
+      "  alignItems(centerValue);",
+      "  justifyContent(spaceValue);",
+      "}",
+    ].join("\n");
+    root = setup({
+      "a.css": cssBlock,
+      "b.css": cssBlock,
+      "a.ts": tsBlock,
+      "b.ts": tsBlock,
+    });
+    const graph = graphFor([
+      ["a.css", "css"],
+      ["b.css", "css"],
+      ["a.ts", "typescript"],
+      ["b.ts", "typescript"],
+    ]);
+
+    const groups = await findDuplicates(graph, root, { minLines: 3, windowSize: 6 });
+
+    // Each family's genuine within-family duplicate is still found...
+    const cssGroup = groups.find((g) => g.occurrences.every((o) => o.file.endsWith(".css")));
+    const tsGroup = groups.find((g) => g.occurrences.every((o) => o.file.endsWith(".ts")));
+    expect(cssGroup?.family).toBe("style");
+    expect(tsGroup?.family).toBe("code");
+
+    // ...but no group ever pairs a style file with a code file.
+    expect(
+      groups.some(
+        (g) =>
+          g.occurrences.some((o) => o.file.endsWith(".css")) &&
+          g.occurrences.some((o) => o.file.endsWith(".ts")),
+      ),
+    ).toBe(false);
+  });
+
+  test("reports a block repeated across four files as one group, not six pairs (ADR-013)", async () => {
+    const block = [
+      "function computeTotal(items) {",
+      "  let sum = 0;",
+      "  for (let i = 0; i < items.length; i++) {",
+      "    sum += items[i].price;",
+      "  }",
+      "  return sum;",
+      "}",
+    ].join("\n");
+    root = setup({ "a.ts": block, "b.ts": block, "c.ts": block, "d.ts": block });
+    const graph = graphFor([
+      ["a.ts", "typescript"],
+      ["b.ts", "typescript"],
+      ["c.ts", "typescript"],
+      ["d.ts", "typescript"],
+    ]);
+
+    const groups = await findDuplicates(graph, root, { minLines: 4, windowSize: 8 });
+    const clones = groups.filter((g) => g.occurrences.every((o) => o.file.endsWith(".ts")));
+    expect(clones).toHaveLength(1);
+    expect(clones[0]?.occurrences.map((o) => o.file).sort()).toEqual([
+      "a.ts",
+      "b.ts",
+      "c.ts",
+      "d.ts",
+    ]);
+  });
+
+  test("gates out MCP-tool-schema-shaped object-literal boilerplate but keeps real duplicated logic (ADR-013)", async () => {
+    const schema = [
+      "export const tool = {",
+      '  root: { type: "string", description: "Absolute path to the project root" },',
+      '  minLines: { type: "number", description: "Minimum block size" },',
+      '  limit: { type: "number", description: "Max results to return" },',
+      '  ignoreDirs: { type: "array", items: { type: "string" }, description: "Excluded dirs" },',
+      "};",
+    ].join("\n");
+    const block = [
+      "function computeTotal(items) {",
+      "  let sum = 0;",
+      "  for (let i = 0; i < items.length; i++) {",
+      "    sum += items[i].price;",
+      "  }",
+      "  return sum;",
+      "}",
+    ].join("\n");
+    root = setup({
+      "schema-a.ts": schema,
+      "schema-b.ts": schema,
+      "logic-a.ts": block,
+      "logic-b.ts": block,
+    });
+    const graph = graphFor([
+      ["schema-a.ts", "typescript"],
+      ["schema-b.ts", "typescript"],
+      ["logic-a.ts", "typescript"],
+      ["logic-b.ts", "typescript"],
+    ]);
+
+    const groups = await findDuplicates(graph, root, { minLines: 4, windowSize: 8 });
+    expect(groups.some((g) => g.occurrences.some((o) => o.file.startsWith("schema-")))).toBe(false);
+    expect(groups.some((g) => g.occurrences.some((o) => o.file.startsWith("logic-")))).toBe(true);
+  });
 });
