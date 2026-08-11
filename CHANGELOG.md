@@ -1,3 +1,9 @@
+## [0.3.2](https://github.com/Omfalos/mokosh/compare/v0.3.1...v0.3.2) (2026-08-11)
+
+### Features
+
+* **duplication:** reduce noise in cross-language duplicate detection ([3161137](https://github.com/Omfalos/mokosh/commit/316113753f79dc6304f860fa3498a1975e4735f2))
+
 ## [0.3.1](https://github.com/Omfalos/mokosh/compare/v0.3.0...v0.3.1) (2026-08-06)
 
 ### Features
