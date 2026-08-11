@@ -1,3 +1,9 @@
+## [0.3.3](https://github.com/Omfalos/mokosh/compare/v0.3.2...v0.3.3) (2026-08-11)
+
+### Bug Fixes
+
+* **duplication:** bound find_duplicates scan time on large repos ([2cb5adb](https://github.com/Omfalos/mokosh/commit/2cb5adb245af9e46dcd511438e1cad8489f59eee))
+
 ## [0.3.2](https://github.com/Omfalos/mokosh/compare/v0.3.1...v0.3.2) (2026-08-11)
 
 ### Features
