@@ -2,10 +2,12 @@
  * Cross-file duplicate-code detection. Two matching strategies, picked per file by `FileType`:
  * CSS/Less/SCSS route through `findStyleBlockDuplicates` (`style-blocks.ts`), a structural
  * comparator over PostCSS rule bodies; everything else (including Stylus, which has no shared
- * PostCSS AST here) runs the generic tokenize → shingle → chain-merge pipeline. See
- * docs/adr-012-duplicate-detection.md for why the shingle pipeline is built in-house instead of
- * adopting jscpd, and docs/adr-013-duplicate-detection-noise-reduction.md for why CSS-family
- * matching moved off it.
+ * PostCSS AST here) runs the generic tokenize → suffix-array-exact-match pipeline. See
+ * docs/adr-012-duplicate-detection.md for why token-based detection is built in-house instead of
+ * adopting jscpd, docs/adr-013-duplicate-detection-noise-reduction.md for why CSS-family matching
+ * moved off it, and docs/adr-015-suffix-array-duplicate-detection.md for why matching runs on a
+ * suffix array (`suffix-duplicates.ts`) rather than the original hash-shingle-bucket matcher
+ * (`shingle.ts`, kept and independently tested but no longer used here).
  *
  * `graph.nodes` is not a reliable ignore-rule-filtered file list: `DEFAULT_IGNORE_DIRS` and
  * extension filtering only gate `GraphBuilder`'s own FS-walk discovery passes, not files that
@@ -27,8 +29,10 @@ import { LOCK_FILE_NAMES } from "../../parser/lockfile";
 import type { FileType } from "../../types/parse";
 import type { Graph } from "../model";
 import { type DuplicateFamily, getDuplicateFamily } from "./families";
-import { type DuplicateGroup, type FileTokens, findDuplicateGroups } from "./shingle";
+import type { DuplicateGroup, FileTokens } from "./shingle";
 import { findStyleBlockDuplicates, type StyleSourceFile } from "./style-blocks";
+import { findExactDuplicateGroups } from "./suffix-duplicates";
+import type { NormalizedToken } from "./tokenizer";
 import { tokenize } from "./tokenizer";
 
 /** Below this many candidate files, worker-pool spin-up cost outweighs the parallelism benefit —
@@ -48,6 +52,24 @@ export type { StyleSourceFile } from "./style-blocks";
  *  stays on the token-shingle path (still isolated to the `"style"` family, see `families.ts`). */
 const STRUCTURAL_STYLE_TYPES: ReadonlySet<FileType> = new Set<FileType>(["css", "scss", "less"]);
 
+/** One file's cached tokenize result, fingerprinted by `mtime`/`size`/`ignoreLiterals` — any
+ *  mismatch against the current `FileNode` (or against the `ignoreLiterals` this scan is running
+ *  with) means the entry is stale and must be recomputed, exactly like `GraphBuilder`'s
+ *  mtime+size node reuse for incremental graph builds. */
+export interface CachedFileTokens {
+  mtime: number;
+  size: number;
+  ignoreLiterals: boolean;
+  tokens: NormalizedToken[];
+}
+
+/** Caller-owned cache, keyed by project-relative path, reused across repeated `findDuplicates`
+ *  calls against the same root (e.g. successive MCP tool calls in one session) so unchanged files
+ *  never pay tokenizing cost twice. `findDuplicates` itself is stateless — callers that want this
+ *  benefit own the `Map` and pass it in; the CLI's one-shot process has nothing to gain and omits
+ *  it. See docs/adr-014-duplicate-detection-scale.md. */
+export type DuplicationTokenCache = Map<string, CachedFileTokens>;
+
 export interface FindDuplicatesOptions {
   /** Minimum duplicated block size, in source lines, to report (default 6). */
   minLines?: number | undefined;
@@ -63,11 +85,6 @@ export interface FindDuplicatesOptions {
    *  CSS/Less/SCSS structural comparator, which already matches on literal declaration content.
    *  Set to 1 to disable. See docs/adr-013-duplicate-detection-noise-reduction.md. */
   maxPunctuationRatio?: number | undefined;
-  /** Skip a hash bucket's O(k²) pairwise comparison once it holds more than this many locations
-   *  (default 400) — bounds worst-case scan time on large repos where a single ubiquitous token
-   *  window (a common import line, a boilerplate header) would otherwise blow past what a single
-   *  scan can finish in. Set `Infinity` to disable. See docs/adr-014-duplicate-detection-scale.md. */
-  maxBucketSize?: number | undefined;
   /** Caps the number of duplicate blocks returned, largest-first (default 50). */
   limit?: number | undefined;
   /** Directory names to exclude, matched against any path segment (default `DEFAULT_IGNORE_DIRS`
@@ -78,14 +95,16 @@ export interface FindDuplicatesOptions {
    *  `false` always tokenizes in-process; an object overrides `minFiles`/`maxThreads`. See
    *  docs/adr-014-duplicate-detection-scale.md. */
   parallelTokenizing?: ParallelTokenizingOption | undefined;
+  /** Optional caller-owned cache reused across calls against the same root — files whose
+   *  `mtime`/`size` are unchanged since the cached entry (and whose `ignoreLiterals` matches this
+   *  call's) skip tokenizing entirely. Mutated in place; omit for one-shot callers (e.g. the CLI).
+   *  See {@link DuplicationTokenCache} and docs/adr-014-duplicate-detection-scale.md. */
+  tokenCache?: DuplicationTokenCache | undefined;
 }
 
 export interface FindDuplicatesResult {
   /** Duplicate blocks, largest-first, capped at `limit`. */
   groups: DuplicateGroup[];
-  /** How many hash buckets were skipped for exceeding `maxBucketSize` — a non-zero count means
-   *  results may under-report duplication that's unusually widespread (see `maxBucketSize`). */
-  skippedBuckets: number;
 }
 
 /**
@@ -133,15 +152,13 @@ function isUnderIgnoredDir(relPath: string, ignoreDirs: readonly string[]): bool
  *   token-shingle path only (CSS/Less/SCSS always match on literal declaration content);
  *   `maxPunctuationRatio` gates out token-shingle blocks that are mostly object/array-literal
  *   structural punctuation (e.g. schema/object-literal boilerplate) rather than substantive
- *   shared logic; `maxBucketSize` bounds worst-case scan time on large repos by skipping
- *   pathologically common hash buckets; `ignoreDirs` excludes files under matching directory
- *   names; `limit` caps results; `parallelTokenizing` offloads per-file tokenizing to a worker
- *   pool once the candidate file count is large enough to be worth it. Lock files are always
- *   excluded, independent of `ignoreDirs`.
+ *   shared logic; `ignoreDirs` excludes files under matching directory names; `limit` caps
+ *   results; `parallelTokenizing` offloads per-file tokenizing to a worker pool once the
+ *   candidate file count is large enough to be worth it. Lock files are always excluded,
+ *   independent of `ignoreDirs`.
  * @returns `groups` — duplicate blocks (each tagged with its `family`), two or more occurrences
  *   per block, every block that pairwise chain-matches another clustered into one group instead
- *   of one per pair, sorted largest-first across all families — plus `skippedBuckets` (see
- *   {@link FindDuplicatesResult}).
+ *   of one per pair, sorted largest-first across all families.
  */
 export async function findDuplicates(
   graph: Graph,
@@ -153,10 +170,10 @@ export async function findDuplicates(
     windowSize = 15,
     ignoreLiterals = true,
     maxPunctuationRatio = 0.5,
-    maxBucketSize,
     limit = 50,
     ignoreDirs = DEFAULT_IGNORE_DIRS,
     parallelTokenizing = true,
+    tokenCache,
   } = options;
 
   const nodes = [...graph.nodes.values()].filter(
@@ -169,23 +186,48 @@ export async function findDuplicates(
     const filesByFamily = new Map<DuplicateFamily, FileTokens[]>();
     await Promise.all(
       nodes.map(async (node) => {
-        let source: string;
-        try {
-          source = await readFile(path.join(rootDir, node.path), "utf8");
-        } catch {
-          // File listed in the graph but no longer readable (deleted/moved since build) — skip.
-          return;
-        }
-
         if (STRUCTURAL_STYLE_TYPES.has(node.type)) {
+          let source: string;
+          try {
+            source = await readFile(path.join(rootDir, node.path), "utf8");
+          } catch {
+            // File listed in the graph but no longer readable (deleted/moved since build) — skip.
+            return;
+          }
           structuralStyleFiles.push({ file: node.path, source, fileType: node.type });
           return;
         }
 
+        const cached = tokenCache?.get(node.path);
+        const cacheHit =
+          cached &&
+          cached.mtime === node.mtime &&
+          cached.size === node.size &&
+          cached.ignoreLiterals === ignoreLiterals;
+
+        let tokens: NormalizedToken[];
+        if (cacheHit) {
+          tokens = cached.tokens;
+        } else {
+          let source: string;
+          try {
+            source = await readFile(path.join(rootDir, node.path), "utf8");
+          } catch {
+            // File listed in the graph but no longer readable (deleted/moved since build) — skip.
+            return;
+          }
+          tokens = pool
+            ? await pool.run({ source, fileType: node.type, ignoreLiterals })
+            : tokenize(source, node.type, ignoreLiterals);
+          tokenCache?.set(node.path, {
+            mtime: node.mtime,
+            size: node.size,
+            ignoreLiterals,
+            tokens,
+          });
+        }
+
         const family = getDuplicateFamily(node.type);
-        const tokens = pool
-          ? await pool.run({ source, fileType: node.type, ignoreLiterals })
-          : tokenize(source, node.type, ignoreLiterals);
         const fileTokens: FileTokens = { file: node.path, tokens };
         const bucket = filesByFamily.get(family);
         if (bucket) bucket.push(fileTokens);
@@ -193,27 +235,32 @@ export async function findDuplicates(
       }),
     );
 
-    const groups: DuplicateGroup[] = findStyleBlockDuplicates(structuralStyleFiles, minLines);
-    let skippedBuckets = 0;
+    if (tokenCache) {
+      // Drop entries for files no longer in this scan's candidate set (deleted, moved, or newly
+      // excluded by ignoreDirs) so a long-lived session cache doesn't grow unboundedly.
+      const current = new Set(nodes.map((node) => node.path));
+      for (const cachedPath of tokenCache.keys()) {
+        if (!current.has(cachedPath)) tokenCache.delete(cachedPath);
+      }
+    }
 
-    // Token-shingle matching never crosses a family boundary (see families.ts) — each family's
-    // shingle windows are hashed and chain-merged in isolation, so (e.g.) Stylus can never
-    // register as a "duplicate" of an unrelated TS/JS/Python shape, and vice versa.
+    const groups: DuplicateGroup[] = findStyleBlockDuplicates(structuralStyleFiles, minLines);
+
+    // Matching never crosses a family boundary (see families.ts) — each family's token stream is
+    // suffix-array-matched in isolation, so (e.g.) Stylus can never register as a "duplicate" of
+    // an unrelated TS/JS/Python shape, and vice versa.
     for (const [family, fileTokens] of filesByFamily) {
-      const result = findDuplicateGroups(
+      for (const group of findExactDuplicateGroups(
         fileTokens,
         windowSize,
         minLines,
         maxPunctuationRatio,
-        maxBucketSize,
-      );
-      skippedBuckets += result.skippedBuckets;
-      for (const group of result.groups) {
+      )) {
         groups.push({ ...group, family });
       }
     }
 
-    return { groups: groups.sort((a, b) => b.lines - a.lines).slice(0, limit), skippedBuckets };
+    return { groups: groups.sort((a, b) => b.lines - a.lines).slice(0, limit) };
   } finally {
     if (pool) await pool.destroy();
   }

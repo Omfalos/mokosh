@@ -4,8 +4,15 @@
 **Date:** 2026-08-06 (Phase 2/4 added 2026-08-11)
 **Status:** Implemented. CSS/SCSS/Less use a structural comparator (superseding the Phase 1/2
 tokenizer-tuning plan below for those three languages). Every other language (including Stylus)
-stays on the token-shingle path, now family-partitioned (Phase 1), gated by punctuation density
-(Phase 2), and clustered N-way instead of pairwise (Phase 4).
+stays on the token-shingle *design* — family-partitioned (Phase 1), gated by punctuation density
+(Phase 2), clustered N-way instead of pairwise (Phase 4) — but as of
+[ADR-015](./adr-015-suffix-array-duplicate-detection.md), the live matching engine implementing
+that design is `suffix-duplicates.ts`, not the hash-shingle-bucket pipeline (`shingle.ts`) this
+ADR was written against. The concepts below (family partitioning, `maxPunctuationRatio`, N-way
+clustering) all still apply — `suffix-duplicates.ts` reuses `structuralPunctuationRatio` directly
+and produces the same clustered, N-way `DuplicateGroup` shape — but references to "hash window,"
+"bucket," or "chain-extension" describe `shingle.ts`'s internal mechanism specifically, which is
+no longer what runs in `findDuplicates`.
 
 ---
 

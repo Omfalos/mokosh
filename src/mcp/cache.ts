@@ -7,6 +7,7 @@ import {
   configToGraphOptions,
   createImportMap,
   createWorkspaceGraph,
+  type DuplicationTokenCache,
   type Graph,
   type ParallelParsingOption,
   type WorkspaceGraph,
@@ -35,6 +36,7 @@ export class SessionState {
   private readonly dirtyRoots = new Set<string>();
   private readonly watchers = new Map<string, FSWatcher>();
   private readonly lastAnalyze = new Map<string, LastAnalyzeArgs>();
+  private readonly duplicationTokenCaches = new Map<string, DuplicationTokenCache>();
 
   /**
    * @description Returns `true` if config has already been loaded and applied for `root` this session.
@@ -221,6 +223,25 @@ export class SessionState {
   }
 
   /**
+   * @description Returns the `find_duplicates` token cache for `root`, creating an empty one on
+   *   first access. Persists across calls within a session so unchanged files (by `mtime`/`size`)
+   *   skip re-tokenizing — see docs/adr-014-duplicate-detection-scale.md. Cleared by `invalidate`,
+   *   since a rebuilt graph may have re-parsed files whose `mtime`/`size` happen to collide with
+   *   stale entries in edge cases (e.g. a restored backup); starting empty after invalidation is
+   *   cheap insurance against that, not a response to a known bug.
+   * @param root - Absolute project root path.
+   * @returns The mutable token cache for this root.
+   */
+  getDuplicationTokenCache(root: string): DuplicationTokenCache {
+    let cache = this.duplicationTokenCaches.get(root);
+    if (!cache) {
+      cache = new Map();
+      this.duplicationTokenCaches.set(root, cache);
+    }
+    return cache;
+  }
+
+  /**
    * @description Drops the cached graph, workspace graph, and change impact cache for `root`,
    *   forcing the next `analyze` call to rebuild from disk. Config is preserved. Use after
    *   editing source files mid-session to ensure subsequent queries reflect the updated state.
@@ -233,6 +254,7 @@ export class SessionState {
     this.workspaceGraphs.delete(root);
     this.changeImpactCaches.delete(root);
     this.dirtyRoots.delete(root);
+    this.duplicationTokenCaches.delete(root);
     return had;
   }
 }

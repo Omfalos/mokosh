@@ -188,7 +188,7 @@ const STRUCTURAL_PUNCTUATION = new Set(["{", "}", ":", ",", "[", "]"]);
  * @param length - Window length in tokens.
  * @returns `structuralPunctuationTokens / length`, in `[0, 1]`.
  */
-function structuralPunctuationRatio(
+export function structuralPunctuationRatio(
   tokens: NormalizedToken[],
   start: number,
   length: number,

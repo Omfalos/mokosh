@@ -85,7 +85,6 @@ export type FindDuplicatesArgs = {
   minLines?: number;
   ignoreLiterals?: boolean;
   maxPunctuationRatio?: number;
-  maxBucketSize?: number;
   limit?: number;
   ignoreDirs?: string[];
 };
@@ -419,47 +418,42 @@ export async function handleFindComplexFunctions(
  *   files and files under an ignored directory are excluded even when the graph itself contains
  *   them — `graph.nodes` isn't ignore-rule-filtered for files reached via a resolved reference
  *   rather than the initial FS walk (e.g. a Markdown doc's code-span reference to a build
- *   artifact).
+ *   artifact). Matching runs on a suffix array over the whole candidate token stream
+ *   (docs/adr-015-suffix-array-duplicate-detection.md) rather than pairwise comparison, so
+ *   results are exact and complete regardless of how repetitive the repo is — no truncation or
+ *   skipped-match caveat to report back to the caller.
  * @param cache - Session state holding the cached graph and, if `analyze` set one, this root's
  *   config (read for its `ignoreDirs`).
  * @param args - `root` selects the graph; `minLines` is the minimum block size to report
  *   (default 6); `ignoreLiterals` toggles Type-2 vs Type-1 matching (default true);
- *   `maxPunctuationRatio` gates out token-shingle blocks that are mostly object/array-literal
- *   structural punctuation rather than substantive shared logic (default 0.5; set 1 to disable);
+ *   `maxPunctuationRatio` gates out blocks that are mostly object/array-literal structural
+ *   punctuation rather than substantive shared logic (default 0.5; set 1 to disable);
  *   `ignoreDirs` overrides which directory names are excluded (default: `DEFAULT_IGNORE_DIRS`
  *   merged with this root's configured `ignoreDirs`, if any); `limit` caps the number of results
- *   returned (default 50).
- * @returns TextResponse with `{ minLines, groups, count, skippedBuckets }` — a non-zero
- *   `skippedBuckets` means some pathologically common token windows were skipped for scan-time
- *   safety, so results may under-report unusually widespread duplication (see
- *   docs/adr-014-duplicate-detection-scale.md).
+ *   returned (default 50). Reuses `cache`'s per-root token cache (see
+ *   `SessionState.getDuplicationTokenCache`) so files unchanged (by mtime/size) since a prior call
+ *   in this session skip re-tokenizing entirely.
+ * @returns TextResponse with `{ minLines, groups, count }`.
  */
 export async function handleFindDuplicates(
   cache: SessionState,
   args: FindDuplicatesArgs,
 ): Promise<TextResponse> {
-  const {
-    root,
-    minLines = 6,
-    ignoreLiterals = true,
-    maxPunctuationRatio = 0.5,
-    maxBucketSize,
-    limit = 50,
-  } = args;
+  const { root, minLines = 6, ignoreLiterals = true, maxPunctuationRatio = 0.5, limit = 50 } = args;
   const graph = await cache.ensureFresh(root);
   const ignoreDirs = args.ignoreDirs ?? [
     ...DEFAULT_IGNORE_DIRS,
     ...(cache.getConfig(root)?.ignoreDirs ?? []),
   ];
-  const { groups, skippedBuckets } = await findDuplicates(graph, root, {
+  const { groups } = await findDuplicates(graph, root, {
     minLines,
     ignoreLiterals,
     maxPunctuationRatio,
-    maxBucketSize,
     limit,
     ignoreDirs,
+    tokenCache: cache.getDuplicationTokenCache(root),
   });
-  return text({ minLines, groups, count: groups.length, skippedBuckets });
+  return text({ minLines, groups, count: groups.length });
 }
 
 /**

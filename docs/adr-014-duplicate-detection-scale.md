@@ -1,7 +1,8 @@
 # ADR-014: Duplicate Detection at Scale
 
 **Date:** 2026-08-11
-**Status:** Accepted
+**Status:** Partially superseded by [ADR-015](./adr-015-suffix-array-duplicate-detection.md) —
+see the note under Decision §1.
 
 ---
 
@@ -29,28 +30,48 @@ timed out on large repositories. Two separate costs are involved:
 
 ## Decision
 
-Two independent changes, addressing each cost separately:
+Three independent changes, addressing each cost separately:
 
-### 1. Cap hash-bucket size (`maxBucketSize`, default 400)
+### 1. Cap hash-bucket size (`maxBucketSize`, default 400) — superseded, see ADR-015
 
-`findDuplicateGroups` now skips a bucket's pairwise comparison entirely once it holds more than
-`maxBucketSize` locations, incrementing a `skippedBuckets` counter that's threaded back through
-`findDuplicates`' return value (`{ groups, skippedBuckets }`) and exposed by both the MCP tool and
-the CLI command. This bounds worst-case scan time independent of repo size.
+`findDuplicateGroups` (`shingle.ts`) skips a bucket's pairwise comparison entirely once it holds
+more than `maxBucketSize` locations, incrementing a `skippedBuckets` counter. This bounded
+worst-case scan time independent of repo size, at the cost of a real, disclosed false-negative
+risk: a bucket this large is overwhelmingly likely to be ubiquitous boilerplate, but it's not
+impossible to under-report a legitimately widespread duplicate this way.
 
-The tradeoff is real: a bucket this large is overwhelmingly likely to be ubiquitous boilerplate
-rather than a single genuine N-way clone (a real clone repeated hundreds of times across a
-project is itself unusual), but it's not impossible to under-report a legitimately widespread
-duplicate this way. `skippedBuckets` surfaces when the cap fired so callers know results may be
-incomplete, and it's a plain option (`Infinity` disables it) for anyone who needs an exhaustive
-scan on a repo they know is small enough to afford one.
+**This mitigation is no longer in the live pipeline.** ADR-015 replaced `findDuplicates`' matching
+engine with a suffix array + LCP-interval tree, which has no bucket-like structure to blow up in
+the first place — it needs no size cap and produces no false negatives from one. `shingle.ts` and
+`maxBucketSize`/`skippedBuckets` still exist and are still independently tested (the module is a
+reasonable, correct implementation on its own terms), but `findDuplicates` no longer calls it, and
+`maxBucketSize`/`skippedBuckets` were removed from `FindDuplicatesOptions`/`FindDuplicatesResult`
+and from the MCP tool schema and CLI output. Kept below as the historical record of why the cap
+existed and what it traded off, since the same category of tradeoff (a heuristic size cap) is
+worth recognizing if a similar pathological case ever surfaces elsewhere in the pipeline.
 
-This is the same class of heuristic as `maxPunctuationRatio` (ADR-013) — trading a small,
+This was the same class of heuristic as `maxPunctuationRatio` (ADR-013) — trading a small,
 disclosed false-negative risk for the scan finishing at all — but applied before chain-extension
-runs, since chain-extension and the punctuation-ratio gate are themselves O(k²)-bucket-sized costs
+ran, since chain-extension and the punctuation-ratio gate were themselves O(k²)-bucket-sized costs
 that a pathological bucket would blow through before ever reaching them.
 
-### 2. Offload tokenizing to a worker pool (`parallelTokenizing`, default on)
+### 2. Cache tokenized files across calls (`tokenCache`, MCP-session-scoped)
+
+`findDuplicates` accepts an optional caller-owned `tokenCache: Map<relPath, CachedFileTokens>`.
+Each entry is fingerprinted by `mtime`/`size`/`ignoreLiterals`; a file whose `FileNode.mtime`/
+`size` still match skips tokenizing (and the worker-pool round trip) entirely, reusing the cached
+`NormalizedToken[]`. `findDuplicates` stays stateless when no cache is passed — the CLI's one-shot
+process gets nothing from this and omits it — but `SessionState` (`src/mcp/cache.ts`) owns one
+cache per root, so successive MCP `find_duplicates` calls against the same session-cached root
+(e.g. iterating on `minLines`/`limit`, or re-running after a small edit) only pay tokenizing cost
+for files that actually changed. The cache is cleared on `SessionState.invalidate` (same trigger
+that drops the graph cache) and self-prunes stale entries (files no longer in the current scan's
+candidate set) on every call.
+
+This mirrors `GraphBuilder`'s own mtime+size incremental node reuse — same fingerprint strategy,
+applied one layer up the pipeline.
+
+### 3. Offload tokenizing to a worker pool (`parallelTokenizing`, default on)
 
 `findDuplicates` gained the same `piscina` worker-pool pattern `GraphBuilder` already uses for
 `parseFile` (ADR-010): `src/duplication-worker.ts` is a thin wrapper around `tokenize()`, built as

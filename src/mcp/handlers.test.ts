@@ -566,6 +566,7 @@ describe("handleFindDuplicates", {
     return {
       ensureFresh: vi.fn().mockResolvedValue(graph),
       getConfig: vi.fn().mockReturnValue(config),
+      getDuplicationTokenCache: vi.fn().mockReturnValue(new Map()),
     } as unknown as SessionState;
   }
 

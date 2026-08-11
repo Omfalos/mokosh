@@ -206,7 +206,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "find_duplicates",
     description:
-      "Find duplicated code blocks across the project, largest-first. Two matching strategies, picked per file: CSS/SCSS/Less are compared structurally by rule body — the literal, ordered property:value declarations a rule contains, independent of its selector — so a genuine copy-pasted declaration list is caught while rules that merely share shape (e.g. display:flex vs display:block) never match. Every other language mokosh parses (TypeScript/JavaScript, Python, Go, CoffeeScript, LiveScript, Lua, Gherkin, Markdown, and Stylus) runs a token-based shingle pipeline instead, partitioned by language family so matching never crosses between Stylus and code languages. Identifiers — and by default literals — are normalized before matching in the token-based path, so renamed-variable copies are still caught; blocks that are mostly object/array-literal structural punctuation (e.g. schema/object-literal boilerplate) rather than substantive shared logic are gated out. A block repeated N times across the project is reported once with N occurrences, not as separate pairs. Lock files (package-lock.json, yarn.lock, pnpm-lock.yaml) and files under an ignored directory are always excluded, even if the graph itself contains them. On large repos, tokenizing is offloaded to a worker pool and pathologically common token windows are skipped for scan-time safety (reported as skippedBuckets in the result) so the scan stays within a usable response time. Requires a prior analyze() call.",
+      "Find duplicated code blocks across the project, largest-first. Two matching strategies, picked per file: CSS/SCSS/Less are compared structurally by rule body — the literal, ordered property:value declarations a rule contains, independent of its selector — so a genuine copy-pasted declaration list is caught while rules that merely share shape (e.g. display:flex vs display:block) never match. Every other language mokosh parses (TypeScript/JavaScript, Python, Go, CoffeeScript, LiveScript, Lua, Gherkin, Markdown, and Stylus) is tokenized and matched via a suffix array over the whole candidate token stream instead, partitioned by language family so matching never crosses between Stylus and code languages — exact and complete regardless of how repetitive the repo is, with no truncation caveat. Identifiers — and by default literals — are normalized before matching in the token-based path, so renamed-variable copies are still caught; blocks that are mostly object/array-literal structural punctuation (e.g. schema/object-literal boilerplate) rather than substantive shared logic are gated out. A block repeated N times across the project is reported once with N occurrences, not as separate pairs. Lock files (package-lock.json, yarn.lock, pnpm-lock.yaml) and files under an ignored directory are always excluded, even if the graph itself contains them. On large repos, tokenizing is offloaded to a worker pool and tokenized files are cached per session, so repeated calls against an unchanged root only re-tokenize what actually changed. Requires a prior analyze() call.",
     inputSchema: {
       type: "object",
       properties: {
@@ -224,11 +224,6 @@ export const TOOL_DEFINITIONS = [
           type: "number",
           description:
             "Maximum fraction of a token-shingled block's window that may be object/array-literal structural punctuation ({ } : , [ ]) (default: 0.5). Filters out blocks that are mostly schema/object-literal shape instead of substantive shared logic. Does not apply to the CSS/Less/SCSS structural comparator. Set 1 to disable.",
-        },
-        maxBucketSize: {
-          type: "number",
-          description:
-            "Skip a hash bucket's pairwise comparison once it holds more than this many matching locations (default: 400). Bounds worst-case scan time on large repos where a single pathologically common token window would otherwise blow up quadratically. Set a very large number to disable.",
         },
         ignoreDirs: {
           type: "array",

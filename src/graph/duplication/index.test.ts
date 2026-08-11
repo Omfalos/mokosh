@@ -126,7 +126,7 @@ describe("findDuplicates", () => {
       ["missing.ts", "typescript"],
     ]);
 
-    await expect(findDuplicates(graph, root)).resolves.toEqual({ groups: [], skippedBuckets: 0 });
+    await expect(findDuplicates(graph, root)).resolves.toEqual({ groups: [] });
   });
 
   test("always excludes lock files, even though their repeated structure would otherwise match", async () => {
@@ -145,10 +145,7 @@ describe("findDuplicates", () => {
       ["pnpm-lock.yaml", "unknown"],
     ]);
 
-    await expect(findDuplicates(graph, root, { minLines: 3 })).resolves.toEqual({
-      groups: [],
-      skippedBuckets: 0,
-    });
+    await expect(findDuplicates(graph, root, { minLines: 3 })).resolves.toEqual({ groups: [] });
   });
 
   test("excludes files under a default-ignored directory (e.g. dist)", async () => {
@@ -170,10 +167,7 @@ describe("findDuplicates", () => {
       ["src/bundle.js", "javascript"],
     ]);
 
-    await expect(findDuplicates(graph, root, { minLines: 3 })).resolves.toEqual({
-      groups: [],
-      skippedBuckets: 0,
-    });
+    await expect(findDuplicates(graph, root, { minLines: 3 })).resolves.toEqual({ groups: [] });
   });
 
   test("respects a custom ignoreDirs list", async () => {
@@ -214,10 +208,7 @@ describe("findDuplicates", () => {
       ["b.css", "css"],
     ]);
 
-    await expect(findDuplicates(graph, root, { minLines: 2 })).resolves.toEqual({
-      groups: [],
-      skippedBuckets: 0,
-    });
+    await expect(findDuplicates(graph, root, { minLines: 2 })).resolves.toEqual({ groups: [] });
   });
 
   test("matches CSS rules with different selectors but an identical declaration body", async () => {
@@ -347,5 +338,119 @@ describe("findDuplicates", () => {
     const { groups } = await findDuplicates(graph, root, { minLines: 4, windowSize: 8 });
     expect(groups.some((g) => g.occurrences.some((o) => o.file.startsWith("schema-")))).toBe(false);
     expect(groups.some((g) => g.occurrences.some((o) => o.file.startsWith("logic-")))).toBe(true);
+  });
+
+  describe("tokenCache", () => {
+    const block = [
+      "function computeTotal(items) {",
+      "  let sum = 0;",
+      "  for (let i = 0; i < items.length; i++) {",
+      "    sum += items[i].price;",
+      "  }",
+      "  return sum;",
+      "}",
+    ].join("\n");
+
+    test("a cache hit skips re-reading the file from disk", async () => {
+      root = setup({ "a.ts": block, "b.ts": block });
+      const graph = graphFor([
+        ["a.ts", "typescript"],
+        ["b.ts", "typescript"],
+      ]);
+      const tokenCache = new Map();
+
+      const first = await findDuplicates(graph, root, { minLines: 4, windowSize: 8, tokenCache });
+      expect(first.groups.length).toBeGreaterThan(0);
+      expect(tokenCache.size).toBe(2);
+
+      // Both files vanish from disk, but the graph's mtime/size (still 0/0, unchanged) means the
+      // cached tokens should be reused instead of re-reading — a stale read would silently drop
+      // both files (the existing "missing file" handling) and report no duplicate at all.
+      fs.rmSync(path.join(root, "a.ts"));
+      fs.rmSync(path.join(root, "b.ts"));
+
+      const second = await findDuplicates(graph, root, { minLines: 4, windowSize: 8, tokenCache });
+      expect(second.groups.length).toBe(first.groups.length);
+    });
+
+    test("a size/mtime change invalidates the cached entry for that file", async () => {
+      root = setup({ "a.ts": block, "b.ts": block });
+      const graphV1 = graphFor([
+        ["a.ts", "typescript"],
+        ["b.ts", "typescript"],
+      ]);
+      const tokenCache = new Map();
+
+      const first = await findDuplicates(graphV1, root, {
+        minLines: 4,
+        windowSize: 8,
+        tokenCache,
+      });
+      expect(first.groups.length).toBeGreaterThan(0);
+
+      // Rewrite b.ts to no longer match, and bump its node's size so the cache treats it as
+      // changed rather than reusing the stale (still-duplicated) cached tokens.
+      const unrelated = "export const totallyDifferent = 42;\n// padding padding padding padding";
+      fs.writeFileSync(path.join(root, "b.ts"), unrelated);
+      const graphV2 = graphFor([
+        ["a.ts", "typescript"],
+        ["b.ts", "typescript"],
+      ]);
+      const bNode = graphV2.nodes.get("b.ts");
+      if (bNode) bNode.size = unrelated.length;
+
+      const second = await findDuplicates(graphV2, root, {
+        minLines: 4,
+        windowSize: 8,
+        tokenCache,
+      });
+      expect(second.groups.some((g) => g.occurrences.some((o) => o.file === "b.ts"))).toBe(false);
+    });
+
+    test("an ignoreLiterals change invalidates the cache even with an unchanged file", async () => {
+      // A single differing literal token, nothing else — ignoreLiterals: true normalizes both to
+      // the same "STR" placeholder (a match); ignoreLiterals: false compares the raw text (no
+      // match). Isolating the whole file to just that one token means a stale ignoreLiterals:
+      // true cache entry reused under ignoreLiterals: false would produce a false-positive match.
+      root = setup({ "a.ts": '"hello"', "b.ts": '"goodbye"' });
+      const graph = graphFor([
+        ["a.ts", "typescript"],
+        ["b.ts", "typescript"],
+      ]);
+      const tokenCache = new Map();
+
+      const withIgnored = await findDuplicates(graph, root, {
+        minLines: 1,
+        windowSize: 1,
+        ignoreLiterals: true,
+        tokenCache,
+      });
+      expect(withIgnored.groups.length).toBeGreaterThan(0);
+
+      // Same files/mtimes, but ignoreLiterals: false must re-tokenize rather than reuse the
+      // ignoreLiterals: true cache entry, since the literal text now matters.
+      const withLiterals = await findDuplicates(graph, root, {
+        minLines: 1,
+        windowSize: 1,
+        ignoreLiterals: false,
+        tokenCache,
+      });
+      expect(withLiterals.groups).toHaveLength(0);
+    });
+
+    test("prunes cache entries for files no longer in the candidate set", async () => {
+      root = setup({ "a.ts": block, "b.ts": block });
+      const graph = graphFor([
+        ["a.ts", "typescript"],
+        ["b.ts", "typescript"],
+      ]);
+      const tokenCache = new Map();
+      await findDuplicates(graph, root, { minLines: 4, windowSize: 8, tokenCache });
+      expect(tokenCache.size).toBe(2);
+
+      const smallerGraph = graphFor([["a.ts", "typescript"]]);
+      await findDuplicates(smallerGraph, root, { minLines: 4, windowSize: 8, tokenCache });
+      expect([...tokenCache.keys()]).toEqual(["a.ts"]);
+    });
   });
 });

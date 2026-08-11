@@ -1,7 +1,15 @@
 # ADR-012: Language-Agnostic, Token-Based Duplicate Detection
 
 **Date:** 2026-08-06
-**Status:** Accepted
+**Status:** Accepted. The tokenization strategy described below (comment-stripping,
+identifier/literal normalization) is still exactly how `findDuplicates` works. The *matching*
+step is not: [ADR-015](./adr-015-suffix-array-duplicate-detection.md) replaced the hash-shingle-
+bucket pipeline this ADR describes (`shingle.ts`) with a suffix-array-based matcher
+(`suffix-duplicates.ts`) as the live pipeline component — `shingle.ts` itself still exists and is
+still independently tested, but `findDuplicates` no longer calls it. Read the "Pipeline" section
+below as the tokenization design (still current) plus the *original* matching design (superseded,
+kept for historical context and because `shingle.ts` remains a valid, tested implementation of the
+same contract).
 
 ---
 

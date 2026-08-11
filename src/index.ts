@@ -37,10 +37,13 @@ export {
   saveChangeImpactCache,
 } from "./graph/change-impact-cache";
 export {
+  type CachedFileTokens,
   type DuplicateFamily,
   type DuplicateGroup,
   type DuplicateOccurrence,
+  type DuplicationTokenCache,
   type FindDuplicatesOptions,
+  type FindDuplicatesResult,
   findDuplicates,
 } from "./graph/duplication";
 export {
