@@ -7,6 +7,11 @@ export const DEFAULT_CACHE_DIR = "mokosh-cache";
 /** Filename for the disk-persisted `find_duplicates` token cache within `DEFAULT_CACHE_DIR`. */
 export const DEFAULT_DUPLICATION_TOKEN_CACHE_FILE = "duplication-tokens.json";
 
+/** Filename for the disk-persisted graph cache within `DEFAULT_CACHE_DIR`. Written by the CLI
+ *  (`src/cli/graph-loader.ts`) after every build; read by the MCP server (`src/mcp/cache.ts`) to
+ *  seed a session's first `analyze` call so it reuses unchanged nodes instead of parsing cold. */
+export const DEFAULT_GRAPH_CACHE_FILE = "graph.json";
+
 export const DEFAULT_IGNORE_DIRS: readonly string[] = [
   "node_modules",
   ".git",

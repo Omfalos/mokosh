@@ -10,8 +10,9 @@ import {
   createWorkspaceGraph,
   DEFAULT_CACHE_DIR,
   DEFAULT_DUPLICATION_TOKEN_CACHE_FILE,
+  DEFAULT_GRAPH_CACHE_FILE,
   type DuplicationTokenCache,
-  type Graph,
+  Graph,
   loadTokenCacheFromDisk,
   type ParallelParsingOption,
   saveTokenCacheToDisk,
@@ -24,6 +25,36 @@ import { IGNORE_WATCH } from "../watch-ignore";
  *  against the same root warm each other's cache. */
 function duplicationTokenCachePath(root: string): string {
   return path.join(root, DEFAULT_CACHE_DIR, DEFAULT_DUPLICATION_TOKEN_CACHE_FILE);
+}
+
+/** Where the CLI's disk-persisted graph cache for `root` lives, honoring the same
+ *  `mokosh.config.*` `cachePath` override the CLI itself resolves against
+ *  (`src/cli/config.ts`'s `resolveCachePath`) — falls back to `<root>/mokosh-cache/graph.json`. */
+function graphCachePath(root: string, config: MokoshConfig | undefined): string {
+  return config?.cachePath
+    ? path.resolve(root, config.cachePath)
+    : path.join(root, DEFAULT_CACHE_DIR, DEFAULT_GRAPH_CACHE_FILE);
+}
+
+/**
+ * @description Reads and deserializes a CLI-written graph cache from disk, for seeding a
+ *   session's first `analyze` call. Never throws: a missing file, malformed JSON, or a value
+ *   that fails to deserialize all degrade to `null` (today's cold-start behavior) rather than
+ *   failing the tool call that triggered the read — this is pure acceleration, and
+ *   `createImportMap` re-validates every seeded node against the live filesystem (mtime+size)
+ *   before trusting it, so a stale or foreign cache file can only cost a re-parse, never produce
+ *   wrong data.
+ * @param cachePath - Path to the JSON file written by `saveGraphToCache` (`src/cli/graph-loader.ts`).
+ * @returns The deserialized `Graph`, or `null` if nothing usable was found.
+ */
+function loadDiskGraphSeed(cachePath: string): Graph | null {
+  try {
+    if (!fs.existsSync(cachePath)) return null;
+    const raw = fs.readFileSync(cachePath, "utf-8");
+    return Graph.deserialize(JSON.parse(raw));
+  } catch {
+    return null;
+  }
 }
 
 type LastAnalyzeArgs =
@@ -80,9 +111,13 @@ export class SessionState {
   /**
    * Returns the cached graph for `root`, or builds a new one from `entryPoints`.
    *
-   * When a prior graph exists it is forwarded to `createImportMap` for
-   * incremental rebuilding — unchanged files are reused based on mtime + size
-   * comparison, keeping subsequent calls fast on large codebases.
+   * When a prior graph exists (from an earlier call this session) it is forwarded to
+   * `createImportMap` for incremental rebuilding — unchanged files are reused based on mtime +
+   * size comparison, keeping subsequent calls fast on large codebases. On this session's *first*
+   * call for `root`, with nothing in memory yet, falls back to seeding from the CLI's on-disk
+   * graph cache (`<root>/mokosh-cache/graph.json` by default — see `loadDiskGraphSeed`) if one
+   * exists, so a fresh MCP session against a root the CLI already analyzed starts warm instead of
+   * parsing cold.
    */
   async getOrBuild(
     root: string,
@@ -90,7 +125,8 @@ export class SessionState {
     coverageMap: Map<string, number> = new Map(),
   ): Promise<Graph> {
     const config = this.configs.get(root);
-    const graph = await createImportMap(root, entryPoints, this.graphs.get(root) ?? null, {
+    const previousGraph = this.graphs.get(root) ?? loadDiskGraphSeed(graphCachePath(root, config));
+    const graph = await createImportMap(root, entryPoints, previousGraph, {
       ...configToGraphOptions(config),
       coverageMap,
     });
@@ -241,8 +277,7 @@ export class SessionState {
    *   session's first `find_duplicates` call skip re-tokenizing files unchanged since the cache
    *   was last written by any prior session, or by a CLI run against the same root. Persists
    *   across calls within a session so unchanged files (by `mtime`/`size`) skip re-tokenizing —
-   *   see docs/adr-014-duplicate-detection-scale.md and
-   *   docs/plans/performance-improvements.md. Cleared (in-memory only) by `invalidate`, since a
+   *   see docs/adr-014-duplicate-detection-scale.md. Cleared (in-memory only) by `invalidate`, since a
    *   rebuilt graph may have re-parsed files whose `mtime`/`size` happen to collide with stale
    *   entries in edge cases (e.g. a restored backup); starting empty after invalidation is cheap
    *   insurance against that, not a response to a known bug. The on-disk file is left alone by

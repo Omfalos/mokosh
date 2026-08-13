@@ -7,8 +7,8 @@
  *
  * The in-memory cache already survives repeated `findDuplicates` calls within one MCP session
  * (caller-owned — see `DuplicationTokenCache`'s doc below), but starts empty again on every new
- * session and every CLI invocation — see docs/plans/performance-improvements.md. This module lets
- * both the MCP server (`src/mcp/cache.ts`) and the CLI (`src/cli/commands/find-duplicates.ts`)
+ * session and every CLI invocation. This module lets both the MCP server (`src/mcp/cache.ts`) and
+ * the CLI (`src/cli/commands/find-duplicates.ts`)
  * persist that cache to `<root>/mokosh-cache/duplication-tokens.json` so a fresh session/process
  * only pays tokenizing cost for files that changed since the cache was last written.
  *

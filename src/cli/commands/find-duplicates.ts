@@ -21,7 +21,7 @@ import type { CommandContext } from "./types";
  *   Tokenized files are cached to disk alongside the graph cache (`<cache dir>/duplication-tokens.json`,
  *   next to `graph.json`) so only the *first* run against a repo tokenizes everything cold;
  *   subsequent runs (including `--watch` re-triggers) only re-tokenize files whose `mtime`/`size`
- *   changed. See docs/plans/performance-improvements.md.
+ *   changed.
  * @param {CommandContext} ctx - Shared command context; `ctx.rootDir`, `ctx.scanOptions`,
  *   `ctx.minDuplicateLines`, `ctx.limit`, and `ctx.cachePath` tune the scan.
  */

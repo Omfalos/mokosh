@@ -1,7 +1,7 @@
 # Analysis: what mokosh is, how well it works, and what it's actually worth
 
 Status: point-in-time assessment, not a plan of work (companion to `mcp-tool-improvements.md`
-and `performance-improvements.md` in this directory). Based on `README.md`, `docs/architecture.md`,
+in this directory). Based on `README.md`, `docs/architecture.md`,
 `docs/mcp.md`, `CHANGELOG.md`, and direct inspection of `src/` on 2026-08-12, version 0.4.0.
 
 ## What it is, in one paragraph
@@ -88,8 +88,8 @@ path).
   behavior across 12 languages.
 
 **Known weaknesses (from project memory, not speculation):**
-- Worker-pool default threshold is confirmed wrong for the common case (regresses <600-700 files)
-  and hasn't been corrected — see `performance-improvements.md` §1.
+- Worker-pool default threshold was confirmed wrong for the common case (regressed <600-700
+  files) — fixed 2026-08-13, `DEFAULT_MIN_FILES_FOR_POOL` raised 20→600 in `src/graph/builder.ts`.
 - Had a real command-injection vulnerability in `git.ts` (execSync + interpolated filenames),
   since fixed with `execFileSync` + arg arrays — evidence the security bar is taken seriously
   after being caught, but also evidence this class of bug existed once and is worth re-auditing

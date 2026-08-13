@@ -1,2 +1,1 @@
-export { DEFAULT_CACHE_DIR } from "../const";
-export const DEFAULT_CACHE_FILE = "graph.json";
+export { DEFAULT_CACHE_DIR, DEFAULT_GRAPH_CACHE_FILE as DEFAULT_CACHE_FILE } from "../const";
