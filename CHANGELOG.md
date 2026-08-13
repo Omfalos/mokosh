@@ -1,3 +1,10 @@
+## [0.4.1](https://github.com/Omfalos/mokosh/compare/v0.4.0...v0.4.1) (2026-08-13)
+
+### Performance Improvements
+
+* **duplication:** persist find_duplicates token cache to disk ([0c59fab](https://github.com/Omfalos/mokosh/commit/0c59fabb12f59b1934a1ac7f4e2019c83470c3e9))
+* **enrichment:** fuse five post-build passes into a single graph scan ([80f7144](https://github.com/Omfalos/mokosh/commit/80f7144b752426749221a27d67c5d47084652189))
+
 ## [0.4.0](https://github.com/Omfalos/mokosh/compare/v0.3.3...v0.4.0) (2026-08-11)
 
 ### Bug Fixes
