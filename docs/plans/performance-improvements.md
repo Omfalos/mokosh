@@ -20,41 +20,7 @@ incremental mtime/size reuse, batched git log instead of per-file, suffix-array 
 detection instead of pairwise, per-session duplication token cache). The opportunities below are
 what's left, not what's missing.
 
-## 1. Enrichment passes are six full-graph scans, not one — RESOLVED
-
-~~`src/graph/enrichment.ts` runs `enrichCoverage`, `enrichExportUsage`, `enrichLibraryTags`,
-`enrichTestedBy`, `enrichTestNodeTags`, `enrichDocDrift` as separate passes over
-`Map<relPath, FileNode>`.~~ Fixed: `enrichLibraryTags` was already inline per-node during parsing.
-The other five (each with its own `for (const node of nodes.values())` plus internal per-node
-import loops) had no ordering dependency on each other's output, so they were fused into one
-exported entry point, `enrichGraph`, called once from `GraphBuilder.build()` in place of the five
-separate calls. Each original function is kept as a standalone export (backed by the same
-extracted per-node/per-import helpers `enrichGraph` calls, so there's one implementation of every
-rule, not two) — useful for targeted testing. `enrichment.test.ts` asserts `enrichGraph` is
-output-equivalent to calling the five originals in sequence.
-
-Measured with a synthetic-graph benchmark (not checked in — throwaway `tsx` script): at 10k nodes,
-fused vs. five-separate averaged ~2x faster (7.9ms → 4.0ms); at 1k nodes ~1.2x. Confirms the "measure
-first" guidance below was worth following — the win grows with graph size as expected for reducing
-`O(n)` passes.
-
-As a side effect, `enrichGraph` also fixed a related correctness bug: on incremental rebuilds,
-`GraphBuilder`'s per-node cache reuse shallow-copies nodes from the previous graph, so
-`testedBy`/`documentedBy`/`staleFor`/enrichment-added tags were the *same array references*
-carried forward build-to-build — enrichment only ever appended, so a relationship that stopped
-being true (e.g. a test that no longer imports a file) never got removed. `enrichGraph` resets
-these fields before each recompute. See `docs/architecture.md`'s Enrichment section.
-
-## 2. `find_duplicates` on first call still tokenizes cold
-
-ADR-014/015 already solved matching complexity (suffix array, O(n log n)) and repeat-call cost
-(per-session token cache keyed by mtime/size). The remaining cost is the **first** call on a
-large repo — full tokenization of every candidate file before any result returns. **Action:**
-expose progress notifications (ties into the MCP-tools plan's progress-token workstream) so a
-long first call isn't perceived as a hang; and/or persist the token cache to disk (like the CLI's
-graph disk cache in `src/cli/graph-loader.ts`) so a fresh MCP session doesn't start cold either.
-
-## 3. `get_affected` cache build cost is hidden until first `cached: true` call
+ 1 1`get_affected` cache build cost is hidden until first `cached: true` call
 
 `buildChangeImpactCache()` builds an O(1)-lookup structure lazily on first use per
 `docs/mcp.md`. Worth confirming whether repeated `analyze` calls (incremental rebuilds) properly
@@ -64,7 +30,7 @@ correctness bug disguised as a performance feature. **Action:** trace `changeImp
 lifecycle in `src/mcp/cache.ts` against `dirtyRoots` invalidation; write a regression test if the
 two aren't coupled.
 
-## 4. Disk cache (CLI) vs. session cache (MCP) are two independent cache designs
+## 2. Disk cache (CLI) vs. session cache (MCP) are two independent cache designs
 
 `src/cli/graph-loader.ts` has its own disk-backed cache; `src/mcp/cache.ts` has its own in-memory
 session cache. Both re-implement "is this graph still valid" logic independently. **Action (low
@@ -75,9 +41,9 @@ parsing fresh on session start.
 
 ## Suggested order
 
-1. Correctness check on `ChangeImpactCache` invalidation (#3) — do this regardless of whether
+1. Correctness check on `ChangeImpactCache` invalidation (#1) — do this regardless of whether
    it's fixed, since serving stale data silently is worse than being slow.
-2. Everything else (#1, #2, #4) — measure-first, pursue only where profiling shows real cost.
+2. Everything else (#2) — measure-first, pursue only where profiling shows real cost.
 
 The worker-pool threshold regression (`DEFAULT_MIN_FILES_FOR_POOL`) is no longer tracked here —
 it was fixed directly in `src/graph/builder.ts` (raised to 600; see `project_worker_pool_threshold.md`).
@@ -86,6 +52,21 @@ Resolver specifier-resolution caching (formerly tracked here as item #1) is no l
 it was implemented directly in `src/graph/resolver.ts` (per-build `resolutionCache` on
 `DefaultResolver`, keyed by importer directory + lang-resolver bucket + specifier, with
 negative-result caching).
+
+The six-pass enrichment scan (formerly tracked here as item #1) is no longer tracked — it was
+fused into a single exported entry point, `enrichGraph`, called once from `GraphBuilder.build()`;
+each original pass is kept as a standalone export for targeted testing. See
+`docs/architecture.md`'s Enrichment section.
+
+`find_duplicates`'s cold-first-call tokenizing cost (formerly tracked here as item #1) is no
+longer tracked — the disk-persistence half of that item was implemented directly:
+`src/graph/duplication/token-cache-store.ts` persists the token cache to
+`<root>/mokosh-cache/duplication-tokens.json`, wired into both the CLI
+(`src/cli/commands/find-duplicates.ts`, which previously had no caching at all) and the MCP
+server (`src/mcp/cache.ts`'s `SessionState`, which now hydrates from disk on a session's first
+access instead of starting empty). The progress-notifications half of that item was explicitly
+descoped, not implemented — no MCP progress-token plumbing exists anywhere in this codebase yet,
+and it would be new infrastructure rather than a fit for this item's disk-cache scope.
 
 ## What NOT to do
 

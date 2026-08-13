@@ -1,5 +1,6 @@
 /** Session-scoped graph cache keyed by root directory, shared across MCP tool calls in one session. */
 import fs, { type FSWatcher } from "node:fs";
+import path from "node:path";
 import type { MokoshConfig } from "../config";
 import {
   buildChangeImpactCache,
@@ -7,12 +8,23 @@ import {
   configToGraphOptions,
   createImportMap,
   createWorkspaceGraph,
+  DEFAULT_CACHE_DIR,
+  DEFAULT_DUPLICATION_TOKEN_CACHE_FILE,
   type DuplicationTokenCache,
   type Graph,
+  loadTokenCacheFromDisk,
   type ParallelParsingOption,
+  saveTokenCacheToDisk,
   type WorkspaceGraph,
 } from "../index";
 import { IGNORE_WATCH } from "../watch-ignore";
+
+/** Where the disk-persisted `find_duplicates` token cache for `root` lives — shared with the
+ *  CLI's `mokosh-cache/` directory (`src/cli/graph-loader.ts`) so a CLI run and an MCP session
+ *  against the same root warm each other's cache. */
+function duplicationTokenCachePath(root: string): string {
+  return path.join(root, DEFAULT_CACHE_DIR, DEFAULT_DUPLICATION_TOKEN_CACHE_FILE);
+}
 
 type LastAnalyzeArgs =
   | { kind: "single"; entryPoints: string[]; coverageMap: Map<string, number> }
@@ -223,22 +235,48 @@ export class SessionState {
   }
 
   /**
-   * @description Returns the `find_duplicates` token cache for `root`, creating an empty one on
-   *   first access. Persists across calls within a session so unchanged files (by `mtime`/`size`)
-   *   skip re-tokenizing — see docs/adr-014-duplicate-detection-scale.md. Cleared by `invalidate`,
-   *   since a rebuilt graph may have re-parsed files whose `mtime`/`size` happen to collide with
-   *   stale entries in edge cases (e.g. a restored backup); starting empty after invalidation is
-   *   cheap insurance against that, not a response to a known bug.
+   * @description Returns the `find_duplicates` token cache for `root`. On first access this
+   *   session, hydrates from `<root>/mokosh-cache/duplication-tokens.json` on disk if present
+   *   (see `token-cache-store.ts`) instead of starting empty — this is what lets a fresh MCP
+   *   session's first `find_duplicates` call skip re-tokenizing files unchanged since the cache
+   *   was last written by any prior session, or by a CLI run against the same root. Persists
+   *   across calls within a session so unchanged files (by `mtime`/`size`) skip re-tokenizing —
+   *   see docs/adr-014-duplicate-detection-scale.md and
+   *   docs/plans/performance-improvements.md. Cleared (in-memory only) by `invalidate`, since a
+   *   rebuilt graph may have re-parsed files whose `mtime`/`size` happen to collide with stale
+   *   entries in edge cases (e.g. a restored backup); starting empty after invalidation is cheap
+   *   insurance against that, not a response to a known bug. The on-disk file is left alone by
+   *   `invalidate` — the same per-entry mtime/size check that guards this cache within a session
+   *   also self-corrects any stale disk entries the next time this method hydrates from it.
    * @param root - Absolute project root path.
    * @returns The mutable token cache for this root.
    */
-  getDuplicationTokenCache(root: string): DuplicationTokenCache {
+  async getDuplicationTokenCache(root: string): Promise<DuplicationTokenCache> {
     let cache = this.duplicationTokenCaches.get(root);
     if (!cache) {
-      cache = new Map();
+      cache = loadTokenCacheFromDisk(duplicationTokenCachePath(root));
       this.duplicationTokenCaches.set(root, cache);
     }
     return cache;
+  }
+
+  /**
+   * @description Persists `root`'s in-memory `find_duplicates` token cache to disk, so the next
+   *   MCP session (or a CLI run against the same root) starts warm instead of tokenizing cold.
+   *   Call after a `find_duplicates` call completes — see `handleFindDuplicates`. Never throws: a
+   *   write failure (e.g. a read-only filesystem) is logged to stderr and otherwise ignored,
+   *   since this is a pure performance optimization and must never fail the tool call that
+   *   triggered it.
+   * @param root - Absolute project root path.
+   */
+  flushDuplicationTokenCache(root: string): void {
+    const cache = this.duplicationTokenCaches.get(root);
+    if (!cache) return;
+    try {
+      saveTokenCacheToDisk(cache, duplicationTokenCachePath(root));
+    } catch (err) {
+      process.stderr.write(`Warning: failed to persist duplication token cache: ${err}\n`);
+    }
   }
 
   /**

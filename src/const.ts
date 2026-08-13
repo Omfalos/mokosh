@@ -1,3 +1,12 @@
+/** Shared by the CLI's disk graph cache (`src/cli/graph-loader.ts`) and the MCP server's
+ *  disk-persisted duplication token cache (`src/graph/duplication/token-cache-store.ts`) so both
+ *  consumers agree on where "the cache dir" is — a CLI run and an MCP session against the same
+ *  root end up sharing the same on-disk files. */
+export const DEFAULT_CACHE_DIR = "mokosh-cache";
+
+/** Filename for the disk-persisted `find_duplicates` token cache within `DEFAULT_CACHE_DIR`. */
+export const DEFAULT_DUPLICATION_TOKEN_CACHE_FILE = "duplication-tokens.json";
+
 export const DEFAULT_IGNORE_DIRS: readonly string[] = [
   "node_modules",
   ".git",

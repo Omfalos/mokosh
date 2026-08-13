@@ -30,4 +30,25 @@ describe("runClearCache", { tags: ["runClearCache"] }, () => {
     expect(() => runClearCache(cachePath)).not.toThrow();
     expect(fs.existsSync(cachePath)).toBe(false);
   });
+
+  it("deletes the duplication token cache alongside the graph cache when present", () => {
+    const cachePath = path.join(dir, "graph.json");
+    const tokenCachePath = path.join(dir, "duplication-tokens.json");
+    fs.writeFileSync(cachePath, "{}");
+    fs.writeFileSync(tokenCachePath, "[]");
+
+    runClearCache(cachePath);
+
+    expect(fs.existsSync(cachePath)).toBe(false);
+    expect(fs.existsSync(tokenCachePath)).toBe(false);
+  });
+
+  it("clears just the token cache without throwing when only it exists", () => {
+    const cachePath = path.join(dir, "graph.json");
+    const tokenCachePath = path.join(dir, "duplication-tokens.json");
+    fs.writeFileSync(tokenCachePath, "[]");
+
+    expect(() => runClearCache(cachePath)).not.toThrow();
+    expect(fs.existsSync(tokenCachePath)).toBe(false);
+  });
 });

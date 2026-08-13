@@ -451,8 +451,9 @@ export async function handleFindDuplicates(
     maxPunctuationRatio,
     limit,
     ignoreDirs,
-    tokenCache: cache.getDuplicationTokenCache(root),
+    tokenCache: await cache.getDuplicationTokenCache(root),
   });
+  cache.flushDuplicationTokenCache(root);
   return text({ minLines, groups, count: groups.length });
 }
 

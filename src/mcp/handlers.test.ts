@@ -5,7 +5,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { WorkspaceGraph } from "../graph/workspace-model";
 import { Graph } from "../index";
 import type { SerializedGraph } from "../types/graph";
-import type { SessionState } from "./cache";
+import { SessionState } from "./cache";
 import {
   handleAnalyze,
   handleDetectFeatures,
@@ -566,7 +566,8 @@ describe("handleFindDuplicates", {
     return {
       ensureFresh: vi.fn().mockResolvedValue(graph),
       getConfig: vi.fn().mockReturnValue(config),
-      getDuplicationTokenCache: vi.fn().mockReturnValue(new Map()),
+      getDuplicationTokenCache: vi.fn().mockResolvedValue(new Map()),
+      flushDuplicationTokenCache: vi.fn(),
     } as unknown as SessionState;
   }
 
@@ -661,6 +662,57 @@ describe("handleFindDuplicates", {
     ) as { count: number };
 
     expect(data.count).toBeGreaterThan(0);
+  });
+
+  describe("disk-persisted token cache", () => {
+    function realSessionState(graph: Graph): SessionState {
+      const cache = new SessionState();
+      vi.spyOn(cache, "ensureFresh").mockResolvedValue(graph);
+      vi.spyOn(cache, "getConfig").mockReturnValue(undefined);
+      return cache;
+    }
+
+    test("a fresh session hydrates a pre-seeded disk cache and writes it back", async () => {
+      root = fs.mkdtempSync(path.join(os.tmpdir(), "mokosh-handlers-duplicates-"));
+      fs.writeFileSync(path.join(root, "a.ts"), DUPLICATED_BLOCK);
+      fs.writeFileSync(path.join(root, "b.ts"), DUPLICATED_BLOCK);
+      const graph = Graph.deserialize({ nodes: [makeNode("a.ts"), makeNode("b.ts")] });
+
+      const data = parse(
+        await handleFindDuplicates(realSessionState(graph), { root, minLines: 4 }),
+      ) as { count: number };
+      expect(data.count).toBeGreaterThan(0);
+
+      const tokenCachePath = path.join(root, "mokosh-cache", "duplication-tokens.json");
+      expect(fs.existsSync(tokenCachePath)).toBe(true);
+      const persisted = JSON.parse(fs.readFileSync(tokenCachePath, "utf-8"));
+      expect(persisted.map((e: [string, unknown]) => e[0]).sort()).toEqual(["a.ts", "b.ts"]);
+
+      // A brand-new session hydrating from that same file should still find the duplicate even
+      // after both source files vanish from disk — only a genuine disk-cache hit explains that.
+      fs.rmSync(path.join(root, "a.ts"));
+      fs.rmSync(path.join(root, "b.ts"));
+      const secondSessionData = parse(
+        await handleFindDuplicates(realSessionState(graph), { root, minLines: 4 }),
+      ) as { count: number };
+      expect(secondSessionData.count).toBe(data.count);
+    });
+
+    test("a corrupt disk cache degrades to a cold tokenize instead of throwing", async () => {
+      root = fs.mkdtempSync(path.join(os.tmpdir(), "mokosh-handlers-duplicates-"));
+      fs.writeFileSync(path.join(root, "a.ts"), DUPLICATED_BLOCK);
+      fs.writeFileSync(path.join(root, "b.ts"), DUPLICATED_BLOCK);
+      const cacheDir = path.join(root, "mokosh-cache");
+      fs.mkdirSync(cacheDir, { recursive: true });
+      fs.writeFileSync(path.join(cacheDir, "duplication-tokens.json"), "{not valid json");
+      const graph = Graph.deserialize({ nodes: [makeNode("a.ts"), makeNode("b.ts")] });
+
+      const data = parse(
+        await handleFindDuplicates(realSessionState(graph), { root, minLines: 4 }),
+      ) as { count: number };
+
+      expect(data.count).toBeGreaterThan(0);
+    });
   });
 });
 

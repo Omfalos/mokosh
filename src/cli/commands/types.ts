@@ -6,6 +6,10 @@ export type CommandHandler = (ctx: CommandContext) => Promise<void>;
 export interface CommandContext {
   graph: Graph;
   rootDir: string;
+  /** Resolved path to the disk graph cache file (`--cache` or the default); commands that
+   *  maintain their own disk cache (e.g. `find-duplicates`'s token cache) derive their cache
+   *  path from this one's directory so `--cache` relocates every cache file together. */
+  cachePath: string;
   entryPoints: string[];
   scanOptions: ScanOptions;
   rawConfig: MokoshConfig;

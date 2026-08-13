@@ -5,6 +5,7 @@ import { afterEach, describe, expect, test } from "vitest";
 import type { FileType } from "../../types/parse";
 import { Graph } from "../model";
 import { findDuplicates } from "./index";
+import { loadTokenCacheFromDisk, saveTokenCacheToDisk } from "./token-cache-store";
 
 function setup(files: Record<string, string>): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "mokosh-duplication-"));
@@ -451,6 +452,33 @@ describe("findDuplicates", () => {
       const smallerGraph = graphFor([["a.ts", "typescript"]]);
       await findDuplicates(smallerGraph, root, { minLines: 4, windowSize: 8, tokenCache });
       expect([...tokenCache.keys()]).toEqual(["a.ts"]);
+    });
+
+    test("a cache round-tripped through disk still produces a cache hit", async () => {
+      root = setup({ "a.ts": block, "b.ts": block });
+      const graph = graphFor([
+        ["a.ts", "typescript"],
+        ["b.ts", "typescript"],
+      ]);
+      const tokenCache = new Map();
+      await findDuplicates(graph, root, { minLines: 4, windowSize: 8, tokenCache });
+
+      const cachePath = path.join(root, "duplication-tokens.json");
+      saveTokenCacheToDisk(tokenCache, cachePath);
+      const rehydrated = loadTokenCacheFromDisk(cachePath);
+      expect(rehydrated.size).toBe(tokenCache.size);
+
+      // Both files vanish from disk; only a genuine cache hit (not a re-read) can still find the
+      // duplicate, proving the disk round trip preserves the cached tokens' fidelity.
+      fs.rmSync(path.join(root, "a.ts"));
+      fs.rmSync(path.join(root, "b.ts"));
+
+      const result = await findDuplicates(graph, root, {
+        minLines: 4,
+        windowSize: 8,
+        tokenCache: rehydrated,
+      });
+      expect(result.groups.length).toBeGreaterThan(0);
     });
   });
 });

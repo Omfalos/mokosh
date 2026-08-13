@@ -32,6 +32,7 @@ import { type DuplicateFamily, getDuplicateFamily } from "./families";
 import type { DuplicateGroup, FileTokens } from "./shingle";
 import { findStyleBlockDuplicates, type StyleSourceFile } from "./style-blocks";
 import { findExactDuplicateGroups } from "./suffix-duplicates";
+import type { CachedFileTokens, DuplicationTokenCache } from "./token-cache-store";
 import type { NormalizedToken } from "./tokenizer";
 import { tokenize } from "./tokenizer";
 
@@ -46,29 +47,13 @@ export type ParallelTokenizingOption = boolean | { minFiles?: number; maxThreads
 export type { DuplicateFamily } from "./families";
 export type { DuplicateGroup, DuplicateOccurrence } from "./shingle";
 export type { StyleSourceFile } from "./style-blocks";
+export type { CachedFileTokens, DuplicationTokenCache } from "./token-cache-store";
+export { loadTokenCacheFromDisk, saveTokenCacheToDisk } from "./token-cache-store";
 
 /** CSS-family types with a shared PostCSS AST available — routed through the structural rule-body
  *  comparator instead of the generic token-shingle pipeline. Stylus has no such AST here, so it
  *  stays on the token-shingle path (still isolated to the `"style"` family, see `families.ts`). */
 const STRUCTURAL_STYLE_TYPES: ReadonlySet<FileType> = new Set<FileType>(["css", "scss", "less"]);
-
-/** One file's cached tokenize result, fingerprinted by `mtime`/`size`/`ignoreLiterals` — any
- *  mismatch against the current `FileNode` (or against the `ignoreLiterals` this scan is running
- *  with) means the entry is stale and must be recomputed, exactly like `GraphBuilder`'s
- *  mtime+size node reuse for incremental graph builds. */
-export interface CachedFileTokens {
-  mtime: number;
-  size: number;
-  ignoreLiterals: boolean;
-  tokens: NormalizedToken[];
-}
-
-/** Caller-owned cache, keyed by project-relative path, reused across repeated `findDuplicates`
- *  calls against the same root (e.g. successive MCP tool calls in one session) so unchanged files
- *  never pay tokenizing cost twice. `findDuplicates` itself is stateless — callers that want this
- *  benefit own the `Map` and pass it in; the CLI's one-shot process has nothing to gain and omits
- *  it. See docs/adr-014-duplicate-detection-scale.md. */
-export type DuplicationTokenCache = Map<string, CachedFileTokens>;
 
 export interface FindDuplicatesOptions {
   /** Minimum duplicated block size, in source lines, to report (default 6). */

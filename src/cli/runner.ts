@@ -286,6 +286,7 @@ export async function run(): Promise<void> {
   const ctx: CommandContext = {
     graph,
     rootDir,
+    cachePath: resolvedCachePath,
     entryPoints: resolvedEntryPoints.map((entryPath) => entryPath.replace(`${rootDir}/`, "")),
     scanOptions,
     rawConfig: config.rawConfig,

@@ -4,7 +4,13 @@
 export { applyConfig, configToGraphOptions, loadMokoshConfig, type MokoshConfig } from "./config";
 
 // Constants
-export { DEFAULT_EXTENSIONS, DEFAULT_IGNORE_DIRS, type ScanOptions } from "./const";
+export {
+  DEFAULT_CACHE_DIR,
+  DEFAULT_DUPLICATION_TOKEN_CACHE_FILE,
+  DEFAULT_EXTENSIONS,
+  DEFAULT_IGNORE_DIRS,
+  type ScanOptions,
+} from "./const";
 
 // Coverage
 export { loadCoverageMap } from "./coverage";
@@ -45,6 +51,8 @@ export {
   type FindDuplicatesOptions,
   type FindDuplicatesResult,
   findDuplicates,
+  loadTokenCacheFromDisk,
+  saveTokenCacheToDisk,
 } from "./graph/duplication";
 export {
   detectFeatures,
