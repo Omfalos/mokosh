@@ -264,3 +264,79 @@ describe("workspace package resolution", { tags: ["DefaultResolver", "resolver"]
     expect(result?.isWorkspace).toBeUndefined();
   });
 });
+
+// ─── Resolution cache ─────────────────────────────────────────────────────────
+
+describe("resolution cache", { tags: ["DefaultResolver", "resolver"] }, () => {
+  let root: string;
+  let resolver: DefaultResolver;
+
+  beforeAll(() => {
+    ({ root, resolver } = setup({
+      "a/local.ts": "",
+      "a/sibling.ts": "",
+      "b/local.ts": "",
+      "b/sibling.ts": "",
+      "shared/__init__.py": "",
+      "mod.py": "",
+      "mod.ts": "",
+      "go.mod": "module github.com/myorg/myrepo\n\ngo 1.21\n",
+      "pkg/multi/one.go": "",
+      "pkg/multi/two.go": "",
+    }));
+  });
+  afterAll(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  test("same specifier resolved from different directories does not collide", () => {
+    const resultA = resolver.resolve(path.join(root, "a/local.ts"), "./sibling");
+    const resultB = resolver.resolve(path.join(root, "b/local.ts"), "./sibling");
+    expect(resultA).toMatchObject({ path: path.join(root, "a/sibling.ts"), isExternal: false });
+    expect(resultB).toMatchObject({ path: path.join(root, "b/sibling.ts"), isExternal: false });
+  });
+
+  test("same directory + same bare specifier does not collide across lang-resolver buckets", () => {
+    // mod.py resolves "shared" via PythonLangResolver (package dir exists); mod.ts has no
+    // Python/other lang-resolver branch for a bare "shared" specifier, so it falls to external.
+    const pyResult = resolver.resolve(path.join(root, "mod.py"), "shared");
+    const tsResult = resolver.resolve(path.join(root, "mod.ts"), "shared");
+    expect(pyResult).toMatchObject({
+      path: path.join(root, "shared/__init__.py"),
+      isExternal: false,
+    });
+    expect(tsResult).toMatchObject({ isExternal: true });
+
+    // Reverse call order must not change the outcome either.
+    const tsResult2 = resolver.resolve(path.join(root, "mod.ts"), "shared");
+    const pyResult2 = resolver.resolve(path.join(root, "mod.py"), "shared");
+    expect(tsResult2).toMatchObject({ isExternal: true });
+    expect(pyResult2).toMatchObject({
+      path: path.join(root, "shared/__init__.py"),
+      isExternal: false,
+    });
+  });
+
+  test("negative resolution result is cached and stays negative on repeated calls", () => {
+    const caller = path.join(root, "a/local.ts");
+    expect(resolver.resolve(caller, "./does-not-exist")).toBeNull();
+    expect(resolver.resolve(caller, "./does-not-exist")).toBeNull();
+    expect(resolver.resolveAll(caller, "./does-not-exist")).toEqual([]);
+    expect(resolver.resolveAll(caller, "./does-not-exist")).toEqual([]);
+  });
+
+  test("resolveAll()'s multi-file result and resolve()'s first-result semantics agree, in either call order", () => {
+    const caller = path.join(root, "app.go");
+    const spec = "github.com/myorg/myrepo/pkg/multi";
+
+    const all = resolver.resolveAll(caller, spec);
+    expect(all).toHaveLength(2);
+    const single = resolver.resolve(caller, spec);
+    expect(single).toEqual(all[0]);
+
+    // Reverse order: resolve() first must not poison the cache with a single-element result.
+    const otherResolver = new DefaultResolver(root);
+    const single2 = otherResolver.resolve(caller, spec);
+    const all2 = otherResolver.resolveAll(caller, spec);
+    expect(all2).toHaveLength(2);
+    expect(single2).toEqual(all2[0]);
+  });
+});

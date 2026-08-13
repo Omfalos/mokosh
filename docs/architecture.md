@@ -80,7 +80,7 @@ Both are stored on `FileNode` as `complexity` and `cognitiveComplexity`. Go and 
 
 Walks the file system recursively from entry points, builds a `DependencyGraph` in memory:
 
-- **Parallel parsing**: `parseFile()` calls are optionally offloaded to a `piscina` worker-thread pool once a cheap pre-scan finds at least `minFiles` (default 20) files under `rootDir`. Traversal runs as a queue-pumped wavefront rather than strict recursive DFS so parses within a round can run concurrently. See [ADR-010](adr-010-parallel-parsing.md).
+- **Parallel parsing**: `parseFile()` calls are optionally offloaded to a `piscina` worker-thread pool once a cheap pre-scan finds at least `minFiles` (default 600) files under `rootDir`. Traversal runs as a queue-pumped wavefront rather than strict recursive DFS so parses within a round can run concurrently. See [ADR-010](adr-010-parallel-parsing.md).
 - **Incremental builds**: Takes an optional previous `Graph`. Nodes whose `mtime` and `size` are unchanged are reused as-is — only changed files are re-parsed.
 - **Automatic test discovery**: After the entry-point walk, the builder scans for test files by filename pattern and processes any not yet visited, so `testedBy` enrichment is complete even when test files are not imported from library entry points.
 - **Automatic doc discovery**: The builder also scans the full `rootDir` for `.md`/`.mdx` files, since docs are never reachable via import edges and commonly live outside the entry points' subtree (e.g. a top-level `README.md`).
@@ -104,7 +104,12 @@ Wraps `Map<string, FileNode>` with:
 
 ### Enrichment (`src/graph/enrichment.ts`)
 
-Six post-build passes, all mutating nodes in place:
+Six enrichment concerns, all mutating nodes in place. `enrichLibraryTags` runs inline per-node
+during parsing (`builder.ts`'s `getNode`); the other five used to run as five separate full-graph
+scans after the build, but now run as a single fused pass, `enrichGraph`, called once from
+`GraphBuilder.build()`. Each concern still has a standalone exported function with the same
+per-node/per-import logic (`enrichment.test.ts` asserts `enrichGraph` is output-equivalent to
+calling the five in sequence) — useful for targeted testing or reuse outside the builder.
 
 | Function | What it adds |
 |----------|-------------|
@@ -114,6 +119,14 @@ Six post-build passes, all mutating nodes in place:
 | `enrichTestedBy` | `node.testedBy` array on logic/barrel nodes — which test files directly import them |
 | `enrichTestNodeTags` | Adds `import`-kind tags to test nodes derived from basenames of their local imports |
 | `enrichDocDrift` | Links markdown docs to referenced `category: "logic"` files; flags docs whose referenced files committed more recently (`node.staleFor`, `node.documentedBy`) — a commit-recency heuristic, not a content diff. See [ADR-009](adr-009-markdown-parsing.md) |
+
+`enrichGraph` also resets `testedBy`, `documentedBy`, `staleFor`, and enrichment-added `import`-kind
+tags before recomputing them each build. This matters for incremental rebuilds: `GraphBuilder`
+reuses unchanged nodes as shallow copies of the previous graph's nodes, so without a reset these
+array fields would be the same references carried forward build-to-build, only ever growing —
+a relationship that stops being true (e.g. a test that no longer imports a file) would never be
+removed. `comment-marker` tags are left out of the reset since that kind is also produced at parse
+time, not only by enrichment.
 
 ### WorkspaceGraph (`src/graph/workspace-model.ts`)
 

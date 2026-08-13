@@ -77,9 +77,11 @@ applied one layer up the pipeline.
 `parseFile` (ADR-010): `src/duplication-worker.ts` is a thin wrapper around `tokenize()`, built as
 its own tsup entry so `dist/duplication-worker.js` lands next to `dist/index.js` (same `__dirname`
 reasoning as `parse-worker.js`). A pool is constructed only once the candidate file count reaches
-`minFiles` (default 20, matching `GraphBuilder`'s default and its documented crossover
-reasoning — see ADR-010's discussion of pool spin-up cost vs. per-file parse cost), and pool
-construction is wrapped in try/catch with a synchronous fallback, identical to the parse pool.
+`minFiles` (default 20 — originally matched `GraphBuilder`'s default, but as of 2026-08-13
+`GraphBuilder`'s own threshold was raised to 600 to fix a measured small-repo regression, see
+ADR-010; this tokenizing pool's threshold was deliberately left untouched and has not been
+separately benchmarked, so the two no longer share a value), and pool construction is wrapped in
+try/catch with a synchronous fallback, identical to the parse pool.
 
 Unlike `GraphBuilder`'s discovery-driven traversal, `findDuplicates` already knows its full
 candidate file list up front (it's `graph.nodes`, filtered), so no pre-scan walk is needed to

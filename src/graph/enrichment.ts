@@ -13,10 +13,12 @@ export function enrichCoverage(
   nodes: Map<string, FileNode>,
   coverageMap: Map<string, number>,
 ): void {
-  for (const node of nodes.values()) {
-    const pct = coverageMap.get(node.path);
-    if (pct !== undefined) node.coveragePct = pct;
-  }
+  for (const node of nodes.values()) applyCoverageForNode(node, coverageMap);
+}
+
+function applyCoverageForNode(node: FileNode, coverageMap: Map<string, number>): void {
+  const pct = coverageMap.get(node.path);
+  if (pct !== undefined) node.coveragePct = pct;
 }
 
 /**
@@ -51,15 +53,21 @@ export function enrichLibraryTags(imports: ImportEdge[], tags: StructuredTag[]):
 export function enrichTestedBy(nodes: Map<string, FileNode>): void {
   for (const node of nodes.values()) {
     if (node.category !== "test") continue;
-    for (const imp of node.imports) {
-      if (imp.isExternal || !imp.toPath) continue;
-      const target = nodes.get(imp.toPath);
-      if (!target) continue;
-      if (target.category !== "logic" && target.category !== "barrel") continue;
-      target.testedBy ??= [];
-      if (!target.testedBy.includes(node.path)) target.testedBy.push(node.path);
-    }
+    for (const imp of node.imports) applyTestedByForImport(node, imp, nodes);
   }
+}
+
+function applyTestedByForImport(
+  node: FileNode,
+  imp: ImportEdge,
+  nodes: Map<string, FileNode>,
+): void {
+  if (imp.isExternal || !imp.toPath) return;
+  const target = nodes.get(imp.toPath);
+  if (!target) return;
+  if (target.category !== "logic" && target.category !== "barrel") return;
+  target.testedBy ??= [];
+  if (!target.testedBy.includes(node.path)) target.testedBy.push(node.path);
 }
 
 /**
@@ -77,21 +85,23 @@ export function enrichTestedBy(nodes: Map<string, FileNode>): void {
  * @param nodes - The full node map produced by the graph builder; mutated in place.
  */
 export function enrichDocDrift(nodes: Map<string, FileNode>): void {
-  for (const node of nodes.values()) {
-    if (node.type !== "markdown") continue;
-    for (const imp of node.imports) {
-      if (imp.isExternal || !imp.toPath) continue;
-      const target = nodes.get(imp.toPath);
-      if (!target || target === node) continue;
+  for (const node of nodes.values()) applyDocDriftForNode(node, nodes);
+}
 
-      target.documentedBy ??= [];
-      if (!target.documentedBy.includes(node.path)) target.documentedBy.push(node.path);
+function applyDocDriftForNode(node: FileNode, nodes: Map<string, FileNode>): void {
+  if (node.type !== "markdown") return;
+  for (const imp of node.imports) {
+    if (imp.isExternal || !imp.toPath) continue;
+    const target = nodes.get(imp.toPath);
+    if (!target || target === node) continue;
 
-      if (target.category !== "logic") continue;
-      if ((target.lastCommitAt ?? 0) > (node.lastCommitAt ?? 0)) {
-        node.staleFor ??= [];
-        if (!node.staleFor.includes(target.path)) node.staleFor.push(target.path);
-      }
+    target.documentedBy ??= [];
+    if (!target.documentedBy.includes(node.path)) target.documentedBy.push(node.path);
+
+    if (target.category !== "logic") continue;
+    if ((target.lastCommitAt ?? 0) > (node.lastCommitAt ?? 0)) {
+      node.staleFor ??= [];
+      if (!node.staleFor.includes(target.path)) node.staleFor.push(target.path);
     }
   }
 }
@@ -108,31 +118,33 @@ function round4(value: number): number {
  * @param nodes - The full node map produced by the graph builder; mutated in place.
  */
 export function enrichExportUsage(nodes: Map<string, FileNode>): void {
-  for (const node of nodes.values()) {
-    const ratios: number[] = [];
-    for (const imp of node.imports) {
-      if (imp.isExternal || !imp.toPath) continue;
-      const target = nodes.get(imp.toPath);
-      if (!target || target.exports.length === 0) continue;
+  for (const node of nodes.values()) applyExportUsageForNode(node, nodes);
+}
 
-      let ratio: number;
-      if (imp.symbols === undefined) {
-        if (imp.type === "side-effect") continue;
-        ratio = 1.0;
-      } else if (imp.symbols.includes("*")) {
-        ratio = 1.0;
-      } else {
-        ratio = imp.symbols.length / target.exports.length;
-      }
+function applyExportUsageForNode(node: FileNode, nodes: Map<string, FileNode>): void {
+  const ratios: number[] = [];
+  for (const imp of node.imports) {
+    if (imp.isExternal || !imp.toPath) continue;
+    const target = nodes.get(imp.toPath);
+    if (!target || target.exports.length === 0) continue;
 
-      imp.exportUsageRatio = round4(Math.min(1, ratio));
-      ratios.push(imp.exportUsageRatio);
+    let ratio: number;
+    if (imp.symbols === undefined) {
+      if (imp.type === "side-effect") continue;
+      ratio = 1.0;
+    } else if (imp.symbols.includes("*")) {
+      ratio = 1.0;
+    } else {
+      ratio = imp.symbols.length / target.exports.length;
     }
 
-    if (ratios.length > 0) {
-      node.avgExportUsage = round4(ratios.reduce((sum, ratio) => sum + ratio, 0) / ratios.length);
-      node.maxExportUsage = Math.max(...ratios);
-    }
+    imp.exportUsageRatio = round4(Math.min(1, ratio));
+    ratios.push(imp.exportUsageRatio);
+  }
+
+  if (ratios.length > 0) {
+    node.avgExportUsage = round4(ratios.reduce((sum, ratio) => sum + ratio, 0) / ratios.length);
+    node.maxExportUsage = Math.max(...ratios);
   }
 }
 
@@ -209,12 +221,70 @@ function propagateCommentMarkers(
 export function enrichTestNodeTags(nodes: Map<string, FileNode>): void {
   for (const node of nodes.values()) {
     if (node.category !== "test") continue;
-    for (const importEdge of node.imports) {
-      if (!importEdge.toPath || importEdge.isExternal) continue;
+    for (const importEdge of node.imports) applyTestNodeTagsForImport(node, importEdge, nodes);
+  }
+}
 
-      addFilenameTag(node, importEdge);
-      addSymbolTags(node, importEdge);
-      propagateCommentMarkers(node, importEdge, nodes);
+function applyTestNodeTagsForImport(
+  node: FileNode,
+  importEdge: ImportEdge,
+  nodes: Map<string, FileNode>,
+): void {
+  if (!importEdge.toPath || importEdge.isExternal) return;
+
+  addFilenameTag(node, importEdge);
+  addSymbolTags(node, importEdge);
+  propagateCommentMarkers(node, importEdge, nodes);
+}
+
+/**
+ * @description Runs all five post-build enrichment concerns — test-node tags, `testedBy`
+ *   links, export-usage ratios, doc-drift links, and coverage — in a single pass over `nodes`
+ *   instead of one full-graph scan per concern (`enrichTestNodeTags`, `enrichTestedBy`,
+ *   `enrichExportUsage`, `enrichDocDrift`, `enrichCoverage` run in sequence). Semantically
+ *   equivalent to calling those five in sequence — see `enrichment.test.ts` for the
+ *   equivalence check — and reuses the exact same per-node/per-import helpers each of them
+ *   calls, so there is one implementation of every rule, not two.
+ *
+ *   Runs as two passes rather than one: a cheap reset pass clears enrichment-only derived
+ *   fields (`testedBy`, `documentedBy`, `staleFor`, and `import`-kind tags previously added by
+ *   this function to test nodes) before a second pass recomputes them. The reset has to happen
+ *   for every node before any node is recomputed — `testedBy`/`documentedBy` are written onto
+ *   the *target* of an edge, which can be a node that's processed later in map-iteration order,
+ *   so resetting and writing in the same single pass would risk a node wiping output another
+ *   node just wrote to it.
+ *
+ *   The reset matters for incremental rebuilds: `GraphBuilder`'s per-node cache reuse
+ *   shallow-copies nodes from the previous graph, so these fields are the *same array
+ *   references* carried forward build-to-build — without a reset, a relationship that stops
+ *   being true (e.g. a test that no longer imports a file) would never be removed, only ever
+ *   appended to. `comment-marker` tags are deliberately left out of the reset: that kind is
+ *   also produced at parse time (`@tag` comments in a file's own source), so clearing it
+ *   indiscriminately would delete genuine tags along with ones propagated by a prior
+ *   enrichment run. That narrower staleness case is a pre-existing limitation, left as-is
+ *   rather than risking data loss.
+ * @param nodes - The full node map produced by the graph builder; mutated in place.
+ * @param coverageMap - Map of project-relative path → line-coverage percentage (0–100). Pass
+ *   an empty map to skip coverage annotation.
+ */
+export function enrichGraph(nodes: Map<string, FileNode>, coverageMap: Map<string, number>): void {
+  for (const node of nodes.values()) {
+    delete node.testedBy;
+    delete node.documentedBy;
+    delete node.staleFor;
+    if (node.category === "test") node.tags = node.tags.filter((tag) => tag.kind !== "import");
+  }
+
+  for (const node of nodes.values()) {
+    applyExportUsageForNode(node, nodes);
+    if (coverageMap.size > 0) applyCoverageForNode(node, coverageMap);
+
+    if (node.category === "test") {
+      for (const imp of node.imports) {
+        applyTestedByForImport(node, imp, nodes);
+        applyTestNodeTagsForImport(node, imp, nodes);
+      }
     }
+    applyDocDriftForNode(node, nodes);
   }
 }

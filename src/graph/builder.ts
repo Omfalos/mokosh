@@ -8,14 +8,7 @@ import { type LockFileData, loadLockFile } from "../parser/lockfile.js";
 import { getFileType, parseFile } from "../parser.js";
 import type { DependencyGraph } from "../types/graph";
 import type { CallEdge, FileNode, ImportEdge } from "../types/node";
-import {
-  enrichCoverage,
-  enrichDocDrift,
-  enrichExportUsage,
-  enrichLibraryTags,
-  enrichTestedBy,
-  enrichTestNodeTags,
-} from "./enrichment.js";
+import { enrichGraph, enrichLibraryTags } from "./enrichment.js";
 import { Graph } from "./model.js";
 import { DefaultResolver, type PathResolver } from "./resolver.js";
 
@@ -35,7 +28,7 @@ const WALK_IGNORE_DIRS = new Set([
 ]);
 
 /** Below this many files, the worker-pool spin-up cost outweighs the parallelism benefit — parse in-process instead. */
-const DEFAULT_MIN_FILES_FOR_POOL = 20;
+const DEFAULT_MIN_FILES_FOR_POOL = 600;
 
 /** Configures whether/how `parseFile` calls are offloaded to a `piscina` worker pool. `false` always parses in-process. */
 export type ParallelParsingOption = boolean | { minFiles?: number; maxThreads?: number };
@@ -167,11 +160,7 @@ export class GraphBuilder {
         process.stderr.write(`\nDone. Total processed: ${this.visited.size} nodes.\n`);
       }
 
-      enrichTestNodeTags(this.graph.nodes);
-      enrichTestedBy(this.graph.nodes);
-      enrichExportUsage(this.graph.nodes);
-      enrichDocDrift(this.graph.nodes);
-      if (this.coverageMap.size > 0) enrichCoverage(this.graph.nodes, this.coverageMap);
+      enrichGraph(this.graph.nodes, this.coverageMap);
       return new Graph(this.graph.nodes);
     } finally {
       if (this.pool) {
