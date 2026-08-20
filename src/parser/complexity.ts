@@ -45,87 +45,149 @@ export function computeCyclomaticComplexity(rootNode: ts.Node): number {
 }
 
 /**
+ * @description Scores an `if` statement: a fresh `if` adds `1 + depth` and nests its
+ *   condition/then-branch at `depth + 1`; a chained `else if` recurses into this same function at
+ *   the *same* depth with `isElseIf: true` so it contributes only a flat +1 (mirroring how the
+ *   cognitive model treats `else if` as a continuation, not new nesting); a bare `else` adds a
+ *   flat +1 and nests its body at `depth + 1`.
+ * @param {ts.IfStatement} node - The `if` statement node.
+ * @param {number} depth - Current nesting depth.
+ * @param {boolean} isElseIf - Whether `node` is itself the `else if` continuation of an
+ *   enclosing `if` (so it contributes a flat +1 instead of `1 + depth`).
+ * @returns {number} This node's cognitive complexity contribution, including its branches.
+ */
+function scoreIfStatement(node: ts.IfStatement, depth: number, isElseIf: boolean): number {
+  let cognitive = isElseIf ? 1 : 1 + depth;
+  const bodyDepth = isElseIf ? depth : depth + 1;
+  cognitive += walkNode(node.expression, bodyDepth, false);
+  cognitive += walkNode(node.thenStatement, bodyDepth, false);
+  if (node.elseStatement) {
+    if (ts.isIfStatement(node.elseStatement)) {
+      cognitive += scoreIfStatement(node.elseStatement, depth, true);
+    } else {
+      cognitive += 1 + walkNode(node.elseStatement, depth + 1, false); // bare else
+    }
+  }
+  return cognitive;
+}
+
+/**
+ * @description Scores a node whose own children are strictly more deeply nested than itself —
+ *   `for`/`while`/`do`/`switch` bodies and a function/lambda nested inside another function —
+ *   which all share the same shape: a flat `1 + depth` for the node itself, then every child
+ *   walked at `depth + 1`.
+ * @param {ts.Node} node - The loop, switch, or nested-function node.
+ * @param {number} depth - Current nesting depth (the node's own, not its children's).
+ * @returns {number} This node's cognitive complexity contribution, including its body.
+ */
+function scoreNestedBlock(node: ts.Node, depth: number): number {
+  let cognitive = 1 + depth;
+  ts.forEachChild(node, (child) => {
+    cognitive += walkNode(child, depth + 1, false);
+  });
+  return cognitive;
+}
+
+/**
+ * @description Scores a `catch` clause: adds a flat `1 + depth` for the clause itself, but —
+ *   unlike loops/`switch` — walks its children at the *same* depth rather than nesting them,
+ *   matching the original algorithm's treatment of `catch` bodies as not adding indentation.
+ * @param {ts.Node} node - The `catch` clause node.
+ * @param {number} depth - Current nesting depth.
+ * @returns {number} This node's cognitive complexity contribution, including its body.
+ */
+function scoreCatchClause(node: ts.Node, depth: number): number {
+  let cognitive = 1 + depth;
+  ts.forEachChild(node, (child) => {
+    cognitive += walkNode(child, depth, false);
+  });
+  return cognitive;
+}
+
+/**
+ * @description Sums the cognitive complexity of every direct child of `node`, each walked at the
+ *   same depth as `node` itself — the fallthrough case for nodes with no scoring rule of their
+ *   own (e.g. a block, a plain statement, a binary expression's operands).
+ * @param {ts.Node} node - The node whose children should be walked.
+ * @param {number} depth - Nesting depth to walk the children at.
+ * @returns {number} The summed cognitive complexity of all direct children.
+ */
+function walkChildren(node: ts.Node, depth: number): number {
+  let cognitive = 0;
+  ts.forEachChild(node, (child) => {
+    cognitive += walkNode(child, depth, false);
+  });
+  return cognitive;
+}
+
+/**
+ * @description Reports whether a binary expression's operator is `&&`, `||`, or `??` — the only
+ *   operators that count as cognitive-complexity decision points.
+ * @param {ts.BinaryExpression} node - The binary expression node.
+ * @returns {boolean} `true` if the operator is `&&`, `||`, or `??`.
+ */
+function isLogicalOrNullishBinary(node: ts.BinaryExpression): boolean {
+  const operatorKind = node.operatorToken.kind;
+  return (
+    operatorKind === ts.SyntaxKind.AmpersandAmpersandToken ||
+    operatorKind === ts.SyntaxKind.BarBarToken ||
+    operatorKind === ts.SyntaxKind.QuestionQuestionToken
+  );
+}
+
+/**
+ * @description Dispatches one AST node to its scoring rule by node kind — `if` statements need
+ *   their chained-`else if`-aware handling ({@link scoreIfStatement}); loops, `switch`, and
+ *   nested functions/lambdas share the same nest-and-recurse shape ({@link scoreNestedBlock});
+ *   `catch` clauses nest their own +1 but not their children ({@link scoreCatchClause});
+ *   everything else contributes a flat +1 for ternaries and `&&`/`||`/`??`
+ *   ({@link isLogicalOrNullishBinary}), then recurses into its children at the same depth
+ *   ({@link walkChildren}).
+ * @param {ts.Node} node - The AST node to score.
+ * @param {number} depth - Current nesting depth.
+ * @param {boolean} isElseIf - Whether `node` is itself an `else if` continuation (only meaningful
+ *   when `node` is an `if` statement; see {@link scoreIfStatement}).
+ * @returns {number} This node's cognitive complexity contribution, including its subtree.
+ */
+function walkNode(node: ts.Node, depth: number, isElseIf: boolean): number {
+  if (ts.isIfStatement(node)) return scoreIfStatement(node, depth, isElseIf);
+
+  if (
+    ts.isForStatement(node) ||
+    ts.isForInStatement(node) ||
+    ts.isForOfStatement(node) ||
+    ts.isWhileStatement(node) ||
+    ts.isDoStatement(node) ||
+    ts.isSwitchStatement(node)
+  ) {
+    return scoreNestedBlock(node, depth);
+  }
+
+  if (ts.isCatchClause(node)) return scoreCatchClause(node, depth);
+
+  let own = 0;
+  if (ts.isConditionalExpression(node)) own += 1;
+  if (ts.isBinaryExpression(node) && isLogicalOrNullishBinary(node)) own += 1;
+
+  const isNestedFunction =
+    depth > 0 &&
+    (ts.isFunctionDeclaration(node) || ts.isFunctionExpression(node) || ts.isArrowFunction(node));
+  if (isNestedFunction) return own + scoreNestedBlock(node, depth);
+
+  return own + walkChildren(node, depth);
+}
+
+/**
  * @description Computes a simplified SonarSource-style cognitive complexity score for an AST
- *   node, tracking how hard the code is to read by adding a nesting penalty. Structural nodes
- *   (`if`, loops, `switch`, `catch`) increment by `1 + current nesting depth` and increase the
- *   depth for their children. Chained `else if` gets +1 (no nesting bonus). A bare `else` gets
- *   +1. Logical operators and ternaries each add +1 without nesting. Nested functions (lambdas,
- *   inner functions) add `1 + depth` and increase nesting.
+ *   node, tracking how hard the code is to read by adding a nesting penalty. See {@link walkNode}
+ *   and its per-node-kind scoring functions for the rules applied.
  * @param {ts.Node} rootNode - The AST root node to analyse — a whole `ts.SourceFile` for
  *   file-level totals, or any function-like node to score it in isolation (nesting depth
  *   resets to 0 at `rootNode`).
  * @returns {number} The cognitive complexity score, minimum 0.
  */
 export function computeCognitiveComplexity(rootNode: ts.Node): number {
-  let cognitiveComplexity = 0;
-
-  function walkCognitive(node: ts.Node, depth: number, isElseIf: boolean): void {
-    if (ts.isIfStatement(node)) {
-      // else-if chains: flat +1; fresh if: +1 + nesting
-      cognitiveComplexity += isElseIf ? 1 : 1 + depth;
-      const bodyDepth = isElseIf ? depth : depth + 1;
-      walkCognitive(node.expression, bodyDepth, false);
-      walkCognitive(node.thenStatement, bodyDepth, false);
-      if (node.elseStatement) {
-        if (ts.isIfStatement(node.elseStatement)) {
-          walkCognitive(node.elseStatement, depth, true);
-        } else {
-          cognitiveComplexity += 1; // bare else
-          walkCognitive(node.elseStatement, depth + 1, false);
-        }
-      }
-      return;
-    }
-
-    if (
-      ts.isForStatement(node) ||
-      ts.isForInStatement(node) ||
-      ts.isForOfStatement(node) ||
-      ts.isWhileStatement(node) ||
-      ts.isDoStatement(node) ||
-      ts.isSwitchStatement(node)
-    ) {
-      cognitiveComplexity += 1 + depth;
-      ts.forEachChild(node, (child) => walkCognitive(child, depth + 1, false));
-      return;
-    }
-
-    if (ts.isCatchClause(node)) {
-      cognitiveComplexity += 1 + depth;
-      ts.forEachChild(node, (child) => walkCognitive(child, depth, false));
-      return;
-    }
-
-    if (ts.isConditionalExpression(node)) {
-      cognitiveComplexity += 1;
-    }
-
-    if (ts.isBinaryExpression(node)) {
-      const operatorKind = node.operatorToken.kind;
-      if (
-        operatorKind === ts.SyntaxKind.AmpersandAmpersandToken ||
-        operatorKind === ts.SyntaxKind.BarBarToken ||
-        operatorKind === ts.SyntaxKind.QuestionQuestionToken
-      ) {
-        cognitiveComplexity += 1;
-      }
-    }
-
-    // Nested functions and lambdas increase nesting for their body
-    const isNestedFunction =
-      depth > 0 &&
-      (ts.isFunctionDeclaration(node) || ts.isFunctionExpression(node) || ts.isArrowFunction(node));
-    if (isNestedFunction) {
-      cognitiveComplexity += 1 + depth;
-      ts.forEachChild(node, (child) => walkCognitive(child, depth + 1, false));
-      return;
-    }
-
-    ts.forEachChild(node, (child) => walkCognitive(child, depth, false));
-  }
-
-  walkCognitive(rootNode, 0, false);
-  return cognitiveComplexity;
+  return walkNode(rootNode, 0, false);
 }
 
 /**
