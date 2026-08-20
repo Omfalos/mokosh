@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
+import type { Graph } from "./model.js";
 
 /**
  * These tests exercise the piscina worker-pool path, which needs a compiled
@@ -55,16 +56,44 @@ describe.skipIf(!hasBuiltDist)("parallel parsing (worker pool)", () => {
     }
   });
 
+  test("clamps a non-positive maxThreads to 1 instead of failing pool construction", async () => {
+    const { createImportMap } = await import(distIndexPath);
+    const root = makeFixture("test-parallel-parsing-clamp", 3);
+
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    try {
+      // maxThreads: 0 (and negatives) would make Piscina's constructor throw synchronously
+      // ("must be a positive integer") if passed through as-is; initPool clamps it to 1 so
+      // the pool still spins up with a single worker instead of falling back to sync parsing.
+      const graph: Graph = await createImportMap(root, ["src/index.js"], null, {
+        silent: true,
+        parallelParsing: { minFiles: 0, maxThreads: 0 },
+      });
+
+      expect(stderrSpy).toHaveBeenCalledWith(
+        expect.stringContaining("parallelParsing.maxThreads (0) must be at least 1; using 1"),
+      );
+
+      const paths = graph.serialize().nodes.map((n: { path: string }) => n.path);
+      expect(paths).toContain("src/index.js");
+      expect(paths).toContain("src/mod0.js");
+    } finally {
+      stderrSpy.mockRestore();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("falls back to synchronous parsing when the worker pool fails to spawn", async () => {
     const { createImportMap } = await import(distIndexPath);
     const root = makeFixture("test-parallel-parsing-fallback", 3);
 
     try {
-      // maxThreads: 0 makes Piscina's constructor throw synchronously; initPool's
+      // A non-integer maxThreads still makes Piscina's constructor throw synchronously
+      // ("must be a positive integer") even after clamping to a minimum of 1; initPool's
       // try/catch should swallow it and force the sync path for the rest of the build.
       const graph = await createImportMap(root, ["src/index.js"], null, {
         silent: true,
-        parallelParsing: { minFiles: 0, maxThreads: 0 },
+        parallelParsing: { minFiles: 0, maxThreads: 1.5 },
       });
 
       const paths = graph.serialize().nodes.map((n: { path: string }) => n.path);

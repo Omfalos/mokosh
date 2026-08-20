@@ -260,7 +260,8 @@ export async function findDuplicates(
  *   permission) falls back to synchronous in-process tokenizing for the whole scan.
  * @param option - `false` always tokenizes in-process; `true`/omitted offloads once
  *   `candidateFileCount` reaches `minFiles` (default 20); an object overrides `minFiles`/
- *   `maxThreads`.
+ *   `maxThreads`. A `maxThreads` below 1 is clamped to 1, with a stderr warning (Piscina's
+ *   constructor throws synchronously on a non-positive value).
  * @param candidateFileCount - Number of files this scan will tokenize, already known up front
  *   (unlike `GraphBuilder`'s discovery-driven traversal), so no pre-scan walk is needed here.
  */
@@ -274,13 +275,19 @@ function createTokenizingPool(
   const minFiles = opts.minFiles ?? DEFAULT_MIN_FILES_FOR_POOL;
   if (candidateFileCount < minFiles) return null;
 
+  if (opts.maxThreads !== undefined && opts.maxThreads < 1) {
+    process.stderr.write(
+      `\nWarning: parallelTokenizing.maxThreads (${opts.maxThreads}) must be at least 1; using 1.\n`,
+    );
+  }
+
   try {
     // duplication/index.ts is bundled into dist/index.js (same tsup entry as builder.ts, which
     // relies on the same fact for parse-worker.js — see docs/adr-010-parallel-parsing.md), so
     // __dirname at runtime resolves to dist/, not dist/graph/duplication/.
     return new Piscina({
       filename: path.join(__dirname, "duplication-worker.js"),
-      ...(opts.maxThreads !== undefined ? { maxThreads: opts.maxThreads } : {}),
+      ...(opts.maxThreads !== undefined ? { maxThreads: Math.max(1, opts.maxThreads) } : {}),
     });
   } catch (err) {
     process.stderr.write(

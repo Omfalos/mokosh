@@ -177,6 +177,9 @@ export class GraphBuilder {
    *   `minFiles` files — small builds (the common unit-test case) never pay pool spin-up cost.
    *   If pool construction itself throws (e.g. a sandboxed environment without `worker_threads`
    *   permission), falls back to in-process parsing for the whole build instead of failing it.
+   *   A `maxThreads` below 1 is clamped to 1 (with a stderr warning) rather than passed through —
+   *   Piscina's constructor throws synchronously on a non-positive value, so this keeps "0" meaning
+   *   "one worker" instead of silently forcing the sync fallback.
    */
   private async initPool(): Promise<void> {
     if (this.parallelParsing === false) return;
@@ -185,11 +188,17 @@ export class GraphBuilder {
     const minFiles = opts.minFiles ?? DEFAULT_MIN_FILES_FOR_POOL;
     if (minFiles > 0 && !this.hasAtLeastFiles(this.rootDir, minFiles)) return;
 
+    if (opts.maxThreads !== undefined && opts.maxThreads < 1) {
+      process.stderr.write(
+        `\nWarning: parallelParsing.maxThreads (${opts.maxThreads}) must be at least 1; using 1.\n`,
+      );
+    }
+
     try {
       const workerFilename = path.join(__dirname, "parse-worker.js");
       this.pool = new Piscina({
         filename: workerFilename,
-        ...(opts.maxThreads !== undefined ? { maxThreads: opts.maxThreads } : {}),
+        ...(opts.maxThreads !== undefined ? { maxThreads: Math.max(1, opts.maxThreads) } : {}),
       });
     } catch (err) {
       process.stderr.write(
