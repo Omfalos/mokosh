@@ -53,112 +53,148 @@ export function computeCyclomaticComplexity(rootNode: SyntaxNode): number {
 }
 
 /**
+ * @description Scores a Python `IfStatement`: since Python represents an entire `if`/`elif`/
+ *   `else` chain as one flat node (unlike TS/Go's nesting), this walks its direct children in
+ *   groups — each fresh `if` adds `1 + depth` and nests its body; each `elif` adds a flat +1 at
+ *   the same depth as the original `if`; a bare `else` adds a flat +1 and nests its body.
+ * @param {SyntaxNode} node - The `IfStatement` node.
+ * @param {number} depth - Current nesting depth.
+ * @returns {number} This node's cognitive complexity contribution, including its branches.
+ */
+function scoreIfStatement(node: SyntaxNode, depth: number): number {
+  let cognitive = 0;
+  const kids = childrenOf(node);
+  let branchIndex = 0;
+  let i = 0;
+  while (i < kids.length) {
+    const kw = kids[i];
+    if (kw?.type.name === "if" || kw?.type.name === "elif") {
+      const isElseIf = branchIndex > 0;
+      cognitive += isElseIf ? 1 : 1 + depth;
+      const bodyDepth = isElseIf ? depth : depth + 1;
+      const cond = kids[i + 1];
+      const body = kids[i + 2];
+      if (cond) cognitive += walkNode(cond, bodyDepth);
+      if (body) cognitive += walkNode(body, bodyDepth);
+      branchIndex++;
+      i += 3;
+    } else if (kw?.type.name === "else") {
+      cognitive += 1;
+      const body = kids[i + 1];
+      if (body) cognitive += walkNode(body, depth + 1);
+      i += 2;
+    } else {
+      i++;
+    }
+  }
+  return cognitive;
+}
+
+/**
+ * @description Scores a Python `TryStatement`: each `except` clause adds `1 + depth` without
+ *   increasing nesting for its own body (mirroring how the TS parser scores `catch`); the
+ *   trailing `Body`/`else`/`finally` sections are walked at the same depth as the statement.
+ * @param {SyntaxNode} node - The `TryStatement` node.
+ * @param {number} depth - Current nesting depth.
+ * @returns {number} This node's cognitive complexity contribution, including its clauses.
+ */
+function scoreTryStatement(node: SyntaxNode, depth: number): number {
+  let cognitive = 0;
+  const kids = childrenOf(node);
+  let i = 0;
+  while (i < kids.length) {
+    const kw = kids[i];
+    if (kw?.type.name === "except") {
+      cognitive += 1 + depth;
+      i++;
+      while (i < kids.length && kids[i]?.type.name !== "Body") {
+        cognitive += walkNode(kids[i] as SyntaxNode, depth);
+        i++;
+      }
+      if (i < kids.length) {
+        cognitive += walkNode(kids[i] as SyntaxNode, depth);
+        i++;
+      }
+    } else if (kw?.type.name === "Body") {
+      cognitive += walkNode(kw, depth);
+      i++;
+    } else {
+      i++;
+    }
+  }
+  return cognitive;
+}
+
+/**
+ * @description Scores a node whose own children are strictly more deeply nested than itself —
+ *   `for`/`while` loops and `def`/`lambda` nested inside another function — which all share the
+ *   same shape: a flat `1 + depth` for the node itself, then every child walked at `depth + 1`.
+ * @param {SyntaxNode} node - The loop or nested-function node.
+ * @param {number} depth - Current nesting depth (the node's own, not its children's).
+ * @returns {number} This node's cognitive complexity contribution, including its body.
+ */
+function scoreNestedBlock(node: SyntaxNode, depth: number): number {
+  let cognitive = 1 + depth;
+  let child = node.firstChild;
+  while (child) {
+    cognitive += walkNode(child, depth + 1);
+    child = child.nextSibling;
+  }
+  return cognitive;
+}
+
+/**
+ * @description Sums the cognitive complexity of every direct child of `node`, each walked at the
+ *   same depth as `node` itself — the fallthrough case for nodes with no scoring rule of their
+ *   own (e.g. a module body, a plain statement list).
+ * @param {SyntaxNode} node - The node whose children should be walked.
+ * @param {number} depth - Nesting depth to walk the children at.
+ * @returns {number} The summed cognitive complexity of all direct children.
+ */
+function walkChildren(node: SyntaxNode, depth: number): number {
+  let cognitive = 0;
+  let child = node.firstChild;
+  while (child) {
+    cognitive += walkNode(child, depth);
+    child = child.nextSibling;
+  }
+  return cognitive;
+}
+
+/**
+ * @description Dispatches one AST node to its scoring rule by node type — `IfStatement` and
+ *   `TryStatement` each need their flat-children-list handling ({@link scoreIfStatement},
+ *   {@link scoreTryStatement}); loops and nested `def`/`lambda` share the same nest-and-recurse
+ *   shape ({@link scoreNestedBlock}); everything else contributes a flat +1 for ternaries and
+ *   `and`/`or`, then recurses into its children at the same depth ({@link walkChildren}).
+ * @param {SyntaxNode} node - The AST node to score.
+ * @param {number} depth - Current nesting depth.
+ * @returns {number} This node's cognitive complexity contribution, including its subtree.
+ */
+function walkNode(node: SyntaxNode, depth: number): number {
+  const name = node.type.name;
+
+  if (name === "IfStatement") return scoreIfStatement(node, depth);
+  if (name === "TryStatement") return scoreTryStatement(node, depth);
+  if (name === "ForStatement" || name === "WhileStatement") return scoreNestedBlock(node, depth);
+
+  const own = name === "ConditionalExpression" || name === "and" || name === "or" ? 1 : 0;
+  const isNestedFunction =
+    depth > 0 && (name === "FunctionDefinition" || name === "LambdaExpression");
+  if (isNestedFunction) return own + scoreNestedBlock(node, depth);
+
+  return own + walkChildren(node, depth);
+}
+
+/**
  * @description Computes a simplified SonarSource-style cognitive complexity score for a Python
- *   AST node, tracking how hard the code is to read by adding a nesting penalty. Since Python's
- *   `if`/`elif`/`else` chain is one flat `IfStatement` node (not nested, unlike TS/Go), this walks
- *   its direct children in groups: each fresh `if` adds `1 + depth` and nests its body; each
- *   `elif` adds a flat +1 at the same depth as the original `if`; a bare `else` adds a flat +1 and
- *   nests its body. `for`/`while` add `1 + depth` and nest their body. Each `except` clause adds
- *   `1 + depth` without increasing nesting for its own body (mirroring how the TS parser scores
- *   `catch`). Ternaries and `and`/`or` each add a flat +1. Nested `def`/`lambda` add `1 + depth`.
+ *   AST node, tracking how hard the code is to read by adding a nesting penalty. See
+ *   {@link walkNode} and its per-node-type scoring functions for the rules applied.
  * @param {SyntaxNode} rootNode - The AST root node to analyse (nesting depth resets to 0 here).
  * @returns {number} The cognitive complexity score, minimum 0.
  */
 export function computeCognitiveComplexity(rootNode: SyntaxNode): number {
-  let cognitive = 0;
-
-  function walk(node: SyntaxNode, depth: number): void {
-    const name = node.type.name;
-
-    if (name === "IfStatement") {
-      const kids = childrenOf(node);
-      let branchIndex = 0;
-      let i = 0;
-      while (i < kids.length) {
-        const kw = kids[i];
-        if (kw?.type.name === "if" || kw?.type.name === "elif") {
-          const isElseIf = branchIndex > 0;
-          cognitive += isElseIf ? 1 : 1 + depth;
-          const bodyDepth = isElseIf ? depth : depth + 1;
-          const cond = kids[i + 1];
-          const body = kids[i + 2];
-          if (cond) walk(cond, bodyDepth);
-          if (body) walk(body, bodyDepth);
-          branchIndex++;
-          i += 3;
-        } else if (kw?.type.name === "else") {
-          cognitive += 1;
-          const body = kids[i + 1];
-          if (body) walk(body, depth + 1);
-          i += 2;
-        } else {
-          i++;
-        }
-      }
-      return;
-    }
-
-    if (name === "TryStatement") {
-      const kids = childrenOf(node);
-      let i = 0;
-      while (i < kids.length) {
-        const kw = kids[i];
-        if (kw?.type.name === "except") {
-          cognitive += 1 + depth;
-          i++;
-          while (i < kids.length && kids[i]?.type.name !== "Body") {
-            walk(kids[i] as SyntaxNode, depth);
-            i++;
-          }
-          if (i < kids.length) {
-            walk(kids[i] as SyntaxNode, depth);
-            i++;
-          }
-        } else if (kw?.type.name === "Body") {
-          walk(kw, depth);
-          i++;
-        } else {
-          i++;
-        }
-      }
-      return;
-    }
-
-    if (name === "ForStatement" || name === "WhileStatement") {
-      cognitive += 1 + depth;
-      let child = node.firstChild;
-      while (child) {
-        walk(child, depth + 1);
-        child = child.nextSibling;
-      }
-      return;
-    }
-
-    if (name === "ConditionalExpression" || name === "and" || name === "or") {
-      cognitive += 1;
-    }
-
-    const isNestedFunction =
-      depth > 0 && (name === "FunctionDefinition" || name === "LambdaExpression");
-    if (isNestedFunction) {
-      cognitive += 1 + depth;
-      let child = node.firstChild;
-      while (child) {
-        walk(child, depth + 1);
-        child = child.nextSibling;
-      }
-      return;
-    }
-
-    let child = node.firstChild;
-    while (child) {
-      walk(child, depth);
-      child = child.nextSibling;
-    }
-  }
-
-  walk(rootNode, 0);
-  return cognitive;
+  return walkNode(rootNode, 0);
 }
 
 /**
