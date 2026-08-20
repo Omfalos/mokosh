@@ -30,6 +30,7 @@
   ],
   "scripts": {
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "build": "tsup",
     "build:prod": "NODE_ENV=production tsup",
     "lint": "biome lint ./src",

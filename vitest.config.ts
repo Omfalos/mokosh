@@ -9,5 +9,11 @@ export default defineConfig({
       // Vitest handles .js imports in .ts files better, but we might need this if we have issues
       // '^(\\.\\.?/.+)\\.js$': '$1',
     },
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "html", "json-summary"],
+      include: ["src/**/*.ts"],
+      exclude: ["src/**/*.test.ts"],
+    },
   },
 });
