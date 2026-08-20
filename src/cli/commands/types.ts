@@ -35,4 +35,6 @@ export interface CommandContext {
   slim: boolean;
   testsOnly: boolean;
   minDuplicateLines: number | undefined;
+  maxCoveragePct: number | undefined;
+  minChurn: number | undefined;
 }

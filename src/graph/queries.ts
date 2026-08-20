@@ -276,3 +276,91 @@ export function summarizeWorkspacePackages(wg: WorkspaceGraph): WorkspacePackage
 export function hasCoverageData(graph: Graph): boolean {
   return [...graph.nodes.values()].some((node) => node.coveragePct !== undefined);
 }
+
+/**
+ * @description Returns `true` if at least one node in the graph has git churn data loaded.
+ * @param graph - The graph to check.
+ * @returns Whether any node has a defined `commitCount90d`.
+ */
+export function hasChurnData(graph: Graph): boolean {
+  return [...graph.nodes.values()].some((node) => node.commitCount90d !== undefined);
+}
+
+export interface RiskHotspotEntry {
+  file: string;
+  name: string;
+  line: number;
+  complexity: number;
+  cognitiveComplexity: number;
+  coveragePct: number;
+  commitCount90d?: number;
+}
+
+export interface FindRiskHotspotsOptions {
+  metric?: "cognitiveComplexity" | "complexity" | undefined;
+  minComplexity?: number | undefined;
+  maxCoveragePct?: number | undefined;
+  minChurn?: number | undefined;
+  limit?: number | undefined;
+}
+
+export interface RiskHotspotsResult {
+  hotspots: RiskHotspotEntry[];
+  count: number;
+  churnDataAvailable: boolean;
+}
+
+/**
+ * @description Finds functions that are complex, in a poorly-covered file, and — when git churn
+ *   data is loaded — in a frequently-changed file. Coverage and churn are file-level (the
+ *   containing file's `coveragePct`/`commitCount90d`), joined against each per-function
+ *   complexity entry, since neither is tracked per-function. Callers should check
+ *   `hasCoverageData` first and surface an explicit error if it's false, the same way
+ *   `find_uncovered` does — this function doesn't self-guard.
+ * @param graph - The graph to scan. Coverage data should already be loaded for useful results.
+ * @param options - `metric` picks which per-function score to filter/sort on (default
+ *   `cognitiveComplexity`); `minComplexity` is the minimum score to include (default 10);
+ *   `maxCoveragePct` is the maximum containing-file coverage to include (default 50);
+ *   `minChurn` is the minimum containing-file 90-day commit count to include (default 0),
+ *   ignored entirely when no node has churn data loaded; `limit` caps the results (default 20).
+ * @returns Matching functions sorted worst-first by `metric`, plus whether churn data was
+ *   available (and therefore whether `minChurn` was actually applied).
+ */
+export function findRiskHotspots(
+  graph: Graph,
+  options: FindRiskHotspotsOptions = {},
+): RiskHotspotsResult {
+  const {
+    metric = "cognitiveComplexity",
+    minComplexity = 10,
+    maxCoveragePct = 50,
+    minChurn = 0,
+    limit = 20,
+  } = options;
+  const churnDataAvailable = hasChurnData(graph);
+
+  const hotspots = [...graph.nodes.values()]
+    .filter(
+      (node) =>
+        node.coveragePct !== undefined &&
+        node.coveragePct <= maxCoveragePct &&
+        (!churnDataAvailable || (node.commitCount90d ?? 0) >= minChurn),
+    )
+    .flatMap((node) =>
+      (node.functions ?? [])
+        .filter((fn) => fn[metric] >= minComplexity)
+        .map((fn) => ({
+          file: node.path,
+          name: fn.name,
+          line: fn.line,
+          complexity: fn.complexity,
+          cognitiveComplexity: fn.cognitiveComplexity,
+          coveragePct: node.coveragePct as number,
+          ...(node.commitCount90d !== undefined && { commitCount90d: node.commitCount90d }),
+        })),
+    )
+    .sort((a, b) => b[metric] - a[metric])
+    .slice(0, limit);
+
+  return { hotspots, count: hotspots.length, churnDataAvailable };
+}

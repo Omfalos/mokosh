@@ -66,6 +66,11 @@ MCP parity (mirrors the MCP server's tools for use when MCP is unavailable):
                                 always excluded
   --min-duplicate-lines <N>    Minimum duplicated block size in lines to report (default: 6,
                                 use with --find-duplicates)
+  --find-risk-hotspots         List functions that are complex, undertested, and (if gitStats is
+                                enabled) frequently changed — requires coverageReportPath in config
+  --max-coverage-pct <N>       Max file coverage % to include (default: 50, use with --find-risk-hotspots)
+  --min-churn <N>              Min 90-day commit count to include (default: 0, ignored if gitStats
+                                is off; use with --find-risk-hotspots)
   --workspace-packages         List monorepo packages and their cross-package dependencies
   --workspace-affected         Cross-package blast-radius for --file in a monorepo
   --find-symbol                Find every file that exports --function <name> by exact name, with
@@ -73,8 +78,8 @@ MCP parity (mirrors the MCP server's tools for use when MCP is unavailable):
                                 precision for TS/JS, named-import for Python, file-level otherwise)
   --watch                      Re-run on file changes. Supported with the default output, --query,
                                 --callers, --dependencies, --dependents, --affected, --find-uncovered,
-                                --find-complex-functions, --find-duplicates, --check-cycles,
-                                --check-doc-drift, and
+                                --find-complex-functions, --find-duplicates, --find-risk-hotspots,
+                                --check-cycles, --check-doc-drift, and
                                 --list-tags only.
 
 Notes:

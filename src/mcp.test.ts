@@ -59,6 +59,7 @@ describe("mokosh MCP server", { tags: ["createMcpServer", "mcp"] }, () => {
       "detect_features",
       "find_complex_functions",
       "find_duplicates",
+      "find_risk_hotspots",
       "find_symbol",
       "find_uncovered",
       "find_unused",

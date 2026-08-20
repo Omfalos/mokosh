@@ -3,10 +3,12 @@ import type { SerializedGraph } from "../types/graph";
 import { Graph } from "./model";
 import {
   findComplexFunctions,
+  findRiskHotspots,
   getAffected,
   getCallers,
   getDependencies,
   getDependents,
+  hasChurnData,
   hasCoverageData,
   slimSerialize,
   summarizeWorkspacePackages,
@@ -72,7 +74,10 @@ const FIXTURE: SerializedGraph = {
 };
 
 function makeGraph(): Graph {
-  return Graph.deserialize(FIXTURE);
+  // Clone: Graph.deserialize keeps the original node objects by reference, so tests that
+  // mutate a node (e.g. setting coveragePct/commitCount90d) would otherwise leak state into
+  // every other test sharing FIXTURE.
+  return Graph.deserialize(structuredClone(FIXTURE));
 }
 
 describe("getDependencies", () => {
@@ -149,6 +154,92 @@ describe("hasCoverageData", () => {
     expect(node).toBeDefined();
     if (node) node.coveragePct = 50;
     expect(hasCoverageData(graph)).toBe(true);
+  });
+});
+
+describe("hasChurnData", () => {
+  test("false when no node has commitCount90d", () => {
+    expect(hasChurnData(makeGraph())).toBe(false);
+  });
+
+  test("true when at least one node has commitCount90d", () => {
+    const graph = makeGraph();
+    const node = graph.nodes.get("src/a.ts");
+    expect(node).toBeDefined();
+    if (node) node.commitCount90d = 3;
+    expect(hasChurnData(graph)).toBe(true);
+  });
+});
+
+describe("findRiskHotspots", () => {
+  test("filters by complexity and coverage, sorted worst-first", () => {
+    const graph = makeGraph();
+    const node = graph.nodes.get("src/a.ts");
+    expect(node).toBeDefined();
+    if (node) node.coveragePct = 30;
+
+    const { hotspots, count, churnDataAvailable } = findRiskHotspots(graph, {
+      metric: "complexity",
+      minComplexity: 5,
+      maxCoveragePct: 50,
+    });
+    expect(churnDataAvailable).toBe(false);
+    expect(count).toBe(1);
+    expect(hotspots).toEqual([
+      {
+        file: "src/a.ts",
+        name: "foo",
+        line: 1,
+        complexity: 12,
+        cognitiveComplexity: 15,
+        coveragePct: 30,
+      },
+    ]);
+  });
+
+  test("excludes nodes without coverage data entirely, not as 0%", () => {
+    const graph = makeGraph();
+    const { hotspots } = findRiskHotspots(graph, { minComplexity: 0 });
+    expect(hotspots).toEqual([]);
+  });
+
+  test("skips the churn filter and reports churnDataAvailable: false when no node has churn data", () => {
+    const graph = makeGraph();
+    const node = graph.nodes.get("src/a.ts");
+    if (node) node.coveragePct = 30;
+
+    const { hotspots, churnDataAvailable } = findRiskHotspots(graph, {
+      minComplexity: 0,
+      minChurn: 1000,
+    });
+    expect(churnDataAvailable).toBe(false);
+    expect(hotspots.map((h) => h.name)).toContain("foo");
+  });
+
+  test("applies the churn filter once churn data is loaded", () => {
+    const graph = makeGraph();
+    const node = graph.nodes.get("src/a.ts");
+    if (node) {
+      node.coveragePct = 30;
+      node.commitCount90d = 2;
+    }
+
+    const belowThreshold = findRiskHotspots(graph, { minComplexity: 0, minChurn: 5 });
+    expect(belowThreshold.churnDataAvailable).toBe(true);
+    expect(belowThreshold.hotspots).toEqual([]);
+
+    const atThreshold = findRiskHotspots(graph, { minComplexity: 0, minChurn: 2 });
+    expect(atThreshold.hotspots.map((h) => h.name)).toContain("foo");
+    expect(atThreshold.hotspots[0]?.commitCount90d).toBe(2);
+  });
+
+  test("respects limit", () => {
+    const graph = makeGraph();
+    const node = graph.nodes.get("src/a.ts");
+    if (node) node.coveragePct = 30;
+
+    const { hotspots } = findRiskHotspots(graph, { minComplexity: 0, limit: 1 });
+    expect(hotspots).toHaveLength(1);
   });
 });
 

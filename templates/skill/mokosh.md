@@ -48,6 +48,9 @@ If source files are edited mid-session, call `clear_cache({ root })` before re-q
 |------|----------|-----------------|
 | Undertested files | `find_uncovered({ root, coverageThreshold })` | `mokosh --find-uncovered <entry>` |
 | Complexity hotspots | `find_complex_functions({ root, metric, threshold, limit })` | — |
+| Complex + undertested + (optionally) churny functions | `find_risk_hotspots({ root, metric, minComplexity, maxCoveragePct, minChurn })` | `mokosh <entry> --find-risk-hotspots` |
+| Duplicated code blocks | `find_duplicates({ root, minLines })` | `mokosh <entry> --find-duplicates` |
+| Docs whose referenced files changed more recently | `check_doc_drift({ root })` | `mokosh <entry> --check-doc-drift` |
 | High-degree hubs / orchestrators | `detect_features({ root })` | `mokosh <entry> --detect-features` |
 | What does each file own? | `get_module_responsibility({ root, paths? })` | — |
 | Group files by owning feature | `get_feature_graph({ root, minOutDegree })` | — |

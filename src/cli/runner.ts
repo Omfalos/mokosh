@@ -23,6 +23,7 @@ import { run as runDetectFeatures } from "./commands/detect-features";
 import { run as runFeatureGraph } from "./commands/feature-graph";
 import { run as runFindComplexFunctions } from "./commands/find-complex-functions";
 import { run as runFindDuplicates } from "./commands/find-duplicates";
+import { run as runFindRiskHotspots } from "./commands/find-risk-hotspots";
 import { run as runFindSymbol } from "./commands/find-symbol";
 import { run as runFindUncovered } from "./commands/find-uncovered";
 import { run as runFindUnused } from "./commands/find-unused";
@@ -51,6 +52,7 @@ const WATCHABLE_COMMANDS = new Set<CommandHandler>([
   runFindUncovered,
   runFindComplexFunctions,
   runFindDuplicates,
+  runFindRiskHotspots,
   runCheckCycles,
   runCheckDocDrift,
   runListTags,
@@ -141,6 +143,7 @@ function computeAutoScan(parsed: ParsedArgs): boolean {
     parsed.listTags ||
     parsed.findComplexFunctions ||
     parsed.findDuplicates ||
+    parsed.findRiskHotspots ||
     parsed.typeGraph ||
     parsed.moduleResponsibility ||
     parsed.callGraph ||
@@ -183,6 +186,7 @@ export function resolveCommandHandler(parsed: ParsedArgs): CommandHandler {
       handler: runFindComplexFunctions,
     },
     { name: "--find-duplicates", flag: parsed.findDuplicates, handler: runFindDuplicates },
+    { name: "--find-risk-hotspots", flag: parsed.findRiskHotspots, handler: runFindRiskHotspots },
     { name: "--type-graph", flag: parsed.typeGraph, handler: runTypeGraph },
     {
       name: "--module-responsibility",
@@ -228,7 +232,7 @@ async function runWatchLoop(
 ): Promise<void> {
   if (!WATCHABLE_COMMANDS.has(handler)) {
     console.error(
-      "Error: --watch is only supported with the default output, --query, --callers, --dependencies, --dependents, --affected, --find-uncovered, --find-complex-functions, --find-duplicates, --check-cycles, --check-doc-drift, and --list-tags",
+      "Error: --watch is only supported with the default output, --query, --callers, --dependencies, --dependents, --affected, --find-uncovered, --find-complex-functions, --find-duplicates, --find-risk-hotspots, --check-cycles, --check-doc-drift, and --list-tags",
     );
     process.exit(1);
   }
@@ -312,6 +316,8 @@ export async function run(): Promise<void> {
     slim: parsed.slim,
     testsOnly: parsed.testsOnly,
     minDuplicateLines: parsed.minDuplicateLines,
+    maxCoveragePct: parsed.maxCoveragePct,
+    minChurn: parsed.minChurn,
   };
 
   const handler = resolveCommandHandler(parsed);

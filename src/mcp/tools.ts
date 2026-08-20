@@ -204,6 +204,40 @@ export const TOOL_DEFINITIONS = [
     },
   },
   {
+    name: "find_risk_hotspots",
+    description:
+      "Find functions that are complex, in a poorly-covered file, and — when gitStats is enabled in mokosh.config — in a frequently-changed file. Requires a prior analyze() call and coverageReportPath set in mokosh.config; errors if no coverage data was loaded. Churn filtering is skipped (churnDataAvailable: false) when gitStats wasn't enabled, since complexity + low coverage alone is still a meaningful signal.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        root: { type: "string", description: "Absolute path to the project root" },
+        metric: {
+          type: "string",
+          enum: ["cognitiveComplexity", "complexity"],
+          description: "Which per-function score to filter/sort on (default: cognitiveComplexity)",
+        },
+        minComplexity: {
+          type: "number",
+          description: "Minimum per-function complexity score to include (default: 10)",
+        },
+        maxCoveragePct: {
+          type: "number",
+          description: "Maximum containing-file coverage % to include (default: 50)",
+        },
+        minChurn: {
+          type: "number",
+          description:
+            "Minimum containing-file 90-day commit count to include (default: 0). Ignored when gitStats wasn't enabled at analyze time.",
+        },
+        limit: {
+          type: "number",
+          description: "Max results to return, worst-first by metric (default: 20)",
+        },
+      },
+      required: ["root"],
+    },
+  },
+  {
     name: "find_duplicates",
     description:
       "Find duplicated code blocks across the project, largest-first. CSS/SCSS/Less are matched structurally by rule body; every other parsed language is tokenized and matched via suffix array. Lock files and ignored directories are always excluded. Requires a prior analyze() call. See docs/mcp.md for matching-strategy, normalization, and caching details.",

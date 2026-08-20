@@ -56,6 +56,9 @@ export interface ParsedArgs {
   limit: number | undefined;
   findDuplicates: boolean;
   minDuplicateLines: number | undefined;
+  findRiskHotspots: boolean;
+  maxCoveragePct: number | undefined;
+  minChurn: number | undefined;
   workspacePackages: boolean;
   workspaceAffected: boolean;
   clearCache: boolean;
@@ -155,6 +158,9 @@ export const OPTIONS = {
   limit: { type: "string" },
   "find-duplicates": { type: "boolean" },
   "min-duplicate-lines": { type: "string" },
+  "find-risk-hotspots": { type: "boolean" },
+  "max-coverage-pct": { type: "string" },
+  "min-churn": { type: "string" },
   "workspace-packages": { type: "boolean" },
   "workspace-affected": { type: "boolean" },
   "clear-cache": { type: "boolean" },
@@ -271,6 +277,9 @@ export function parseArgs(cliTokens: string[]): ParsedArgs {
     limit: parseOptionalInt(values.limit),
     findDuplicates: values["find-duplicates"] ?? false,
     minDuplicateLines: parseOptionalInt(values["min-duplicate-lines"]),
+    findRiskHotspots: values["find-risk-hotspots"] ?? false,
+    maxCoveragePct: parseOptionalInt(values["max-coverage-pct"]),
+    minChurn: parseOptionalInt(values["min-churn"]),
     workspacePackages: values["workspace-packages"] ?? false,
     workspaceAffected: values["workspace-affected"] ?? false,
     clearCache: values["clear-cache"] ?? false,

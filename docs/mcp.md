@@ -206,6 +206,27 @@ Scan every file's per-function complexity breakdown and return functions/methods
 
 ---
 
+### `find_risk_hotspots`
+
+Find functions that are complex, in a poorly-covered file, and — when git churn data is loaded — in a frequently-changed file. Individually, "complex" and "undertested" are both weak signals (plenty of complex code is well-tested; plenty of undertested code is trivial); the intersection is a much sharper "this will bite you" list. Filters + sort, not a composite score — each threshold is applied independently and results are sorted worst-first on the chosen complexity metric, so the ranking stays legible instead of hiding behind an opaque number.
+
+Coverage and churn are file-level (the containing file's `coveragePct`/`commitCount90d`), joined against each per-function complexity entry, since neither is tracked per-function.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `root` | `string` | yes | |
+| `metric` | `"cognitiveComplexity" \| "complexity"` | no | Which per-function score to filter/sort on (default: `cognitiveComplexity`) |
+| `minComplexity` | `number` | no | Minimum per-function complexity score to include (default: `10`) |
+| `maxCoveragePct` | `number` | no | Maximum containing-file coverage % to include (default: `50`) |
+| `minChurn` | `number` | no | Minimum containing-file 90-day commit count to include (default: `0`). Ignored when no node has churn data loaded |
+| `limit` | `number` | no | Max results to return, worst-first (default: `20`) |
+
+**Returns:** `{ metric, minComplexity, maxCoveragePct, minChurn, churnDataAvailable, hotspots, count }`, where each `hotspots` entry is `{ file, name, line, complexity, cognitiveComplexity, coveragePct, commitCount90d? }`. `churnDataAvailable` is `false` when no node in the graph has git churn data loaded (`gitStats: true` wasn't set in config) — the churn filter is silently skipped rather than erroring, since complexity + low coverage alone is still a meaningful signal.
+
+**Requires:** a prior `analyze` call for the same `root`, and `coverageReportPath` set in `mokosh.config` — errors with `{ error }` if no coverage data was loaded, the same way `find_uncovered` does.
+
+---
+
 ### `find_duplicates`
 
 Find duplicated code blocks across the project, largest-first. Two matching strategies, picked per file by language (see [ADR-013](./adr-013-duplicate-detection-noise-reduction.md)):

@@ -11,6 +11,7 @@ import {
   handleDetectFeatures,
   handleFindComplexFunctions,
   handleFindDuplicates,
+  handleFindRiskHotspots,
   handleFindSymbol,
   handleFindUnused,
   handleGetAffected,
@@ -542,6 +543,114 @@ describe("handleFindComplexFunctions", {
     ) as { functions: Array<{ name: string }> };
 
     expect(data.functions.map((f) => f.name)).toEqual(["gnarly"]);
+  });
+});
+
+describe("handleFindRiskHotspots", {
+  tags: [
+    "Graph",
+    "SerializedGraph",
+    "SessionState",
+    "cache",
+    "graph",
+    "handleFindRiskHotspots",
+    "handlers",
+  ],
+}, () => {
+  function makeHotspotCache(withChurn: boolean): SessionState {
+    const graph = Graph.deserialize({
+      nodes: [
+        {
+          path: "src/a.ts",
+          type: "typescript",
+          category: "logic",
+          tags: [],
+          imports: [],
+          exports: [],
+          mtime: 0,
+          size: 0,
+          coveragePct: 30,
+          ...(withChurn && { commitCount90d: 12 }),
+          functions: [
+            { name: "risky", line: 1, complexity: 20, cognitiveComplexity: 25 },
+            { name: "fine", line: 10, complexity: 1, cognitiveComplexity: 1 },
+          ],
+        },
+        {
+          path: "src/b.ts",
+          type: "typescript",
+          category: "logic",
+          tags: [],
+          imports: [],
+          exports: [],
+          mtime: 0,
+          size: 0,
+          coveragePct: 95,
+          functions: [{ name: "wellTested", line: 1, complexity: 30, cognitiveComplexity: 30 }],
+        },
+      ],
+    });
+    return {
+      ensureFresh: vi.fn().mockResolvedValue(graph),
+    } as unknown as SessionState;
+  }
+
+  function makeNoCoverageCache(): SessionState {
+    const graph = Graph.deserialize({
+      nodes: [
+        {
+          path: "src/a.ts",
+          type: "typescript",
+          category: "logic",
+          tags: [],
+          imports: [],
+          exports: [],
+          mtime: 0,
+          size: 0,
+          functions: [{ name: "risky", line: 1, complexity: 20, cognitiveComplexity: 25 }],
+        },
+      ],
+    });
+    return {
+      ensureFresh: vi.fn().mockResolvedValue(graph),
+    } as unknown as SessionState;
+  }
+
+  test("errors instead of reporting false positives when no coverage data was loaded", async () => {
+    const data = parse(await handleFindRiskHotspots(makeNoCoverageCache(), { root: ROOT })) as {
+      error: string;
+    };
+
+    expect(data.error).toMatch(/No coverage data available/);
+  });
+
+  test("filters by complexity and coverage, sorted worst-first", async () => {
+    const data = parse(
+      await handleFindRiskHotspots(makeHotspotCache(true), { root: ROOT, minComplexity: 10 }),
+    ) as {
+      hotspots: Array<{ file: string; name: string; commitCount90d?: number }>;
+      churnDataAvailable: boolean;
+      count: number;
+    };
+
+    expect(data.hotspots.map((h) => h.name)).toEqual(["risky"]);
+    expect(data.hotspots[0]?.file).toBe("src/a.ts");
+    expect(data.hotspots[0]?.commitCount90d).toBe(12);
+    expect(data.churnDataAvailable).toBe(true);
+    expect(data.count).toBe(1);
+  });
+
+  test("degrades gracefully with churnDataAvailable: false when no churn data was loaded", async () => {
+    const data = parse(
+      await handleFindRiskHotspots(makeHotspotCache(false), {
+        root: ROOT,
+        minComplexity: 10,
+        minChurn: 1000,
+      }),
+    ) as { hotspots: Array<{ name: string }>; churnDataAvailable: boolean };
+
+    expect(data.churnDataAvailable).toBe(false);
+    expect(data.hotspots.map((h) => h.name)).toEqual(["risky"]);
   });
 });
 

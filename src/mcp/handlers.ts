@@ -15,6 +15,7 @@ import {
   filterGraph,
   findComplexFunctions,
   findDuplicates,
+  findRiskHotspots,
   findSymbol,
   Graph,
   getAffected,
@@ -80,6 +81,14 @@ export type FindComplexFunctionsArgs = {
   threshold?: number;
   limit?: number;
 };
+export type FindRiskHotspotsArgs = {
+  root: string;
+  metric?: "cognitiveComplexity" | "complexity";
+  minComplexity?: number;
+  maxCoveragePct?: number;
+  minChurn?: number;
+  limit?: number;
+};
 export type FindDuplicatesArgs = {
   root: string;
   minLines?: number;
@@ -127,6 +136,7 @@ export type ToolArgs =
   | ListTagsArgs
   | CheckDocDriftArgs
   | FindComplexFunctionsArgs
+  | FindRiskHotspotsArgs
   | FindDuplicatesArgs
   | ProposeTagsArgs
   | DetectFeaturesArgs
@@ -409,6 +419,60 @@ export async function handleFindComplexFunctions(
   const graph = await cache.ensureFresh(root);
   const functions = findComplexFunctions(graph, { metric, threshold, limit });
   return text({ metric, threshold, functions, count: functions.length });
+}
+
+/**
+ * @description Finds functions that are complex, in a poorly-covered file, and — when git churn
+ *   data is loaded — in a frequently-changed file. Requires a prior `analyze` call with
+ *   `coverageReportPath` set in `mokosh.config`; returns an error when no coverage data was
+ *   loaded rather than treating all files as 0%. Churn (`gitStats: true`) is optional — when no
+ *   node has churn data, the churn filter is skipped and `churnDataAvailable: false` is returned,
+ *   since complexity + low coverage alone is still a meaningful signal.
+ * @param cache - Session state holding the cached graph and config.
+ * @param args - `root` selects the graph; `metric` picks which per-function score to filter/sort
+ *   on (default `cognitiveComplexity`); `minComplexity` is the minimum score to include (default
+ *   10); `maxCoveragePct` is the maximum containing-file coverage to include (default 50);
+ *   `minChurn` is the minimum containing-file 90-day commit count to include (default 0), ignored
+ *   when no churn data was loaded; `limit` caps the results (default 20).
+ * @returns TextResponse with `{ metric, minComplexity, maxCoveragePct, minChurn, churnDataAvailable, hotspots, count }`.
+ */
+export async function handleFindRiskHotspots(
+  cache: SessionState,
+  args: FindRiskHotspotsArgs,
+): Promise<TextResponse> {
+  const {
+    root,
+    metric = "cognitiveComplexity",
+    minComplexity = 10,
+    maxCoveragePct = 50,
+    minChurn = 0,
+    limit = 20,
+  } = args;
+  const graph = await cache.ensureFresh(root);
+
+  if (!hasCoverageData(graph)) {
+    return text({
+      error:
+        "No coverage data available. Set coverageReportPath in mokosh.config and call analyze again.",
+    });
+  }
+
+  const { hotspots, count, churnDataAvailable } = findRiskHotspots(graph, {
+    metric,
+    minComplexity,
+    maxCoveragePct,
+    minChurn,
+    limit,
+  });
+  return text({
+    metric,
+    minComplexity,
+    maxCoveragePct,
+    minChurn,
+    churnDataAvailable,
+    hotspots,
+    count,
+  });
 }
 
 /**
