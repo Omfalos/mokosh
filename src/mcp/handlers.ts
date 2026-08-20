@@ -646,7 +646,8 @@ export async function handleGetModuleResponsibility(
 /**
  * @description Groups files into feature domains under their respective hub files (high-import
  *   orchestrators). Each file is assigned to the most specific hub that can transitively reach it.
- *   Returns up to 85–95% fewer tokens than a full graph query for domain-based questions.
+ *   Returns only paths grouped by hub — substantially smaller than a full graph query for the same
+ *   domain-based question, though the exact reduction depends on the repo's shape.
  *   Requires a prior `analyze` call.
  * @param cache - Session state holding the cached graph for `root`.
  * @param args - `root` selects the graph; `minOutDegree` sets the minimum internal imports to qualify as a hub.

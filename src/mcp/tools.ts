@@ -388,7 +388,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "get_feature_graph",
     description:
-      "Group files by domain: returns which files each feature hub (high-import orchestrator) transitively owns. Each file is assigned to the most specific hub that can reach it (lowest out-degree wins). Use this instead of a full query when answering 'what files are in the X feature/module?' — typically 85–95% fewer tokens than a full graph query.",
+      "Group files by domain: returns which files each feature hub (high-import orchestrator) transitively owns. Each file is assigned to the most specific hub that can reach it (lowest out-degree wins). Use this instead of a full query when answering 'what files are in the X feature/module?' — it returns only paths grouped by hub, so it's substantially smaller than a full graph query for the same question; compare output sizes yourself if you need an exact figure for your repo.",
     inputSchema: {
       type: "object",
       properties: {

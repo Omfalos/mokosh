@@ -349,7 +349,7 @@ What each file is responsible for: its semantic role, JSDoc description (when pr
 
 ### `get_feature_graph`
 
-Groups files by domain: returns which files each feature hub (high-import orchestrator) transitively owns. Each file is assigned to the most specific hub that can reach it (lowest out-degree wins). Use this instead of a full `query` when answering "what files are in the X feature/module?" — typically 85-95% fewer tokens than a full graph query.
+Groups files by domain: returns which files each feature hub (high-import orchestrator) transitively owns. Each file is assigned to the most specific hub that can reach it (lowest out-degree wins). Use this instead of a full `query` when answering "what files are in the X feature/module?" — it returns only paths grouped by hub, so it's substantially cheaper in tokens than a full graph query for the same question. The exact reduction depends on your repo's shape; compare `get_feature_graph` output size against `query` yourself if you need a number for your codebase.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
