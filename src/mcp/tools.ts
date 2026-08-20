@@ -71,7 +71,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "get_affected",
     description:
-      "Get all files transitively affected if a given file changes — full incoming traversal upward. Use before a refactor to understand blast radius. Set testsOnly=true to get only test files. Set cached=true to use a pre-computed O(1) lookup cache instead of graph traversal — faster on repeated calls for the same root. Pass changedSymbols to restrict blast-radius to files that actually import those symbols — omit to treat the whole file as changed. Set withMeta=true to get { path, category, exports } objects instead of bare path strings.",
+      "Get all files transitively affected if a given file changes — full incoming traversal upward. Use before a refactor to understand blast radius. See docs/mcp.md for details on the testsOnly, cached, changedSymbols, and withMeta options.",
     inputSchema: {
       type: "object",
       properties: {
@@ -206,7 +206,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "find_duplicates",
     description:
-      "Find duplicated code blocks across the project, largest-first. Two matching strategies, picked per file: CSS/SCSS/Less are compared structurally by rule body — the literal, ordered property:value declarations a rule contains, independent of its selector — so a genuine copy-pasted declaration list is caught while rules that merely share shape (e.g. display:flex vs display:block) never match. Every other language mokosh parses (TypeScript/JavaScript, Python, Go, CoffeeScript, LiveScript, Lua, Gherkin, Markdown, and Stylus) is tokenized and matched via a suffix array over the whole candidate token stream instead, partitioned by language family so matching never crosses between Stylus and code languages — exact and complete regardless of how repetitive the repo is, with no truncation caveat. Identifiers — and by default literals — are normalized before matching in the token-based path, so renamed-variable copies are still caught; blocks that are mostly object/array-literal structural punctuation (e.g. schema/object-literal boilerplate) rather than substantive shared logic are gated out. A block repeated N times across the project is reported once with N occurrences, not as separate pairs. Lock files (package-lock.json, yarn.lock, pnpm-lock.yaml) and files under an ignored directory are always excluded, even if the graph itself contains them. On large repos, tokenizing is offloaded to a worker pool and tokenized files are cached per session, so repeated calls against an unchanged root only re-tokenize what actually changed. Requires a prior analyze() call.",
+      "Find duplicated code blocks across the project, largest-first. CSS/SCSS/Less are matched structurally by rule body; every other parsed language is tokenized and matched via suffix array. Lock files and ignored directories are always excluded. Requires a prior analyze() call. See docs/mcp.md for matching-strategy, normalization, and caching details.",
     inputSchema: {
       type: "object",
       properties: {
@@ -292,7 +292,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "query",
     description:
-      "Filter the graph by category, tag, or path. Returns matching nodes as JSON or a Mermaid diagram. If entryPoints is omitted the cached graph from a prior 'analyze' call is used.",
+      "Filter the graph by category, tag, path, or other node metadata. Returns matching nodes as JSON or a Mermaid diagram. If entryPoints is omitted the cached graph from a prior 'analyze' call is used. See docs/mcp.md for the full query DSL reference.",
     inputSchema: {
       type: "object",
       properties: {
@@ -421,7 +421,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "find_symbol",
     description:
-      "Find every file that exports a symbol by exact name, with the best available usage info per match. Precision varies by the defining file's language: TypeScript/JavaScript, Go, and Python get function-level callers (via call edges) — though coverage differs per language (Go only tracks package-qualified calls, Python only tracks bare calls to `from module import name` symbols); everything else (CoffeeScript, LiveScript, Lua, Gherkin, Markdown, CSS/SCSS/Stylus) falls back to whole-file dependents, which is import-level only — a listed importer might not even use this specific export. Files whose parser never records exports (CoffeeScript, LiveScript, Lua, Gherkin, Markdown, CSS/SCSS/Stylus) never appear as matches, so a name that only exists in one of those returns an empty result, same as a typo. Each match's `precision` field is 'call' | 'file-level' — check it before trusting caller/importer results as symbol-exact.",
+      "Find every file that exports a symbol by exact name, with the best available usage info per match. Precision varies by the defining file's language — check each match's `precision` field ('call' | 'file-level') before trusting caller/importer results as symbol-exact. See docs/mcp.md for per-language coverage details.",
     inputSchema: {
       type: "object",
       properties: {
@@ -437,7 +437,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "get_api_surface",
     description:
-      "Build the API surface report for a project. Expands export* chains so every symbol accessible to consumers is listed (not just those directly declared in the entry file). Each export is resolved to its defining file and tagged with a kind (function/class/interface/type/enum/const). The graph is partitioned into: internalFiles (implementation reachable from entry points), unreachableFromEntry (non-test files not reachable from any entry point — may be separate consumers like CLI/MCP, config, or dead code), and testFiles (test suite). Supports multiple public entry points for libraries with sub-path exports. Requires a prior analyze() call. When entryPoints is omitted, auto-detects all entry points from package.json exports/main/module.",
+      "Build the API surface report for a project: every exported symbol resolved to its defining file and kind, partitioned into internalFiles, unreachableFromEntry, and testFiles. Requires a prior analyze() call. When entryPoints is omitted, auto-detects from package.json exports/main/module. See docs/mcp.md for the export* expansion and partition semantics.",
     inputSchema: {
       type: "object",
       properties: {
@@ -467,7 +467,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "apply_tags",
     description:
-      "Write @tag annotations into test file source code based on the dependency graph. Tags of kind 'import' (filename-derived) and 'comment-marker' (domain semantic, propagated from source files) are written as an idempotent block. Re-running is safe: the existing block is replaced in place. Tags already present in the file are excluded from the block to avoid duplication. Supports TypeScript/JavaScript (// <mokosh-tags> block with // @tag lines) and Gherkin .feature files (# <mokosh-tags> block with @tagname lines). Use dryRun=true to preview changes without writing to disk. Requires a prior analyze() call.",
+      "Write @tag annotations into test file source code based on the dependency graph, as an idempotent block — re-running is safe, the existing block is replaced in place. Use dryRun=true to preview changes without writing to disk. Requires a prior analyze() call. See docs/mcp.md for tag-kind and per-language block syntax details.",
     inputSchema: {
       type: "object",
       properties: {

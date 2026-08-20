@@ -58,13 +58,16 @@ workflows).
 Files touched: `src/mcp/handlers.ts`, `src/mcp/tools.ts`, likely new `src/graph/risk.ts` for
 the scoring logic (keep handlers thin per existing module conventions).
 
-## 4. Tool-definition weight
+## 4. Tool-definition weight — done (2026-08-20)
 
-`src/mcp/tools.ts` is 487 lines of JSON Schema returned on every `ListTools` call, across 25
-tools. Investigate whether trimming verbose `description` fields (moving deep detail into
-`docs/mcp.md` with a short in-schema pointer, as already done for `find_duplicates`) meaningfully
-reduces per-session token overhead. Measure before changing — this is a cost/readability
-tradeoff, not a clear win.
+Measured: descriptions totaled 14,507 chars (~3,627 tokens) of the file's ~6,094-token
+`ListTools` payload; every tool already has a full writeup in `docs/mcp.md`, so most of that
+was duplicated prose. Trimmed the 6 tools over ~700 chars (`find_duplicates`, `query`,
+`get_affected`, `find_symbol`, `get_api_surface`, `apply_tags`) to a one-sentence description +
+`docs/mcp.md` pointer, keeping load-bearing param-level descriptions and correctness caveats
+(e.g. `find_symbol`'s `precision` field) intact. Left the other 19 tools (already 168–663 chars)
+unchanged. Result: 14,507 → 11,764 chars (~2,941 tokens), ~19% cut off the file's total token
+footprint. `npm run typecheck` and `src/mcp/**/*.test.ts` pass unchanged.
 
 ## 5. Output size / pagination
 
