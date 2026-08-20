@@ -168,6 +168,12 @@ export const OPTIONS = {
   watch: { type: "boolean" },
 } as const;
 
+/** The subset of `nodeParseArgs`'s `values` result the boolean-flag group builders read from.
+ *  Keyed to `keyof typeof OPTIONS` (rather than a bare `Record<string, ...>`) so a typo'd flag
+ *  name inside a group builder — e.g. `values["propose-tag"]` instead of `"propose-tags"` — is a
+ *  compile error instead of silently resolving to `undefined ?? false` at runtime. */
+type RawValues = Record<keyof typeof OPTIONS, string | boolean | undefined>;
+
 const STRING_FLAGS = new Set(
   Object.entries(OPTIONS)
     .filter(([, v]) => v.type === "string")
@@ -204,9 +210,153 @@ function sanitizeTokens(cliTokens: string[]): string[] {
 }
 
 /**
+ * @description Reads the graph-traversal and query boolean flags (mermaid/tag/test-impact
+ *   output modes) off parsed CLI values, defaulting each to `false` when absent.
+ * @param {RawValues} values - The `values` object from `nodeParseArgs`.
+ * @returns {Pick<ParsedArgs, ...>} The traversal/query flag slice of `ParsedArgs`.
+ */
+function parseTraversalFlags(
+  values: RawValues,
+): Pick<
+  ParsedArgs,
+  | "mermaid"
+  | "proposeTags"
+  | "plain"
+  | "affectedTests"
+  | "detectFeatures"
+  | "findUnused"
+  | "excludeTests"
+  | "checkCycles"
+  | "checkDocDrift"
+  | "findUncovered"
+> {
+  return {
+    mermaid: (values.mermaid as boolean) ?? false,
+    proposeTags: (values["propose-tags"] as boolean) ?? false,
+    plain: (values.plain as boolean) ?? false,
+    affectedTests: (values["affected-tests"] as boolean) ?? false,
+    detectFeatures: (values["detect-features"] as boolean) ?? false,
+    findUnused: (values["find-unused"] as boolean) ?? false,
+    excludeTests: (values["exclude-tests"] as boolean) ?? false,
+    checkCycles: (values["check-cycles"] as boolean) ?? false,
+    checkDocDrift: (values["check-doc-drift"] as boolean) ?? false,
+    findUncovered: (values["find-uncovered"] as boolean) ?? false,
+  };
+}
+
+/**
+ * @description Reads the introspection/output-shape boolean flags (tag listing, help, type/API
+ *   surface reporting) off parsed CLI values, defaulting each to `false` when absent.
+ * @param {RawValues} values - The `values` object from `nodeParseArgs`.
+ * @returns {Pick<ParsedArgs, ...>} The introspection flag slice of `ParsedArgs`.
+ */
+function parseIntrospectionFlags(
+  values: RawValues,
+): Pick<
+  ParsedArgs,
+  | "listTags"
+  | "callers"
+  | "silent"
+  | "queryHelp"
+  | "typeGraph"
+  | "moduleResponsibility"
+  | "featureGraph"
+  | "callGraph"
+  | "findSymbol"
+  | "apiSurface"
+> {
+  return {
+    listTags: (values["list-tags"] as boolean) ?? false,
+    callers: (values.callers as boolean) ?? false,
+    silent: (values.silent as boolean) ?? false,
+    queryHelp: (values["query-help"] as boolean) ?? false,
+    typeGraph: (values["type-graph"] as boolean) ?? false,
+    moduleResponsibility: (values["module-responsibility"] as boolean) ?? false,
+    featureGraph: (values["feature-graph"] as boolean) ?? false,
+    callGraph: (values["call-graph"] as boolean) ?? false,
+    findSymbol: (values["find-symbol"] as boolean) ?? false,
+    apiSurface: (values["api-surface"] as boolean) ?? false,
+  };
+}
+
+/**
+ * @description Reads the tag-application and dependency-lookup boolean flags off parsed CLI
+ *   values, defaulting each to `false` when absent.
+ * @param {RawValues} values - The `values` object from `nodeParseArgs`.
+ * @returns {Pick<ParsedArgs, ...>} The workflow flag slice of `ParsedArgs`.
+ */
+function parseWorkflowFlags(
+  values: RawValues,
+): Pick<
+  ParsedArgs,
+  | "applyTags"
+  | "dryRun"
+  | "initSkill"
+  | "initConfig"
+  | "force"
+  | "dependencies"
+  | "dependents"
+  | "affected"
+  | "testsOnly"
+  | "cached"
+> {
+  return {
+    applyTags: (values["apply-tags"] as boolean) ?? false,
+    dryRun: (values["dry-run"] as boolean) ?? false,
+    initSkill: (values["init-skill"] as boolean) ?? false,
+    initConfig: (values["init-config"] as boolean) ?? false,
+    force: (values.force as boolean) ?? false,
+    dependencies: (values.dependencies as boolean) ?? false,
+    dependents: (values.dependents as boolean) ?? false,
+    affected: (values.affected as boolean) ?? false,
+    testsOnly: (values["tests-only"] as boolean) ?? false,
+    cached: (values.cached as boolean) ?? false,
+  };
+}
+
+/**
+ * @description Reads the complexity/duplication/risk-analysis and workspace boolean flags off
+ *   parsed CLI values, defaulting each to `false` when absent.
+ * @param {RawValues} values - The `values` object from `nodeParseArgs`.
+ * @returns {Pick<ParsedArgs, ...>} The analysis flag slice of `ParsedArgs`.
+ */
+function parseAnalysisFlags(
+  values: RawValues,
+): Pick<
+  ParsedArgs,
+  | "withMeta"
+  | "withEdgeDetail"
+  | "findComplexFunctions"
+  | "findDuplicates"
+  | "findRiskHotspots"
+  | "workspacePackages"
+  | "workspaceAffected"
+  | "clearCache"
+  | "slim"
+  | "watch"
+> {
+  return {
+    withMeta: (values["with-meta"] as boolean) ?? false,
+    withEdgeDetail: (values["with-edge-detail"] as boolean) ?? false,
+    findComplexFunctions: (values["find-complex-functions"] as boolean) ?? false,
+    findDuplicates: (values["find-duplicates"] as boolean) ?? false,
+    findRiskHotspots: (values["find-risk-hotspots"] as boolean) ?? false,
+    workspacePackages: (values["workspace-packages"] as boolean) ?? false,
+    workspaceAffected: (values["workspace-affected"] as boolean) ?? false,
+    clearCache: (values["clear-cache"] as boolean) ?? false,
+    slim: (values.slim as boolean) ?? false,
+    watch: (values.watch as boolean) ?? false,
+  };
+}
+
+/**
  * @description Parses raw CLI tokens into a structured options object with all paths
  *   resolved to absolute values. `--root` is resolved first because the default cache path
- *   derives from it; every subsequent path argument is resolved relative to that root.
+ *   derives from it; every subsequent path argument is resolved relative to that root. Boolean
+ *   flags are delegated to four thematic group builders ({@link parseTraversalFlags},
+ *   {@link parseIntrospectionFlags}, {@link parseWorkflowFlags}, {@link parseAnalysisFlags}) so
+ *   this function's own cognitive complexity stays proportional to its remaining path/numeric
+ *   parsing, not to the flat count of `?? false` defaults.
  * @param {string[]} cliTokens - Raw process arguments (everything after `node <script>`).
  * @returns {ParsedArgs} A fully populated `ParsedArgs` with boolean flags set and path arguments as absolute paths.
  */
@@ -223,6 +373,7 @@ export function parseArgs(cliTokens: string[]): ParsedArgs {
   const cacheValue = values.cache;
   const configValue = values.config;
   const metricRaw = values.metric;
+  const rawValues = values as RawValues;
 
   return {
     rootDir,
@@ -235,56 +386,20 @@ export function parseArgs(cliTokens: string[]): ParsedArgs {
     filterPaths: parseCsv(values.paths),
     featureThreshold: parseOptionalInt(values["feature-threshold"]),
     minOutDegree: parseOptionalInt(values["min-out-degree"]),
-    mermaid: values.mermaid ?? false,
-    proposeTags: values["propose-tags"] ?? false,
-    plain: values.plain ?? false,
-    affectedTests: values["affected-tests"] ?? false,
-    detectFeatures: values["detect-features"] ?? false,
-    findUnused: values["find-unused"] ?? false,
-    excludeTests: values["exclude-tests"] ?? false,
-    checkCycles: values["check-cycles"] ?? false,
-    checkDocDrift: values["check-doc-drift"] ?? false,
-    findUncovered: values["find-uncovered"] ?? false,
-    listTags: values["list-tags"] ?? false,
-    callers: values.callers ?? false,
-    silent: values.silent ?? false,
-    queryHelp: values["query-help"] ?? false,
+    ...parseTraversalFlags(rawValues),
+    ...parseIntrospectionFlags(rawValues),
     help: cliTokens.length === 0 || (values.help ?? false),
-    typeGraph: values["type-graph"] ?? false,
-    moduleResponsibility: values["module-responsibility"] ?? false,
-    featureGraph: values["feature-graph"] ?? false,
-    callGraph: values["call-graph"] ?? false,
-    findSymbol: values["find-symbol"] ?? false,
-    apiSurface: values["api-surface"] ?? false,
-    applyTags: values["apply-tags"] ?? false,
-    dryRun: values["dry-run"] ?? false,
-    initSkill: values["init-skill"] ?? false,
-    initConfig: values["init-config"] ?? false,
-    force: values.force ?? false,
-    dependencies: values.dependencies ?? false,
-    dependents: values.dependents ?? false,
-    affected: values.affected ?? false,
-    testsOnly: values["tests-only"] ?? false,
+    ...parseWorkflowFlags(rawValues),
     changedSymbols: parseCsv(values["changed-symbols"]),
-    cached: values.cached ?? false,
     depth: parseOptionalInt(values.depth),
-    withMeta: values["with-meta"] ?? false,
-    withEdgeDetail: values["with-edge-detail"] ?? false,
-    findComplexFunctions: values["find-complex-functions"] ?? false,
+    ...parseAnalysisFlags(rawValues),
     metric:
       metricRaw === "complexity" || metricRaw === "cognitiveComplexity" ? metricRaw : undefined,
     complexityThreshold: parseOptionalInt(values["complexity-threshold"]),
     limit: parseOptionalInt(values.limit),
-    findDuplicates: values["find-duplicates"] ?? false,
     minDuplicateLines: parseOptionalInt(values["min-duplicate-lines"]),
-    findRiskHotspots: values["find-risk-hotspots"] ?? false,
     maxCoveragePct: parseOptionalInt(values["max-coverage-pct"]),
     minChurn: parseOptionalInt(values["min-churn"]),
-    workspacePackages: values["workspace-packages"] ?? false,
-    workspaceAffected: values["workspace-affected"] ?? false,
-    clearCache: values["clear-cache"] ?? false,
-    slim: values.slim ?? false,
-    watch: values.watch ?? false,
     entryPoints: positionals,
   };
 }

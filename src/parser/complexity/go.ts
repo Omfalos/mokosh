@@ -46,80 +46,138 @@ export function computeCyclomaticComplexity(rootNode: SyntaxNode, content: strin
 }
 
 /**
+ * @description Scores a Go `IfStatement`: an initial `if` adds `1 + depth` and nests its
+ *   condition/body at `depth + 1`; a chained `else if` recurses into this same function at the
+ *   *same* depth with `isElseIf: true` so it adds only a flat +1 (mirroring how the cognitive
+ *   model treats `else if` as a continuation, not new nesting); a bare `else` adds a flat +1 and
+ *   nests its body at `depth + 1`.
+ * @param {SyntaxNode} node - The `IfStatement` node.
+ * @param {number} depth - Current nesting depth.
+ * @param {boolean} isElseIf - Whether this `IfStatement` is itself the `else if` continuation of
+ *   an enclosing one (so it contributes a flat +1 instead of `1 + depth`).
+ * @param {string} content - Full source text, threaded through to {@link walkNode} for reading
+ *   operator token text.
+ * @returns {number} This node's cognitive complexity contribution, including its branches.
+ */
+function scoreIfStatement(
+  node: SyntaxNode,
+  depth: number,
+  isElseIf: boolean,
+  content: string,
+): number {
+  let cognitive = isElseIf ? 1 : 1 + depth;
+  const kids = childrenOf(node);
+  const bodyDepth = isElseIf ? depth : depth + 1;
+
+  const cond = kids[1];
+  if (cond && cond.type.name !== "Block") cognitive += walkNode(cond, bodyDepth, false, content);
+
+  const thenBlock = kids.find((k) => k.type.name === "Block");
+  if (thenBlock) cognitive += walkNode(thenBlock, bodyDepth, false, content);
+
+  const elseIndex = kids.findIndex((k) => k.type.name === "else");
+  if (elseIndex >= 0) {
+    const after = kids[elseIndex + 1];
+    if (after?.type.name === "IfStatement") {
+      cognitive += scoreIfStatement(after, depth, true, content);
+    } else if (after) {
+      cognitive += 1 + walkNode(after, depth + 1, false, content);
+    }
+  }
+  return cognitive;
+}
+
+/**
+ * @description Scores a node whose own children are strictly more deeply nested than itself —
+ *   `for`/`switch`/`select` bodies and a `FunctionLiteral` nested inside another function — which
+ *   all share the same shape: a flat `1 + depth` for the node itself, then every child walked at
+ *   `depth + 1`.
+ * @param {SyntaxNode} node - The loop, switch/select, or nested-function-literal node.
+ * @param {number} depth - Current nesting depth (the node's own, not its children's).
+ * @param {string} content - Full source text, threaded through to {@link walkNode}.
+ * @returns {number} This node's cognitive complexity contribution, including its body.
+ */
+function scoreNestedBlock(node: SyntaxNode, depth: number, content: string): number {
+  let cognitive = 1 + depth;
+  let child = node.firstChild;
+  while (child) {
+    cognitive += walkNode(child, depth + 1, false, content);
+    child = child.nextSibling;
+  }
+  return cognitive;
+}
+
+/**
+ * @description Sums the cognitive complexity of every direct child of `node`, each walked at the
+ *   same depth as `node` itself — the fallthrough case for nodes with no scoring rule of their
+ *   own (e.g. a block, a plain statement list, a `LogicOp`'s operands).
+ * @param {SyntaxNode} node - The node whose children should be walked.
+ * @param {number} depth - Nesting depth to walk the children at.
+ * @param {string} content - Full source text, threaded through to {@link walkNode}.
+ * @returns {number} The summed cognitive complexity of all direct children.
+ */
+function walkChildren(node: SyntaxNode, depth: number, content: string): number {
+  let cognitive = 0;
+  let child = node.firstChild;
+  while (child) {
+    cognitive += walkNode(child, depth, false, content);
+    child = child.nextSibling;
+  }
+  return cognitive;
+}
+
+/**
+ * @description Reports whether a `LogicOp` node's token text is `&&` or `||` — the only two
+ *   operators that count as cognitive-complexity decision points (Go has no other short-circuit
+ *   operators at this grammar node).
+ * @param {SyntaxNode} node - The `LogicOp` node.
+ * @param {string} content - Full source text, used to slice the operator token.
+ * @returns {boolean} `true` if the operator is `&&` or `||`.
+ */
+function isLogicalOperator(node: SyntaxNode, content: string): boolean {
+  const text = content.slice(node.from, node.to);
+  return text === "&&" || text === "||";
+}
+
+/**
+ * @description Dispatches one AST node to its scoring rule by node type — `IfStatement` needs its
+ *   chained-`else if`-aware handling ({@link scoreIfStatement}); loops, `switch`/`select`, and
+ *   nested `FunctionLiteral`s share the same nest-and-recurse shape ({@link scoreNestedBlock});
+ *   everything else contributes a flat +1 for `&&`/`||` ({@link isLogicalOperator}), then recurses
+ *   into its children at the same depth ({@link walkChildren}).
+ * @param {SyntaxNode} node - The AST node to score.
+ * @param {number} depth - Current nesting depth.
+ * @param {boolean} isElseIf - Whether `node` is itself an `else if` continuation (only meaningful
+ *   when `node` is an `IfStatement`; see {@link scoreIfStatement}).
+ * @param {string} content - Full source text, used to read operator token text.
+ * @returns {number} This node's cognitive complexity contribution, including its subtree.
+ */
+function walkNode(node: SyntaxNode, depth: number, isElseIf: boolean, content: string): number {
+  const name = node.type.name;
+
+  if (name === "IfStatement") return scoreIfStatement(node, depth, isElseIf, content);
+  if (name === "ForStatement" || name === "SwitchStatement" || name === "SelectStatement") {
+    return scoreNestedBlock(node, depth, content);
+  }
+
+  const own = name === "LogicOp" && isLogicalOperator(node, content) ? 1 : 0;
+
+  const isNestedFunctionLiteral = depth > 0 && name === "FunctionLiteral";
+  if (isNestedFunctionLiteral) return own + scoreNestedBlock(node, depth, content);
+
+  return own + walkChildren(node, depth, content);
+}
+
+/**
  * @description Computes a simplified SonarSource-style cognitive complexity score for a Go AST
- *   node, tracking how hard the code is to read by adding a nesting penalty. Mirrors the
- *   TypeScript algorithm: `if`/`for`/`switch` increment by `1 + current nesting depth` and
- *   increase depth for their children; chained `else if` gets +1 flat; a bare `else` gets +1
- *   flat; `&&`/`||` each add +1 flat; nested function literals add `1 + depth`.
+ *   node, tracking how hard the code is to read by adding a nesting penalty. See {@link walkNode}
+ *   and its per-node-type scoring functions for the rules applied.
  * @param {SyntaxNode} rootNode - The AST root node to analyse (nesting depth resets to 0 here).
  * @param {string} content - Full source text, used to read operator token text.
  * @returns {number} The cognitive complexity score, minimum 0.
  */
 export function computeCognitiveComplexity(rootNode: SyntaxNode, content: string): number {
-  let cognitive = 0;
-
-  function walk(node: SyntaxNode, depth: number, isElseIf: boolean): void {
-    const name = node.type.name;
-
-    if (name === "IfStatement") {
-      cognitive += isElseIf ? 1 : 1 + depth;
-      const kids = childrenOf(node);
-      const bodyDepth = isElseIf ? depth : depth + 1;
-
-      const cond = kids[1];
-      if (cond && cond.type.name !== "Block") walk(cond, bodyDepth, false);
-
-      const thenBlock = kids.find((k) => k.type.name === "Block");
-      if (thenBlock) walk(thenBlock, bodyDepth, false);
-
-      const elseIndex = kids.findIndex((k) => k.type.name === "else");
-      if (elseIndex >= 0) {
-        const after = kids[elseIndex + 1];
-        if (after?.type.name === "IfStatement") {
-          walk(after, depth, true);
-        } else if (after) {
-          cognitive += 1;
-          walk(after, depth + 1, false);
-        }
-      }
-      return;
-    }
-
-    if (name === "ForStatement" || name === "SwitchStatement" || name === "SelectStatement") {
-      cognitive += 1 + depth;
-      let child = node.firstChild;
-      while (child) {
-        walk(child, depth + 1, false);
-        child = child.nextSibling;
-      }
-      return;
-    }
-
-    if (name === "LogicOp") {
-      const text = content.slice(node.from, node.to);
-      if (text === "&&" || text === "||") cognitive += 1;
-    }
-
-    const isNestedFunctionLiteral = depth > 0 && name === "FunctionLiteral";
-    if (isNestedFunctionLiteral) {
-      cognitive += 1 + depth;
-      let child = node.firstChild;
-      while (child) {
-        walk(child, depth + 1, false);
-        child = child.nextSibling;
-      }
-      return;
-    }
-
-    let child = node.firstChild;
-    while (child) {
-      walk(child, depth, false);
-      child = child.nextSibling;
-    }
-  }
-
-  walk(rootNode, 0, false);
-  return cognitive;
+  return walkNode(rootNode, 0, false, content);
 }
 
 /**
