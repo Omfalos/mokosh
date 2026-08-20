@@ -1,3 +1,9 @@
+## [0.4.3](https://github.com/Omfalos/mokosh/compare/v0.4.2...v0.4.3) (2026-08-20)
+
+### Features
+
+* **mcp:** add find_risk_hotspots tool ([5a0be86](https://github.com/Omfalos/mokosh/commit/5a0be8611ef667c6ace7b82ec1c08688c2bec29f))
+
 ## [0.4.2](https://github.com/Omfalos/mokosh/compare/v0.4.1...v0.4.2) (2026-08-20)
 
 ### Bug Fixes
