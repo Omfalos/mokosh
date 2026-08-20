@@ -222,6 +222,214 @@ interface PairMatch {
  */
 const DEFAULT_MAX_BUCKET_SIZE = 400;
 
+/** Shared read-only context passed to the per-pair and per-bucket matching steps below — bundled
+ *  so each step's signature stays narrow (a handful of related lookups) instead of threading five
+ *  separate maps/scalars through every call. */
+interface MatchContext {
+  hashesByFile: Map<string, string[]>;
+  tokensByFile: Map<string, NormalizedToken[]>;
+  windowSize: number;
+  minLines: number;
+  maxPunctuationRatio: number;
+}
+
+/**
+ * @description Hashes every `windowSize`-token sliding window for each file and groups window
+ *   locations by hash, so same-hash windows across (or within) files can be compared pairwise.
+ * @param files - Per-file normalized token streams (already comment-stripped and identifier/
+ *   literal-normalized by `tokenize`).
+ * @param windowSize - Shingle window length in tokens — the smallest duplicate this can find.
+ * @returns Per-file window hashes, per-file tokens, and window locations grouped by hash.
+ */
+function buildHashIndex(
+  files: FileTokens[],
+  windowSize: number,
+): {
+  hashesByFile: Map<string, string[]>;
+  tokensByFile: Map<string, NormalizedToken[]>;
+  buckets: Map<string, Location[]>;
+} {
+  const hashesByFile = new Map<string, string[]>();
+  const tokensByFile = new Map<string, NormalizedToken[]>();
+  const buckets = new Map<string, Location[]>();
+
+  for (const { file, tokens } of files) {
+    if (tokens.length < windowSize) continue;
+    tokensByFile.set(file, tokens);
+    const hashes = hashWindows(tokens, windowSize);
+    hashesByFile.set(file, hashes);
+    for (let i = 0; i < hashes.length; i++) {
+      const loc: Location = { file, windowIndex: i };
+      const bucket = buckets.get(hashes[i] as string);
+      if (bucket) bucket.push(loc);
+      else buckets.set(hashes[i] as string, [loc]);
+    }
+  }
+
+  return { hashesByFile, tokensByFile, buckets };
+}
+
+/**
+ * @description Evaluates one candidate window pair from the same hash bucket against every
+ *   filter a match must clear — chain-start position, structural-punctuation density, same-file
+ *   self-overlap, and the `minLines` floor — and, if it clears all of them, builds the resulting
+ *   pair match. Each gate is a single early return, which is what keeps this readable despite
+ *   testing four independent conditions: the whole point of factoring the pair out of the bucket
+ *   loop is that this function has exactly one input pair to reason about at a time.
+ * @param a - Starting location in the first file.
+ * @param b - Starting location in the second file.
+ * @param ctx - Shared hash/token lookups and thresholds for the current run.
+ * @returns The pair match, or `undefined` if `(a, b)` isn't a valid reportable match.
+ */
+function tryMatchPair(a: Location, b: Location, ctx: MatchContext): PairMatch | undefined {
+  if (a.file === b.file && a.windowIndex === b.windowIndex) return undefined;
+  if (!isChainStart(ctx.hashesByFile, a, b)) return undefined;
+
+  const extra = extendChain(ctx.hashesByFile, a, b);
+  const length = ctx.windowSize + extra;
+
+  const tokensA = ctx.tokensByFile.get(a.file) as NormalizedToken[];
+  if (structuralPunctuationRatio(tokensA, a.windowIndex, length) > ctx.maxPunctuationRatio)
+    return undefined;
+
+  // Same-file self-overlap isn't a real duplicate (it's just the same span vs itself).
+  if (a.file === b.file) {
+    const [lo, hi] = a.windowIndex < b.windowIndex ? [a, b] : [b, a];
+    if (lo.windowIndex + length > hi.windowIndex) return undefined;
+  }
+
+  const tokensB = ctx.tokensByFile.get(b.file) as NormalizedToken[];
+  const occA: DuplicateOccurrence = {
+    file: a.file,
+    startLine: (tokensA[a.windowIndex] as NormalizedToken).line,
+    endLine: (tokensA[a.windowIndex + length - 1] as NormalizedToken).line,
+  };
+  const occB: DuplicateOccurrence = {
+    file: b.file,
+    startLine: (tokensB[b.windowIndex] as NormalizedToken).line,
+    endLine: (tokensB[b.windowIndex + length - 1] as NormalizedToken).line,
+  };
+  const lines = Math.min(occA.endLine - occA.startLine + 1, occB.endLine - occB.startLine + 1);
+  if (lines < ctx.minLines) return undefined;
+
+  return { occA, occB, lines, tokens: length };
+}
+
+/**
+ * @description Runs {@link tryMatchPair} over every location pair within one hash bucket.
+ * @param locations - Window locations that all share one hash.
+ * @param ctx - Shared hash/token lookups and thresholds for the current run.
+ * @returns Every valid pair match found within the bucket.
+ */
+function matchPairsInBucket(locations: Location[], ctx: MatchContext): PairMatch[] {
+  const matches: PairMatch[] = [];
+  for (let i = 0; i < locations.length; i++) {
+    for (let j = i + 1; j < locations.length; j++) {
+      const match = tryMatchPair(locations[i] as Location, locations[j] as Location, ctx);
+      if (match) matches.push(match);
+    }
+  }
+  return matches;
+}
+
+/**
+ * @description Compares locations within each hash bucket pairwise via {@link matchPairsInBucket},
+ *   skipping buckets larger than `maxBucketSize` outright since their O(k²) comparison cost is
+ *   almost always spent on ubiquitous boilerplate rather than a genuine large clone — see
+ *   {@link DEFAULT_MAX_BUCKET_SIZE}'s doc comment.
+ * @param buckets - Window locations grouped by hash, from {@link buildHashIndex}.
+ * @param ctx - Shared hash/token lookups and thresholds for the current run.
+ * @param maxBucketSize - Skip a bucket's comparison entirely once it holds more than this many
+ *   locations.
+ * @returns Every valid pair match across all buckets, plus how many buckets were skipped.
+ */
+function collectPairMatches(
+  buckets: Map<string, Location[]>,
+  ctx: MatchContext,
+  maxBucketSize: number,
+): { pairMatches: PairMatch[]; skippedBuckets: number } {
+  const pairMatches: PairMatch[] = [];
+  let skippedBuckets = 0;
+
+  for (const locations of buckets.values()) {
+    if (locations.length < 2) continue;
+    if (locations.length > maxBucketSize) {
+      skippedBuckets++;
+      continue;
+    }
+    pairMatches.push(...matchPairsInBucket(locations, ctx));
+  }
+
+  return { pairMatches, skippedBuckets };
+}
+
+/**
+ * @description The best (largest) pairwise match fully contained in a cluster of occurrence keys
+ *   — reported as the group's size, rather than a value shrunk by an unrelated, more weakly-
+ *   matching cluster member.
+ * @param keys - Occurrence keys belonging to one cluster.
+ * @param pairMatches - Every pair match found, from {@link collectPairMatches}.
+ * @param windowSize - Fallback token length if no pair match's tokens exceed the initial `lines`
+ *   value (kept identical to the pre-refactor behavior).
+ * @returns The cluster's best `lines`/`tokens` pair.
+ */
+function bestMatchInCluster(
+  keys: Set<string>,
+  pairMatches: PairMatch[],
+  windowSize: number,
+): { lines: number; tokens: number } {
+  let lines = 0;
+  let tokens = windowSize;
+  for (const pm of pairMatches) {
+    if (!keys.has(occurrenceKey(pm.occA)) || !keys.has(occurrenceKey(pm.occB))) continue;
+    if (pm.lines > lines) {
+      lines = pm.lines;
+      tokens = pm.tokens;
+    }
+  }
+  return { lines, tokens };
+}
+
+/**
+ * @description Merges pair-matches that share an exact occurrence (same file, same start/end
+ *   line on one side) into single groups — so a block repeated N times across the project is
+ *   reported once, with N occurrences, instead of once per pair. See
+ *   {@link ExactOccurrenceUnionFind}'s doc comment for why clustering is scoped to *exact* shared
+ *   spans rather than being transitive over chain-matches in general.
+ * @param pairMatches - Every pair match found, from {@link collectPairMatches}.
+ * @param windowSize - Passed through to {@link bestMatchInCluster}.
+ * @returns Duplicate groups, each with two or more occurrences, unsorted.
+ */
+function clusterPairMatches(pairMatches: PairMatch[], windowSize: number): DuplicateGroup[] {
+  const clusters = new ExactOccurrenceUnionFind();
+  const occurrenceByKey = new Map<string, DuplicateOccurrence>();
+  for (const { occA, occB } of pairMatches) {
+    const keyA = occurrenceKey(occA);
+    const keyB = occurrenceKey(occB);
+    occurrenceByKey.set(keyA, occA);
+    occurrenceByKey.set(keyB, occB);
+    clusters.union(keyA, keyB);
+  }
+
+  const keysByRoot = new Map<string, Set<string>>();
+  for (const key of occurrenceByKey.keys()) {
+    const root = clusters.root(key);
+    const keys = keysByRoot.get(root);
+    if (keys) keys.add(key);
+    else keysByRoot.set(root, new Set([key]));
+  }
+
+  const groups: DuplicateGroup[] = [];
+  for (const keys of keysByRoot.values()) {
+    if (keys.size < 2) continue;
+    const occurrences = [...keys].map((key) => occurrenceByKey.get(key) as DuplicateOccurrence);
+    const { lines, tokens } = bestMatchInCluster(keys, pairMatches, windowSize);
+    groups.push({ occurrences, lines, tokens });
+  }
+
+  return groups;
+}
+
 /**
  * @description Builds duplicate groups from a set of files' token streams: hashes every
  *   `windowSize`-token sliding window per file, pairs up locations sharing a hash, chain-merges
@@ -231,6 +439,10 @@ const DEFAULT_MAX_BUCKET_SIZE = 400;
  *   an exact occurrence (same file, same start/end line on one side) into a single group — so a
  *   block repeated N times across the project is reported once, with N occurrences, instead of
  *   once per pair, without shortening any individual match to accommodate an unrelated one.
+ *
+ *   Broken into three steps, each independently testable: {@link buildHashIndex} (hash every
+ *   window), {@link collectPairMatches} (find valid pairwise matches), {@link clusterPairMatches}
+ *   (merge matches into groups).
  * @param files - Per-file normalized token streams (already comment-stripped and identifier/
  *   literal-normalized by `tokenize`).
  * @param windowSize - Shingle window length in tokens — the smallest duplicate this can find.
@@ -254,109 +466,16 @@ export function findDuplicateGroups(
   maxPunctuationRatio = 0.5,
   maxBucketSize = DEFAULT_MAX_BUCKET_SIZE,
 ): { groups: DuplicateGroup[]; skippedBuckets: number } {
-  const hashesByFile = new Map<string, string[]>();
-  const tokensByFile = new Map<string, NormalizedToken[]>();
-  const buckets = new Map<string, Location[]>();
-
-  for (const { file, tokens } of files) {
-    if (tokens.length < windowSize) continue;
-    tokensByFile.set(file, tokens);
-    const hashes = hashWindows(tokens, windowSize);
-    hashesByFile.set(file, hashes);
-    for (let i = 0; i < hashes.length; i++) {
-      const loc: Location = { file, windowIndex: i };
-      const bucket = buckets.get(hashes[i] as string);
-      if (bucket) bucket.push(loc);
-      else buckets.set(hashes[i] as string, [loc]);
-    }
-  }
-
-  const pairMatches: PairMatch[] = [];
-  let skippedBuckets = 0;
-
-  for (const locations of buckets.values()) {
-    if (locations.length < 2) continue;
-    if (locations.length > maxBucketSize) {
-      skippedBuckets++;
-      continue;
-    }
-    for (let i = 0; i < locations.length; i++) {
-      for (let j = i + 1; j < locations.length; j++) {
-        const a = locations[i] as Location;
-        const b = locations[j] as Location;
-        if (a.file === b.file && a.windowIndex === b.windowIndex) continue;
-        if (!isChainStart(hashesByFile, a, b)) continue;
-
-        const extra = extendChain(hashesByFile, a, b);
-        const length = windowSize + extra;
-
-        const tokensA = tokensByFile.get(a.file) as NormalizedToken[];
-        if (structuralPunctuationRatio(tokensA, a.windowIndex, length) > maxPunctuationRatio)
-          continue;
-
-        // Same-file self-overlap isn't a real duplicate (it's just the same span vs itself).
-        if (a.file === b.file) {
-          const [lo, hi] = a.windowIndex < b.windowIndex ? [a, b] : [b, a];
-          if (lo.windowIndex + length > hi.windowIndex) continue;
-        }
-
-        const tokensB = tokensByFile.get(b.file) as NormalizedToken[];
-        const occA: DuplicateOccurrence = {
-          file: a.file,
-          startLine: (tokensA[a.windowIndex] as NormalizedToken).line,
-          endLine: (tokensA[a.windowIndex + length - 1] as NormalizedToken).line,
-        };
-        const occB: DuplicateOccurrence = {
-          file: b.file,
-          startLine: (tokensB[b.windowIndex] as NormalizedToken).line,
-          endLine: (tokensB[b.windowIndex + length - 1] as NormalizedToken).line,
-        };
-        const lines = Math.min(
-          occA.endLine - occA.startLine + 1,
-          occB.endLine - occB.startLine + 1,
-        );
-        if (lines < minLines) continue;
-
-        pairMatches.push({ occA, occB, lines, tokens: length });
-      }
-    }
-  }
-
-  const clusters = new ExactOccurrenceUnionFind();
-  const occurrenceByKey = new Map<string, DuplicateOccurrence>();
-  for (const { occA, occB } of pairMatches) {
-    const keyA = occurrenceKey(occA);
-    const keyB = occurrenceKey(occB);
-    occurrenceByKey.set(keyA, occA);
-    occurrenceByKey.set(keyB, occB);
-    clusters.union(keyA, keyB);
-  }
-
-  const keysByRoot = new Map<string, Set<string>>();
-  for (const key of occurrenceByKey.keys()) {
-    const root = clusters.root(key);
-    const keys = keysByRoot.get(root);
-    if (keys) keys.add(key);
-    else keysByRoot.set(root, new Set([key]));
-  }
-
-  const groups: DuplicateGroup[] = [];
-  for (const keys of keysByRoot.values()) {
-    if (keys.size < 2) continue;
-    const occurrences = [...keys].map((key) => occurrenceByKey.get(key) as DuplicateOccurrence);
-    // Best (largest) individual pairwise match fully contained in this cluster — reported as the
-    // group's size, rather than a value shrunk by an unrelated, more weakly-matching member.
-    let lines = 0;
-    let tokens = windowSize;
-    for (const pm of pairMatches) {
-      if (!keys.has(occurrenceKey(pm.occA)) || !keys.has(occurrenceKey(pm.occB))) continue;
-      if (pm.lines > lines) {
-        lines = pm.lines;
-        tokens = pm.tokens;
-      }
-    }
-    groups.push({ occurrences, lines, tokens });
-  }
+  const { hashesByFile, tokensByFile, buckets } = buildHashIndex(files, windowSize);
+  const ctx: MatchContext = {
+    hashesByFile,
+    tokensByFile,
+    windowSize,
+    minLines,
+    maxPunctuationRatio,
+  };
+  const { pairMatches, skippedBuckets } = collectPairMatches(buckets, ctx, maxBucketSize);
+  const groups = clusterPairMatches(pairMatches, windowSize);
 
   return { groups: groups.sort((a, b) => b.lines - a.lines), skippedBuckets };
 }
