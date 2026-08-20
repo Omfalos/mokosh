@@ -1,3 +1,15 @@
+## [0.4.2](https://github.com/Omfalos/mokosh/compare/v0.4.1...v0.4.2) (2026-08-20)
+
+### Bug Fixes
+
+* **graph:** clamp non-positive maxThreads to 1 instead of failing pool construction ([d01757e](https://github.com/Omfalos/mokosh/commit/d01757eb17d0f04fded73521ddc3809fab3ca4ed))
+
+### Performance Improvements
+
+* **mcp:** seed session cache from CLI disk cache, add SessionState regression test ([009f703](https://github.com/Omfalos/mokosh/commit/009f7032ce2e9ceed967e4e799e22a1de18d3651))
+* **mcp:** serialize tool responses compact instead of pretty-printed ([de05b05](https://github.com/Omfalos/mokosh/commit/de05b053238dff4005b394a73e848c766840e750))
+* **mcp:** trim verbose tool descriptions in ListTools schema ([ec923c5](https://github.com/Omfalos/mokosh/commit/ec923c577d6d28305bade4d9305a212f46c6f543))
+
 ## [0.4.1](https://github.com/Omfalos/mokosh/compare/v0.4.0...v0.4.1) (2026-08-13)
 
 ### Performance Improvements
