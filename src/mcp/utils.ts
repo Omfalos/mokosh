@@ -5,9 +5,13 @@ import path from "node:path";
 
 export type TextResponse = { content: [{ type: "text"; text: string }] };
 
-/** Wraps any JSON-serializable value as an MCP text content response block. */
+/**
+ * Wraps any JSON-serializable value as an MCP text content response block.
+ * Serialized compact (no indentation) — pretty-printing costs ~40-50% more
+ * tokens for whitespace/newlines the model gets no value from.
+ */
 export function text(data: unknown): TextResponse {
-  return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+  return { content: [{ type: "text", text: JSON.stringify(data) }] };
 }
 
 /**
