@@ -6,7 +6,7 @@ import { execFileSync } from "node:child_process";
  *   Abstracted so the CLI and MCP server can be tested without a live git repository.
  */
 export interface GitProvider {
-  getChangedFiles(base?: string): string[];
+  getChangedFiles(rootDir: string, base?: string): string[];
 }
 
 /**
@@ -19,6 +19,10 @@ export class DefaultGitProvider implements GitProvider {
    *   (when `base` is given) every file committed since diverging from `base`. Runs three git
    *   commands (four with `base`). Returns an empty array if not inside a git repository or if
    *   git is unavailable.
+   * @param rootDir - Absolute path to the repository (or worktree) root; every git invocation
+   *   runs with this as `cwd`, so the result reflects `rootDir`'s checkout regardless of the
+   *   calling process's own working directory. Mirrors the `-C rootDir` scoping `getRepoGitStats`
+   *   already uses below.
    * @param base - Optional ref (branch, tag, or commit) to diff against, e.g. `"origin/main"`.
    *   Uses `git diff base...HEAD` (merge-base semantics) so only commits made on the current
    *   branch count, matching what a PR actually changed relative to its target branch. Combined
@@ -27,7 +31,7 @@ export class DefaultGitProvider implements GitProvider {
    *   option (e.g. `--output=...`) instead of a revision — see git-diff(1); requires git ≥ 2.24.
    * @returns Relative file paths as reported by git, deduplicated across all query types.
    */
-  public getChangedFiles(base?: string): string[] {
+  public getChangedFiles(rootDir: string, base?: string): string[] {
     try {
       const commands = [
         ["diff", "--name-only"],
@@ -39,6 +43,7 @@ export class DefaultGitProvider implements GitProvider {
       const allFiles = commands.flatMap((args) => {
         try {
           const output = execFileSync("git", args, {
+            cwd: rootDir,
             encoding: "utf-8",
             stdio: ["ignore", "pipe", "ignore"],
           });
