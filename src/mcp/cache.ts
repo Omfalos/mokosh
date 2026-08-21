@@ -315,9 +315,13 @@ export class SessionState {
   }
 
   /**
-   * @description Drops the cached graph, workspace graph, and change impact cache for `root`,
-   *   forcing the next `analyze` call to rebuild from disk. Config is preserved. Use after
-   *   editing source files mid-session to ensure subsequent queries reflect the updated state.
+   * @description Drops the cached graph, workspace graph, change impact cache, and loaded
+   *   config for `root`, forcing the next `analyze` call to rebuild from disk — including
+   *   re-reading `mokosh.config.json`, since `handleAnalyze` only loads config once per root
+   *   (guarded by `isConfigured`). Without dropping config here, editing `mokosh.config.json`
+   *   mid-session and calling `clear_cache` would rebuild the graph but keep applying the
+   *   stale config. Use after editing source files (or config) mid-session to ensure
+   *   subsequent queries reflect the updated state.
    * @param root - Absolute path of the project root to invalidate.
    * @returns `true` if a cached graph existed and was removed, `false` if nothing was cached.
    */
@@ -328,6 +332,7 @@ export class SessionState {
     this.changeImpactCaches.delete(root);
     this.dirtyRoots.delete(root);
     this.duplicationTokenCaches.delete(root);
+    this.configs.delete(root);
     return had;
   }
 }

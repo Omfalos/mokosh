@@ -1,0 +1,4 @@
+{
+  "testPatterns": [".steps."],
+  "testLibraries": ["@cucumber/cucumber"]
+}
