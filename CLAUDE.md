@@ -70,111 +70,43 @@ For monorepos, `createWorkspaceGraph()` runs `detectMonorepo()` first (tries Tur
 
 ## Module map
 
+Directory-level only — for a specific file's role, ask mokosh itself
+(`get_module_responsibility` / `query`) rather than expecting this list to enumerate every file;
+per-file lists here go stale the moment a file is added, split, or renamed.
+
 ```
 src/
-  index.ts            public API: createImportMap, createWorkspaceGraph, getAllProjectFiles
-  const.ts            DEFAULT_EXTENSIONS, DEFAULT_IGNORE_DIRS, ScanOptions
-  coverage.ts         loadCoverageMap — reads Istanbul coverage-summary.json
-  types.ts            thin re-export of src/types/*
-  config.ts           mokosh.config.* loading
-  git.ts              git diff helpers (commitCount90d, lastAuthor)
-  graph.ts            thin re-export of src/graph/
+  index.ts / cli.ts / mcp.ts   entry points (see table above)
+  const.ts, config.ts, types.ts, git.ts, coverage.ts   shared low-level helpers
   parser.ts           aggregates all language parsers
+  graph.ts            thin re-export of src/graph/
+  parse-worker.ts, duplication-worker.ts   piscina task handlers (parsing / tokenizing) run in worker threads
+  watch-ignore.ts     shared fs.watch ignore pattern (MCP session cache + CLI --watch)
 
-  types/
-    node.ts           FileNode, ImportEdge, ExportedSymbol, CallEdge, StructuredTag
-    graph.ts          SerializedGraph, DependencyGraph, TraversalVisitor/Options
-    parse.ts          FileType, ImportType, NodeCategory, TagKind enums
+  types/              FileNode, ImportEdge, ExportedSymbol, CallEdge, StructuredTag, SerializedGraph, enums — split from the former src/types.ts
+  exporters/          MermaidExporter / toMermaid()
 
-  exporters/
-    types.ts          GraphExporter interface
-    mermaid.ts        MermaidExporter, toMermaid()
-    index.ts          re-export
+  graph/              core engine: builder.ts (walks FS → Graph), model.ts (Graph class),
+                      resolver.ts + lang-resolvers/ (specifier → path), enrichment.ts (post-build
+                      passes), analyzer.ts, workspace/ + workspace-model.ts (monorepo), features/,
+                      responsibility/, call-graph/, symbol.ts, type-graph.ts, api-surface.ts,
+                      change-impact-cache.ts, queries.ts (shared CLI/MCP query shaping),
+                      duplication/ (suffix-array based cross-language dup detection — see
+                      docs/adr-012 through adr-015-duplicate-detection*.md)
 
-  graph/
-    builder.ts        GraphBuilder — walks FS, calls parsers, builds Graph (parseFile optionally offloaded to a piscina worker pool — see docs/adr-010-parallel-parsing.md)
-    model.ts          Graph class — traverse, findCycles, serialize/deserialize
-    analyzer.ts       GraphAnalyzer — in/out-degree analysis
-    enrichment.ts     enrichCoverage, enrichExportUsage, enrichLibraryTags, enrichTestedBy, enrichTestNodeTags, enrichDocDrift
-    resolver.ts       DefaultResolver — turns import specifiers into file paths (relative, tsconfig aliases, node_modules)
-    lang-resolvers/   per-extension bare-specifier resolution (Python, Lua, Go, style, markdown)
-    index.ts          re-export of all graph/* modules
-    workspace/        monorepo detection
-      types.ts        WorkspacePackage, MonorepoLayout
-      registry.ts     registerMonorepoDetector, getMonorepoDetectors
-      shared.ts       shared helpers across detectors
-      fs-utils.ts     FS utilities for detectors
-      index.ts        detectMonorepo() — runs detectors in priority order
-      detectors/      turborepo, nx, pnpm, yarn, npm (one file each)
-    workspace-model.ts  WorkspaceGraph — holds per-package graphs, cross-package traversal
-    features/
-      index.ts        detectFeatures() — finds high-out-degree orchestrator/aggregator files
-    duplication/
-      tokenizer.ts    language-agnostic tokenizer — per-FileType comment stripping + identifier/literal normalization
-      shingle.ts      sliding-window token hashing + chain-merging into duplicate blocks
-      index.ts        findDuplicates() — works for every parsed language (token-based, not AST-based; see docs/adr-012-duplicate-detection.md)
+  parser/             per-language parsers (lang/, one file per language), style/ (CSS/SCSS/Stylus
+                      via real ASTs), complexity.ts + complexity/ (per-language complexity +
+                      call-edge extraction — see docs/adr-011-go-python-call-edges.md), tagging/
+                      (AST tag-collection strategies), registry.ts, classify.ts, lockfile.ts
 
-  parser/
-    types.ts          parser-local types (ParseResult, etc.)
-    registry.ts       parser registry — maps extension → parser
-    file-type.ts      extension → FileType enum
-    classify.ts       file category classification (logic/barrel/type-only/test)
-    complexity.ts     computeComplexity — McCabe cyclomatic + cognitive complexity for TS/JS
-    utils.ts          shared parser utilities
-    lockfile.ts       package-lock.json / yarn.lock / pnpm-lock.yaml parser
-    lang/
-      typescript.ts   TypeScript/JavaScript via tsc compiler API
-      python.ts       Python via @lezer/python (pure-JS LR parser — see docs/adr-002-python-parsing.md)
-      coffee.ts       CoffeeScript
-      gherkin.ts      Gherkin/Cucumber (.feature files)
-      ls.ts           LiveScript
-      lua.ts          Lua
-      markdown.ts     Markdown/MDX via remark/mdast — see docs/adr-009-markdown-parsing.md
-    style/
-      barrel.ts       style parser aggregator
-      css.ts          CSS
-      scss.ts         SCSS/Sass
-      stylus.ts       Stylus
-      index.ts        re-export
-    tagging/          AST tag-collection strategies
-      index.ts        collects tags from declaration names, @markers, comments, option-bags
+  query/              parseQuery() + filterGraph() — the --query DSL engine (see below)
+  tags/               proposeTagsFromDiff, applyTags, strategies/ (one per test framework:
+                      cypress, playwright, vitest, jest, pytest, go, gherkin, + glob fallback)
 
-  query/
-    filter.ts         filterGraph() — applies NodeQuery predicates to a graph
-    index.ts          parseQuery(), NodeQuery type
-
-  tags/
-    proposer.ts       proposeTagsFromDiff() — suggests test tags from git diff
-    identifier.ts     identifies tags already present on nodes
-    index.ts          re-export
-
-  mcp/
-    server.ts         MCP server setup (stdio transport)
-    handlers.ts       one handler per MCP tool
-    tools.ts          JSON Schema definitions for all MCP tools
-    cache.ts          session graph cache (keyed by rootDir)
-    utils.ts          response helpers
-
-  cli/
-    runner.ts         command dispatch — reads parsed args, calls the right command (supports --watch to re-run on file changes)
-    args.ts           CLI arg parsing
-    config.ts         config loading for CLI
-    graph-loader.ts   graph build + disk cache for CLI
-    help.ts           HELP_TEXT and QUERY_HELP_TEXT constants
-    const.ts          CLI-specific constants
-    commands/
-      graph-output.ts   default JSON/Mermaid output
-      affected-tests.ts --affected-tests
-      callers.ts        --callers
-      check-cycles.ts   --check-cycles
-      check-doc-drift.ts --check-doc-drift
-      detect-features.ts --detect-features
-      find-uncovered.ts --find-uncovered
-      find-unused.ts    --find-unused
-      find-duplicates.ts --find-duplicates
-      propose-tags.ts   --propose-tags
-      types.ts          shared command types
-      utils.ts          shared command utilities
+  mcp/                server.ts, handlers.ts (one per MCP tool), tools.ts (JSON Schemas), cache.ts
+  cli/                runner.ts (dispatch, --watch), args.ts, graph-loader.ts (disk cache),
+                      commands/ (one file per flag, mirrors the MCP tools 1:1 where one exists —
+                      run `mokosh --help` for the full flag list)
 ```
 
 ## Core data types

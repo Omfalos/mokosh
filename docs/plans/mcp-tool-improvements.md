@@ -44,9 +44,11 @@ Files touched: `src/mcp/cache.ts`, `src/mcp/handlers.ts`, `src/mcp/tools.ts` (ne
 
 ## 3. New analysis tools (compose existing primitives)
 
-**`get_risk_score`** — combine `get_affected` + `coveragePct` + `complexity`/
-`cognitiveComplexity` + `commitCount90d` into one "how risky is changing this file" score.
-Today a caller manually cross-references three tool calls to answer this.
+**`get_risk_score` — done (2026-08-20), shipped as `find_risk_hotspots`.** Combines complexity
+(`complexity`/`cognitiveComplexity`) + low coverage (`coveragePct`) + optional churn
+(`commitCount90d`, when `gitStats` is enabled) into one worst-first hotspot list, per-function
+rather than per-file. See `src/graph/*` risk-hotspot logic, `src/mcp/handlers.ts`
+(`handleFindRiskHotspots`), and `docs/mcp.md`'s `find_risk_hotspots` entry.
 
 **`diff_graph`** — compare graph state between two git refs/commits: new cycles, newly-unused
 files, newly-introduced duplicates between HEAD and a branch.
@@ -77,7 +79,7 @@ Consider cursor-based pagination, consistent with the `limit` params already use
 
 ## Suggested order
 
-1. `get_risk_score` (workstream 3) — self-contained, high value, no protocol-level changes.
+1. ~~`get_risk_score` (workstream 3)~~ — done, see workstream 3.
 2. Resources + prompts (workstream 1) — structural, unlocks host-side UX improvements.
 3. `get_cache_status` (workstream 2) — small, complements #2's auto-revalidate if pursued.
 4. Batch variants / `diff_graph` (workstream 3) — nice-to-have, lower urgency.
