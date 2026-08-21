@@ -144,6 +144,17 @@ describe("SessionState", {
 
       expect(() => state.getOrBuildChangeImpact(root)).toThrow(/Call "analyze" first/);
     });
+
+    test("invalidate clears the stored config, so a config edited mid-session is re-read on the next analyze", () => {
+      const state = new SessionState();
+      state.storeConfig(root, { testPatterns: [".steps."] });
+      expect(state.isConfigured(root)).toBe(true);
+
+      state.invalidate(root);
+
+      expect(state.isConfigured(root)).toBe(false);
+      expect(state.getConfig(root)).toBeUndefined();
+    });
   });
 
   describe("getOrBuild disk-cache seeding", () => {

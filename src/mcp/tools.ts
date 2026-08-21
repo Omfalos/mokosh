@@ -494,7 +494,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "clear_cache",
     description:
-      "Drop the cached dependency graph for a project root, forcing the next analyze() call to rebuild from disk. Call this after editing source files mid-session — otherwise get_affected, get_dependencies, and other query tools will reason from stale data.",
+      "Drop the cached dependency graph and loaded mokosh.config.json for a project root, forcing the next analyze() call to rebuild from disk and re-read config. Call this after editing source files OR mokosh.config.json mid-session — otherwise get_affected, get_dependencies, and other query tools will reason from stale data (or a stale config).",
     inputSchema: {
       type: "object",
       properties: {
