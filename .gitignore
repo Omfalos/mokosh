@@ -1,5 +1,8 @@
 node_modules
 dist
+test-results/
+__pycache__/
+*.pyc
 .junie/
 vendor/
 mokosh-cache/
@@ -15,6 +18,7 @@ mokosh-check.json
 mokosh-self-cache.json
 example/*
 !example/full-house/
+!example/e2e-demo/
 test-example/
 test-traverse/
 test-unused-unit/

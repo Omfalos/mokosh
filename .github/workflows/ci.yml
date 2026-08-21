@@ -35,6 +35,41 @@ jobs:
         # containing shell metacharacters would otherwise be substituted before execution.
         BASE_REF: ${{ github.base_ref }}
 
+  # Smoke-runs the multi-framework demo app under example/e2e-demo/ — vitest,
+  # Playwright, Cucumber.js (Gherkin + real step-definitions), pytest, and go test.
+  # This proves those example tests are actually executable, not just static
+  # fixtures for the tag-applier unit tests. Not required for merge: it exercises
+  # example code, not the published package, and its toolchain (Python/Go) is
+  # unrelated to what changed on most PRs.
+  examples:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22.x
+        cache: 'npm'
+
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.x'
+
+    - uses: actions/setup-go@v5
+      with:
+        go-version: '1.21'
+
+    - run: npm ci
+    - run: pip install pytest
+
+    - run: npm run example:vitest
+    - run: npm run example:playwright
+    - run: npm run example:gherkin
+    - run: npm run example:pytest
+    - run: npm run example:go
+
   build:
     runs-on: ubuntu-latest
 
