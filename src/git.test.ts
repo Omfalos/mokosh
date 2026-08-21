@@ -32,7 +32,7 @@ describe("GitProvider", { tags: ["DefaultGitProvider", "git"] }, () => {
         return "";
       }) as unknown as typeof execFileSync);
 
-      const changedFiles = provider.getChangedFiles();
+      const changedFiles = provider.getChangedFiles("/repo");
 
       // Verify all commands were called
       expect(execFileSync).toHaveBeenCalledTimes(3);
@@ -60,7 +60,7 @@ describe("GitProvider", { tags: ["DefaultGitProvider", "git"] }, () => {
     test("should handle empty output from git commands", () => {
       vi.mocked(execFileSync).mockReturnValue("" as unknown as ReturnType<typeof execFileSync>);
 
-      const changedFiles = provider.getChangedFiles();
+      const changedFiles = provider.getChangedFiles("/repo");
       expect(changedFiles).toEqual([]);
     });
 
@@ -73,7 +73,7 @@ describe("GitProvider", { tags: ["DefaultGitProvider", "git"] }, () => {
         throw new Error("Git command failed");
       }) as unknown as typeof execFileSync);
 
-      const changedFiles = provider.getChangedFiles();
+      const changedFiles = provider.getChangedFiles("/repo");
 
       // Should still return files from the successful command
       expect(changedFiles).toEqual(["file1.ts"]);
@@ -84,7 +84,7 @@ describe("GitProvider", { tags: ["DefaultGitProvider", "git"] }, () => {
         throw new Error("Git not installed or repository not found");
       });
 
-      const changedFiles = provider.getChangedFiles();
+      const changedFiles = provider.getChangedFiles("/repo");
       expect(changedFiles).toEqual([]);
     });
 
@@ -99,7 +99,7 @@ describe("GitProvider", { tags: ["DefaultGitProvider", "git"] }, () => {
         return "";
       }) as unknown as typeof execFileSync);
 
-      const changedFiles = provider.getChangedFiles("origin/main");
+      const changedFiles = provider.getChangedFiles("/repo", "origin/main");
 
       expect(execFileSync).toHaveBeenCalledTimes(4);
       expect(execFileSync).toHaveBeenCalledWith(
@@ -123,7 +123,7 @@ describe("GitProvider", { tags: ["DefaultGitProvider", "git"] }, () => {
         return "";
       }) as unknown as typeof execFileSync);
 
-      const changedFiles = provider.getChangedFiles("--output=/tmp/pwned");
+      const changedFiles = provider.getChangedFiles("/repo", "--output=/tmp/pwned");
 
       expect(execFileSync).toHaveBeenCalledWith(
         "git",
@@ -136,7 +136,7 @@ describe("GitProvider", { tags: ["DefaultGitProvider", "git"] }, () => {
     test("omits the base-ref diff command entirely when no base is given", () => {
       vi.mocked(execFileSync).mockReturnValue("" as unknown as ReturnType<typeof execFileSync>);
 
-      provider.getChangedFiles();
+      provider.getChangedFiles("/repo");
 
       expect(execFileSync).toHaveBeenCalledTimes(3);
       expect(execFileSync).not.toHaveBeenCalledWith(
@@ -151,8 +151,23 @@ describe("GitProvider", { tags: ["DefaultGitProvider", "git"] }, () => {
         "\n  \nfile1.ts\n\nfile2.ts  \n" as unknown as ReturnType<typeof execFileSync>,
       );
 
-      const changedFiles = provider.getChangedFiles();
+      const changedFiles = provider.getChangedFiles("/repo");
       expect(changedFiles).toEqual(["file1.ts", "file2.ts"]);
+    });
+
+    test("scopes every git invocation to the given rootDir via cwd", () => {
+      vi.mocked(execFileSync).mockReturnValue("" as unknown as ReturnType<typeof execFileSync>);
+
+      provider.getChangedFiles("/repo/worktree-a");
+
+      expect(execFileSync).toHaveBeenCalledWith(
+        "git",
+        expect.any(Array),
+        expect.objectContaining({ cwd: "/repo/worktree-a" }),
+      );
+      for (const call of vi.mocked(execFileSync).mock.calls) {
+        expect(call[2]).toMatchObject({ cwd: "/repo/worktree-a" });
+      }
     });
 
     test("should handle unexpected errors in the outer catch block", () => {
@@ -179,7 +194,7 @@ describe("GitProvider", { tags: ["DefaultGitProvider", "git"] }, () => {
       });
 
       try {
-        const changedFiles = provider.getChangedFiles();
+        const changedFiles = provider.getChangedFiles("/repo");
         expect(changedFiles).toEqual([]);
         expect(errorSpy).toHaveBeenCalled();
       } finally {

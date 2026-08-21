@@ -550,7 +550,7 @@ export async function handleProposeTags(
   const files =
     changedFiles ??
     new DefaultGitProvider()
-      .getChangedFiles(base)
+      .getChangedFiles(root, base)
       .map((filePath) => path.relative(root, path.resolve(root, filePath)));
   const opts =
     featureThreshold !== undefined
