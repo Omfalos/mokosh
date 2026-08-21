@@ -37,4 +37,5 @@ export interface CommandContext {
   minDuplicateLines: number | undefined;
   maxCoveragePct: number | undefined;
   minChurn: number | undefined;
+  base: string | undefined;
 }

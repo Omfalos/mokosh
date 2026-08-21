@@ -6,7 +6,7 @@ import { execFileSync } from "node:child_process";
  *   Abstracted so the CLI and MCP server can be tested without a live git repository.
  */
 export interface GitProvider {
-  getChangedFiles(): string[];
+  getChangedFiles(base?: string): string[];
 }
 
 /**
@@ -15,16 +15,25 @@ export interface GitProvider {
  */
 export class DefaultGitProvider implements GitProvider {
   /**
-   * @description Returns a deduplicated list of all modified, staged, and untracked files by running three git commands.
-   *   Returns an empty array if not inside a git repository or if git is unavailable.
-   * @returns Relative file paths as reported by git, deduplicated across all three query types.
+   * @description Returns a deduplicated list of all modified, staged, and untracked files, plus
+   *   (when `base` is given) every file committed since diverging from `base`. Runs three git
+   *   commands (four with `base`). Returns an empty array if not inside a git repository or if
+   *   git is unavailable.
+   * @param base - Optional ref (branch, tag, or commit) to diff against, e.g. `"origin/main"`.
+   *   Uses `git diff base...HEAD` (merge-base semantics) so only commits made on the current
+   *   branch count, matching what a PR actually changed relative to its target branch. Combined
+   *   with the local working-tree/staged/untracked checks so uncommitted work is still included.
+   *   `--end-of-options` guards against a `base` value that starts with `-` being parsed as a git
+   *   option (e.g. `--output=...`) instead of a revision — see git-diff(1); requires git ≥ 2.24.
+   * @returns Relative file paths as reported by git, deduplicated across all query types.
    */
-  public getChangedFiles(): string[] {
+  public getChangedFiles(base?: string): string[] {
     try {
       const commands = [
         ["diff", "--name-only"],
         ["diff", "--cached", "--name-only"],
         ["ls-files", "--others", "--exclude-standard"],
+        ...(base ? [["diff", "--name-only", "--end-of-options", `${base}...HEAD`]] : []),
       ];
 
       const allFiles = commands.flatMap((args) => {

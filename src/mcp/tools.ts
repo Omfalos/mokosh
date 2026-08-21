@@ -286,6 +286,11 @@ export const TOOL_DEFINITIONS = [
           items: { type: "string" },
           description: "Changed files relative to root. Omit to read from git diff.",
         },
+        base: {
+          type: "string",
+          description:
+            "Diff against this ref (e.g. 'origin/main') instead of only local working-tree/staged/untracked changes. Ignored when changedFiles is given. Needed in CI, where the checkout is already clean.",
+        },
         featureThreshold: {
           type: "number",
           description:

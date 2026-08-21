@@ -15,9 +15,9 @@ import { getTestFiles, resolveChangedFiles } from "./utils";
  */
 export async function run(ctx: CommandContext): Promise<void> {
   let { graph } = ctx;
-  const { rootDir, scanOptions, featureThreshold, rawConfig } = ctx;
+  const { rootDir, scanOptions, featureThreshold, rawConfig, base } = ctx;
 
-  const changedFiles = resolveChangedFiles(rootDir);
+  const changedFiles = resolveChangedFiles(rootDir, base);
 
   const hasTestNodes = [...graph.nodes.values()].some(
     (node) => getTestFiles([node.path]).length > 0,

@@ -64,6 +64,7 @@ export interface ParsedArgs {
   clearCache: boolean;
   slim: boolean;
   watch: boolean;
+  base: string | undefined;
 }
 
 /**
@@ -166,6 +167,7 @@ export const OPTIONS = {
   "clear-cache": { type: "boolean" },
   slim: { type: "boolean" },
   watch: { type: "boolean" },
+  base: { type: "string" },
 } as const;
 
 /** The subset of `nodeParseArgs`'s `values` result the boolean-flag group builders read from.
@@ -400,6 +402,7 @@ export function parseArgs(cliTokens: string[]): ParsedArgs {
     minDuplicateLines: parseOptionalInt(values["min-duplicate-lines"]),
     maxCoveragePct: parseOptionalInt(values["max-coverage-pct"]),
     minChurn: parseOptionalInt(values["min-churn"]),
+    base: values.base,
     entryPoints: positionals,
   };
 }

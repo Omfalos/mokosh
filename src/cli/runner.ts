@@ -318,6 +318,7 @@ export async function run(): Promise<void> {
     minDuplicateLines: parsed.minDuplicateLines,
     maxCoveragePct: parsed.maxCoveragePct,
     minChurn: parsed.minChurn,
+    base: parsed.base,
   };
 
   const handler = resolveCommandHandler(parsed);

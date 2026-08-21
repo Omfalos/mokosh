@@ -9,6 +9,9 @@ Options:
   --propose-tags              Propose test tags based on git diff
   --plain                     Output tags as plain text instead of JSON (use with --propose-tags)
   --affected-tests            List test files affected by git diff
+  --base <ref>                Diff against this ref (e.g. origin/main) instead of only local
+                               working-tree/staged/untracked changes (use with --propose-tags/
+                               --affected-tests); needed in CI, where the tree is already clean
   --apply-tags                Write @tag annotations into test files from graph tags
   --dry-run                   Preview tag changes without writing to disk (use with --apply-tags)
   --detect-features           Output files with high out-degree (orchestrators/aggregators)

@@ -88,6 +88,64 @@ describe("GitProvider", { tags: ["DefaultGitProvider", "git"] }, () => {
       expect(changedFiles).toEqual([]);
     });
 
+    test("includes committed changes since the given base ref, alongside local changes", () => {
+      vi.mocked(execFileSync).mockImplementation(((_file: string, args: string[]) => {
+        if (args.includes("diff") && args.includes("origin/main...HEAD")) {
+          return "committed1.ts\ncommitted2.ts";
+        }
+        if (args.includes("diff") && !args.includes("--cached")) {
+          return "local.ts";
+        }
+        return "";
+      }) as unknown as typeof execFileSync);
+
+      const changedFiles = provider.getChangedFiles("origin/main");
+
+      expect(execFileSync).toHaveBeenCalledTimes(4);
+      expect(execFileSync).toHaveBeenCalledWith(
+        "git",
+        ["diff", "--name-only", "--end-of-options", "origin/main...HEAD"],
+        expect.any(Object),
+      );
+      expect(changedFiles).toEqual(
+        expect.arrayContaining(["committed1.ts", "committed2.ts", "local.ts"]),
+      );
+      expect(changedFiles).toHaveLength(3);
+    });
+
+    test("guards a base ref starting with '-' from being parsed as a git option (argument injection)", () => {
+      vi.mocked(execFileSync).mockImplementation(((_file: string, args: string[]) => {
+        // --end-of-options forces git to treat the following token as a revision, not an
+        // option, no matter what it looks like — simulate git's own rejection of it here.
+        if (args.includes("--end-of-options")) {
+          throw new Error("fatal: option must come before non-option arguments");
+        }
+        return "";
+      }) as unknown as typeof execFileSync);
+
+      const changedFiles = provider.getChangedFiles("--output=/tmp/pwned");
+
+      expect(execFileSync).toHaveBeenCalledWith(
+        "git",
+        ["diff", "--name-only", "--end-of-options", "--output=/tmp/pwned...HEAD"],
+        expect.any(Object),
+      );
+      expect(changedFiles).toEqual([]);
+    });
+
+    test("omits the base-ref diff command entirely when no base is given", () => {
+      vi.mocked(execFileSync).mockReturnValue("" as unknown as ReturnType<typeof execFileSync>);
+
+      provider.getChangedFiles();
+
+      expect(execFileSync).toHaveBeenCalledTimes(3);
+      expect(execFileSync).not.toHaveBeenCalledWith(
+        "git",
+        expect.arrayContaining(["...HEAD"]),
+        expect.any(Object),
+      );
+    });
+
     test("should filter out empty strings and whitespace", () => {
       vi.mocked(execFileSync).mockReturnValue(
         "\n  \nfile1.ts\n\nfile2.ts  \n" as unknown as ReturnType<typeof execFileSync>,

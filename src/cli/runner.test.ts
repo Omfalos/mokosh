@@ -67,6 +67,7 @@ function makeParsedArgs(overrides: Partial<ParsedArgs> = {}): ParsedArgs {
     clearCache: false,
     slim: false,
     watch: false,
+    base: undefined,
     ...overrides,
   };
 }

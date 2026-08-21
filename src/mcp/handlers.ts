@@ -100,6 +100,10 @@ export type FindDuplicatesArgs = {
 export type ProposeTagsArgs = {
   root: string;
   changedFiles?: string[];
+  /** Diff against this ref (e.g. "origin/main") instead of only local working-tree/staged/
+   *  untracked changes. Ignored when `changedFiles` is given. Needed in CI, where the checkout
+   *  is already clean and there's nothing local left to diff. */
+  base?: string;
   featureThreshold?: number;
   format?: "tags" | "paths";
 };
@@ -541,12 +545,12 @@ export async function handleProposeTags(
   cache: SessionState,
   args: ProposeTagsArgs,
 ): Promise<TextResponse> {
-  const { root, changedFiles, featureThreshold, format = "tags" } = args;
+  const { root, changedFiles, base, featureThreshold, format = "tags" } = args;
   const graph = await cache.ensureFresh(root);
   const files =
     changedFiles ??
     new DefaultGitProvider()
-      .getChangedFiles()
+      .getChangedFiles(base)
       .map((filePath) => path.relative(root, path.resolve(root, filePath)));
   const opts =
     featureThreshold !== undefined

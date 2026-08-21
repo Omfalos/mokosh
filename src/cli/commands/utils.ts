@@ -21,10 +21,13 @@ export function getTestFiles(allFiles: string[]): string[] {
  * @description Fetches files from the current git diff and returns them as paths relative
  *   to rootDir, normalised to the same format used throughout the graph.
  * @param {string} rootDir - Absolute path to the project root, used as the base for relative path computation.
+ * @param {string} [base] - Optional ref to diff against (e.g. `"origin/main"`), for CI contexts
+ *   where the working tree is clean and only committed changes distinguish the branch from its
+ *   target. See {@link DefaultGitProvider.getChangedFiles}.
  * @returns {string[]} Paths of git-changed files relative to rootDir.
  */
-export function resolveChangedFiles(rootDir: string): string[] {
+export function resolveChangedFiles(rootDir: string, base?: string): string[] {
   return new DefaultGitProvider()
-    .getChangedFiles()
+    .getChangedFiles(base)
     .map((filePath) => path.relative(rootDir, path.resolve(rootDir, filePath)));
 }

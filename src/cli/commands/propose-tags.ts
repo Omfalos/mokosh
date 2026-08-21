@@ -15,10 +15,10 @@ import { getTestFiles, resolveChangedFiles } from "./utils";
  */
 export async function run(ctx: CommandContext): Promise<void> {
   let { graph } = ctx;
-  const { rootDir, scanOptions, featureThreshold, plain, rawConfig } = ctx;
+  const { rootDir, scanOptions, featureThreshold, plain, rawConfig, base } = ctx;
 
   if (!plain) console.log("Proposing test tags based on git diff...");
-  const changedFiles = resolveChangedFiles(rootDir);
+  const changedFiles = resolveChangedFiles(rootDir, base);
 
   if (graph.nodes.size === 0) {
     const allFiles = getAllProjectFiles(rootDir, scanOptions);
