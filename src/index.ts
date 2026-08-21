@@ -134,6 +134,7 @@ export {
   registerConfigMatcher,
   registerTestLibrary,
   registerTestPattern,
+  resetClassifyRegistries,
 } from "./parser/classify";
 // Parser extension points
 export { registerParser } from "./parser/registry";

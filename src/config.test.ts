@@ -140,6 +140,23 @@ describe("applyConfig", {
     expect(patterns).toContain(p1);
     expect(patterns).toContain(p2);
   });
+
+  test("a later call drops patterns/libraries registered by an earlier call", () => {
+    const pattern = `.dropped-pattern-${Date.now()}.`;
+    const lib = `@acme/dropped-lib-${Date.now()}`;
+    applyConfig({ testPatterns: [pattern], testLibraries: [lib], barrelThreshold: 0.3 });
+    expect(getTestPatterns()).toContain(pattern);
+    expect(getTestLibraries()).toContain(lib);
+    expect(getBarrelThreshold()).toBe(0.3);
+
+    // Simulates a different project root being analyzed afterward in the same process
+    // (e.g. a long-running MCP server session) with its own, unrelated config.
+    applyConfig({});
+
+    expect(getTestPatterns()).not.toContain(pattern);
+    expect(getTestLibraries()).not.toContain(lib);
+    expect(getBarrelThreshold()).toBe(0.8);
+  });
 });
 
 // ─── Integration: applyConfig + parseFile ────────────────────────────────────

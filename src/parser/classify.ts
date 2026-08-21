@@ -94,7 +94,8 @@ export function getTestLibraries(): string[] {
 
 // ─── Barrel-threshold registry ────────────────────────────────────────────────
 
-let currentBarrelThreshold = 0.8;
+const DEFAULT_BARREL_THRESHOLD = 0.8;
+let currentBarrelThreshold = DEFAULT_BARREL_THRESHOLD;
 
 /**
  * @description Sets the minimum ratio of export-statements to total statements required
@@ -111,4 +112,28 @@ export function setBarrelThreshold(threshold: number): void {
  */
 export function getBarrelThreshold(): number {
   return currentBarrelThreshold;
+}
+
+// ─── Registry reset ────────────────────────────────────────────────────────────
+
+/**
+ * @description Clears every user-registered config matcher, test pattern, and test library,
+ *   and resets the barrel threshold to its default. These registries are process-global —
+ *   not scoped per project root — so without a reset between projects, one root's
+ *   `mokosh.config.json` settings would permanently leak into every other root analyzed
+ *   afterward in the same long-running process (e.g. an MCP server session), and a config
+ *   later narrowed or emptied could never actually shrink what's registered. `applyConfig`
+ *   calls this before registering the new config's values so each call fully replaces the
+ *   active registry state rather than accumulating on top of it, matching the documented
+ *   contract that unset `MokoshConfig` fields fall back to built-in defaults.
+ *
+ *   Not safe to call while another `applyConfig` + graph build for a different root is
+ *   still in flight — these registries have no per-root isolation, so overlapping builds
+ *   were already able to observe each other's state before this function existed.
+ */
+export function resetClassifyRegistries(): void {
+  userConfigMatchers.length = 0;
+  userTestPatterns.length = 0;
+  userTestLibraries.length = 0;
+  currentBarrelThreshold = DEFAULT_BARREL_THRESHOLD;
 }

@@ -40,6 +40,7 @@ export {
   registerConfigMatcher,
   registerTestLibrary,
   registerTestPattern,
+  resetClassifyRegistries,
   setBarrelThreshold,
 } from "./parser/classify.js";
 export { getFileType } from "./parser/file-type.js";

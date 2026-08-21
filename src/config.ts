@@ -6,6 +6,7 @@ import {
   registerConfigMatcher,
   registerTestLibrary,
   registerTestPattern,
+  resetClassifyRegistries,
   setBarrelThreshold,
 } from "./parser/classify";
 import type { TagFramework } from "./tags/strategies";
@@ -136,10 +137,16 @@ function readJsConfig(filePath: string): MokoshConfig {
 
 /**
  * @description Applies a `MokoshConfig` to the global registries that control classification and scanning.
- *   Call this after `loadMokoshConfig` and before `createImportMap`.
+ *   Call this after `loadMokoshConfig` and before `createImportMap`. Resets those registries
+ *   first, so each call fully replaces the previously active config instead of accumulating on
+ *   top of it — otherwise a project's matchers/patterns/libraries would permanently leak into
+ *   every later `applyConfig` call in the same process (e.g. a different root analyzed in the
+ *   same long-running MCP server session), and a config narrowed or emptied on disk could never
+ *   actually shrink what was registered.
  * @param {MokoshConfig} config - The loaded config whose matchers, patterns, libraries, and thresholds are registered.
  */
 export function applyConfig(config: MokoshConfig): void {
+  resetClassifyRegistries();
   for (const pattern of config.configMatchers ?? []) {
     registerConfigMatcher(pattern);
   }
