@@ -305,6 +305,8 @@ export async function handleGetCallers(
  * @description Scans the entire project directory and compares against the graph reachable
  *   from `entryPoints`, returning files that exist on disk but are never imported — candidates for deletion.
  *   When `entryPoints` is omitted, reuses the cached graph from a prior `analyze` call instead of rebuilding.
+ *   The disk scan excludes `DEFAULT_IGNORE_DIRS` merged with this root's configured `ignoreDirs`/`extensions`,
+ *   if any, so custom-ignored directories aren't reported as containing unused files.
  * @param cache - Session state used to build or retrieve the graph.
  * @param args - `root` is the project directory; `entryPoints` seeds the reachability walk (omit to reuse the cache).
  * @returns TextResponse with `{ unusedFiles, count }` listing files unreachable from any entry point.
@@ -317,7 +319,11 @@ export async function handleFindUnused(cache: SessionState, args: FindUnusedArgs
         entryPoints.map((ep) => path.resolve(root, ep)),
       )
     : await cache.ensureFresh(root);
-  const allFiles = getAllProjectFiles(root);
+  const config = cache.getConfig(root);
+  const allFiles = getAllProjectFiles(root, {
+    additionalIgnoreDirs: config?.ignoreDirs ?? [],
+    additionalExtensions: config?.extensions ?? [],
+  });
   const unusedFiles = graph.findUnusedFiles(allFiles);
   return text({ unusedFiles, count: unusedFiles.length });
 }
