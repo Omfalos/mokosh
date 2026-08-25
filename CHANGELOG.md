@@ -1,4 +1,16 @@
-## 0.4.4 (2026-08-25)
+## [0.4.4](https://github.com/Omfalos/mokosh/compare/v0.4.3...v0.4.4) (2026-08-25)
+
+### Features
+
+* **cli:** add --base flag for CI-friendly affected-test selection ([966b1e8](https://github.com/Omfalos/mokosh/commit/966b1e868d8e47918033fe81ebddb3bb739f1040))
+* **example:** add runnable multi-framework e2e-demo + CI smoke job ([f3492f5](https://github.com/Omfalos/mokosh/commit/f3492f5101fc3cd611ea0034b410003fca44c643))
+
+### Bug Fixes
+
+* **classify:** reset registries on each applyConfig call, not just accumulate ([#6](https://github.com/Omfalos/mokosh/issues/6)) ([d936226](https://github.com/Omfalos/mokosh/commit/d93622663d4ab279377c80e32deba2ffbb92a576))
+* **mcp:** clear_cache now drops loaded config, not just the graph ([cb15bb2](https://github.com/Omfalos/mokosh/commit/cb15bb27ba0b1612ea3b717bfb4cc248b4813c02))
+* **mcp:** respect configured ignoreDirs/extensions in find_unused ([7fbc62e](https://github.com/Omfalos/mokosh/commit/7fbc62e5fd91acb2759dc06e7f5e87e081ff1f5b))
+* **mcp:** scope getChangedFiles to rootDir for correct multi-worktree sessions ([#7](https://github.com/Omfalos/mokosh/issues/7)) ([7443505](https://github.com/Omfalos/mokosh/commit/74435052329d8f086dfc7d2d228ebf9d2701f444))
 
 ## [0.4.3](https://github.com/Omfalos/mokosh/compare/v0.4.2...v0.4.3) (2026-08-20)
 
