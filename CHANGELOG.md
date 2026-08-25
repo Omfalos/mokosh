@@ -1,3 +1,5 @@
+## 0.4.4 (2026-08-25)
+
 ## [0.4.3](https://github.com/Omfalos/mokosh/compare/v0.4.2...v0.4.3) (2026-08-20)
 
 ### Features
