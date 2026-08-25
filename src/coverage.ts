@@ -20,9 +20,12 @@ export function loadCoverageMap(rootDir: string, reportPath: string): Map<string
   const absoluteReport = path.resolve(rootDir, reportPath);
   try {
     const raw = fs.readFileSync(absoluteReport, "utf-8");
-    const summary = JSON.parse(raw) as Record<string, CoverageSummaryEntry>;
+    const summary: unknown = JSON.parse(raw);
     const map = new Map<string, number>();
-    for (const [absPath, entry] of Object.entries(summary)) {
+    if (typeof summary !== "object" || summary === null) return map;
+    for (const [absPath, entry] of Object.entries(
+      summary as Record<string, CoverageSummaryEntry>,
+    )) {
       if (absPath === "total") continue;
       const pct = entry?.lines?.pct;
       if (typeof pct !== "number") continue;

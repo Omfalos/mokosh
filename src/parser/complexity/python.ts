@@ -174,16 +174,23 @@ function walkChildren(node: SyntaxNode, depth: number): number {
 function walkNode(node: SyntaxNode, depth: number): number {
   const name = node.type.name;
 
-  if (name === "IfStatement") return scoreIfStatement(node, depth);
-  if (name === "TryStatement") return scoreTryStatement(node, depth);
-  if (name === "ForStatement" || name === "WhileStatement") return scoreNestedBlock(node, depth);
+  switch (name) {
+    case "IfStatement":
+      return scoreIfStatement(node, depth);
+    case "TryStatement":
+      return scoreTryStatement(node, depth);
+    case "ForStatement":
+    case "WhileStatement":
+      return scoreNestedBlock(node, depth);
+    default: {
+      const own = name === "ConditionalExpression" || name === "and" || name === "or" ? 1 : 0;
+      const isNestedFunction =
+        depth > 0 && (name === "FunctionDefinition" || name === "LambdaExpression");
+      if (isNestedFunction) return own + scoreNestedBlock(node, depth);
 
-  const own = name === "ConditionalExpression" || name === "and" || name === "or" ? 1 : 0;
-  const isNestedFunction =
-    depth > 0 && (name === "FunctionDefinition" || name === "LambdaExpression");
-  if (isNestedFunction) return own + scoreNestedBlock(node, depth);
-
-  return own + walkChildren(node, depth);
+      return own + walkChildren(node, depth);
+    }
+  }
 }
 
 /**

@@ -143,14 +143,16 @@ function parseAnyGroup(inner: string): NodeQuery[] {
  * @param {string} queryString - Comma-separated `key:value` pairs, e.g. `"category:logic,tag:auth"`.
  * @returns {NodeQuery} The structured query object ready for use with `filterGraph` or `matchNode`.
  */
+const ANY_GROUP_PREFIX = "any(";
+
 export function parseQuery(queryString: string): NodeQuery {
   const query: NodeQuery = {};
   const parts = queryString.split(",");
 
   for (const part of parts) {
     const trimmedPart = part.trim();
-    if (trimmedPart.toLowerCase().startsWith("any(") && trimmedPart.endsWith(")")) {
-      const inner = trimmedPart.slice(4, -1);
+    if (trimmedPart.toLowerCase().startsWith(ANY_GROUP_PREFIX) && trimmedPart.endsWith(")")) {
+      const inner = trimmedPart.slice(ANY_GROUP_PREFIX.length, -1);
       const subQueries = parseAnyGroup(inner);
       if (subQueries.length > 0) query.any = [...(query.any ?? []), ...subQueries];
       continue;

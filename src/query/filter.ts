@@ -39,16 +39,26 @@ export function filterGraph(graph: SerializedGraph, query: NodeQuery): Serialize
     const direction = query.sortDir === "asc" ? -1 : 1;
     resultNodes.sort((nodeA, nodeB) => {
       let diff = 0;
-      if (query.sort === "size") diff = nodeB.size - nodeA.size;
-      else if (query.sort === "imports") diff = nodeB.imports.length - nodeA.imports.length;
-      else if (query.sort === "commitCount90d")
-        diff = (nodeB.commitCount90d ?? 0) - (nodeA.commitCount90d ?? 0);
-      else if (query.sort === "exportUsage")
-        diff = (nodeB.avgExportUsage ?? 0) - (nodeA.avgExportUsage ?? 0);
-      else if (query.sort === "complexity")
-        diff = (nodeB.complexity ?? 0) - (nodeA.complexity ?? 0);
-      else if (query.sort === "cognitiveComplexity")
-        diff = (nodeB.cognitiveComplexity ?? 0) - (nodeA.cognitiveComplexity ?? 0);
+      switch (query.sort) {
+        case "size":
+          diff = nodeB.size - nodeA.size;
+          break;
+        case "imports":
+          diff = nodeB.imports.length - nodeA.imports.length;
+          break;
+        case "commitCount90d":
+          diff = (nodeB.commitCount90d ?? 0) - (nodeA.commitCount90d ?? 0);
+          break;
+        case "exportUsage":
+          diff = (nodeB.avgExportUsage ?? 0) - (nodeA.avgExportUsage ?? 0);
+          break;
+        case "complexity":
+          diff = (nodeB.complexity ?? 0) - (nodeA.complexity ?? 0);
+          break;
+        case "cognitiveComplexity":
+          diff = (nodeB.cognitiveComplexity ?? 0) - (nodeA.cognitiveComplexity ?? 0);
+          break;
+      }
       return diff * direction;
     });
   }
