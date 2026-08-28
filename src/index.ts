@@ -46,6 +46,7 @@ export {
 } from "./graph/change-impact-cache";
 export {
   type BranchComparison,
+  type BranchComparisonSummary,
   type BuildGraphAtRefOptions,
   buildGraphAtRef,
   type CompareBranchesOptions,
@@ -56,6 +57,8 @@ export {
   type DuplicationDelta,
   type FileDiff,
   type StaleReference,
+  type SummarizeOptions,
+  summarizeBranchComparison,
 } from "./graph/compare";
 export {
   type CachedFileTokens,

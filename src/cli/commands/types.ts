@@ -39,4 +39,6 @@ export interface CommandContext {
   minChurn: number | undefined;
   base: string | undefined;
   compareBranches: string | undefined;
+  compareFull: boolean;
+  compareMaxItems: number | undefined;
 }

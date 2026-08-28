@@ -66,6 +66,8 @@ export interface ParsedArgs {
   watch: boolean;
   base: string | undefined;
   compareBranches: string | undefined;
+  compareFull: boolean;
+  compareMaxItems: number | undefined;
 }
 
 /**
@@ -170,6 +172,8 @@ export const OPTIONS = {
   watch: { type: "boolean" },
   base: { type: "string" },
   "compare-branches": { type: "string" },
+  "compare-full": { type: "boolean" },
+  "compare-max-items": { type: "string" },
 } as const;
 
 /** The subset of `nodeParseArgs`'s `values` result the boolean-flag group builders read from.
@@ -406,6 +410,8 @@ export function parseArgs(cliTokens: string[]): ParsedArgs {
     minChurn: parseOptionalInt(values["min-churn"]),
     base: values.base,
     compareBranches: values["compare-branches"],
+    compareFull: (values["compare-full"] as boolean) ?? false,
+    compareMaxItems: parseOptionalInt(values["compare-max-items"]),
     entryPoints: positionals,
   };
 }

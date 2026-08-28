@@ -120,6 +120,248 @@ export interface BranchComparison {
   coverage: CoverageDelta | null;
 }
 
+/**
+ * @description Token-frugal projection of a {@link BranchComparison} for AI/PR-review consumers.
+ *   Each delta section carries the worst N items as compact `file:line name (score)` strings plus
+ *   a true total count, and "things that got better" collapse to a bare count. Sections with no
+ *   delta are omitted entirely; `staleReferences` (the one likely-a-real-bug signal) is never
+ *   truncated. `headline` + `verdict` are usually all a reviewer needs to read.
+ */
+export interface BranchComparisonSummary {
+  /** `"<ref>@<short-sha>"` for the base side. */
+  base: string;
+  /** `"<ref>@<short-sha>"` for the head side. */
+  head: string;
+  verdict: "clean" | "review-worthy" | "attention";
+  headline: string[];
+  files: {
+    added: number;
+    changed: number;
+    removed: number;
+    /** Full path lists — omitted when the diff touches more than `maxPathList` files. */
+    paths?: { added: string[]; changed: string[]; removed: string[] };
+  };
+  /** Present (and complete) only when at least one stale reference was found. */
+  staleReferences?: StaleReference[];
+  complexity?: {
+    avgDelta: number;
+    /** Worst `maxItems`, `"file:line name (score)"`. */
+    newHotspots: string[];
+    /** True count of new hotspots (may exceed `newHotspots.length`). */
+    newHotspotCount: number;
+    resolvedCount: number;
+  };
+  duplication?: {
+    /** Worst `maxItems`, `"<lines>L x<occurrences>: file:a-b, file:c-d"`. */
+    newGroups: string[];
+    newGroupCount: number;
+    resolvedCount: number;
+    totalGroups: number;
+  };
+  docDrift?: {
+    /** Up to `maxItems`, `"doc → referencedFile"`. */
+    newlyStale: string[];
+    newlyStaleCount: number;
+    resolvedCount: number;
+  };
+  coverage?: {
+    avgDelta: number;
+    /** Worst `maxItems`, `"file:line name (score, cov N%)"`. */
+    newHotspots: string[];
+    newHotspotCount: number;
+    resolvedCount: number;
+  };
+}
+
+export interface SummarizeOptions {
+  /** Which per-function score the complexity/coverage deltas were computed on — picks the number shown per entry. */
+  metric?: "cognitiveComplexity" | "complexity" | undefined;
+  /** Max items kept in each delta list (default 8). */
+  maxItems?: number | undefined;
+  /** Above this many changed+added+removed files, `files.paths` is dropped and only counts remain (default 100). */
+  maxPathList?: number | undefined;
+}
+
+const round2 = (value: number): number => Math.round(value * 100) / 100;
+const shortSha = (sha: string): string => (sha.length > 8 ? sha.slice(0, 8) : sha);
+
+function fmtHotspot(
+  entry: ComplexFunctionEntry,
+  metric: "cognitiveComplexity" | "complexity",
+): string {
+  return `${entry.file}:${entry.line} ${entry.name} (${entry[metric]})`;
+}
+
+function fmtRiskHotspot(
+  entry: RiskHotspotEntry,
+  metric: "cognitiveComplexity" | "complexity",
+): string {
+  return `${entry.file}:${entry.line} ${entry.name} (${entry[metric]}, cov ${entry.coveragePct}%)`;
+}
+
+function fmtDuplicateGroup(group: DuplicateGroup, maxOccurrences = 4): string {
+  const shown = group.occurrences
+    .slice(0, maxOccurrences)
+    .map((occ) => `${occ.file}:${occ.startLine}-${occ.endLine}`);
+  const extra = group.occurrences.length - shown.length;
+  const tail = extra > 0 ? `, +${extra} more` : "";
+  return `${group.lines}L x${group.occurrences.length}: ${shown.join(", ")}${tail}`;
+}
+
+/** `"1 thing"` / `"3 things"`. */
+const count = (n: number, noun: string): string => `${n} ${noun}${n === 1 ? "" : "s"}`;
+
+/**
+ * @description Builds the 1–6 one-liner `headline` for a summary — the part a reviewer usually
+ *   reads instead of the delta sections. Each line is added only when its signal is non-zero.
+ * @param comparison - The full comparison.
+ * @param metric - The per-function score to name in the complexity line.
+ * @returns Ordered headline strings, always at least the file-count line.
+ */
+function buildHeadline(
+  comparison: BranchComparison,
+  metric: "cognitiveComplexity" | "complexity",
+): string[] {
+  const { files, staleReferences, duplication, complexity, docDrift, coverage } = comparison;
+  const lines: string[] = [];
+
+  const fileParts = [
+    files.added.length && `${files.added.length} added`,
+    files.changed.length && `${files.changed.length} changed`,
+    files.removed.length && `${files.removed.length} removed`,
+  ].filter(Boolean);
+  lines.push(fileParts.length ? `Files: ${fileParts.join(", ")}` : "No file changes");
+
+  if (staleReferences.length > 0) {
+    lines.push(
+      `⚠ ${count(staleReferences.length, "stale reference")} — removed export still imported`,
+    );
+  }
+
+  const worst = complexity.newHotspots[0];
+  if (worst) {
+    lines.push(
+      `+${count(complexity.newHotspots.length, "complexity hotspot")} (max ${metric} ${worst[metric]} in ${worst.file})`,
+    );
+  } else if (complexity.resolvedHotspots.length > 0) {
+    lines.push(`${count(complexity.resolvedHotspots.length, "complexity hotspot")} resolved`);
+  }
+
+  if (duplication.newGroups.length > 0) {
+    lines.push(`+${count(duplication.newGroups.length, "duplication group")}`);
+  } else if (duplication.resolvedGroups.length > 0) {
+    lines.push(`${count(duplication.resolvedGroups.length, "duplication group")} resolved`);
+  }
+
+  if (docDrift.newlyStale.length > 0) {
+    lines.push(`${count(docDrift.newlyStale.length, "doc")} newly stale`);
+  }
+  if (coverage && coverage.newHotspots.length > 0) {
+    lines.push(`+${count(coverage.newHotspots.length, "risk hotspot")}`);
+  }
+  return lines;
+}
+
+/**
+ * @description Grades a comparison: `attention` when something looks broken (a removed export
+ *   still imported, or a new risk hotspot), `review-worthy` when new complexity/duplication/doc
+ *   drift was introduced, `clean` otherwise.
+ * @param comparison - The full comparison.
+ * @returns The verdict.
+ */
+function computeVerdict(comparison: BranchComparison): BranchComparisonSummary["verdict"] {
+  const { staleReferences, duplication, complexity, docDrift, coverage } = comparison;
+  if (staleReferences.length > 0 || (coverage?.newHotspots.length ?? 0) > 0) return "attention";
+  if (
+    complexity.newHotspots.length > 0 ||
+    duplication.newGroups.length > 0 ||
+    docDrift.newlyStale.length > 0
+  ) {
+    return "review-worthy";
+  }
+  return "clean";
+}
+
+/**
+ * @description Collapses a full {@link BranchComparison} into a {@link BranchComparisonSummary} —
+ *   see that interface for the shape. Pure function; does no I/O.
+ * @param comparison - The full comparison from {@link compareBranches}.
+ * @param options - `metric` must match the one `compareBranches` used; `maxItems`/`maxPathList` tune truncation.
+ * @returns The compact summary.
+ */
+export function summarizeBranchComparison(
+  comparison: BranchComparison,
+  options: SummarizeOptions = {},
+): BranchComparisonSummary {
+  const metric = options.metric ?? "cognitiveComplexity";
+  const maxItems = options.maxItems ?? 8;
+  const maxPathList = options.maxPathList ?? 100;
+  const { files, staleReferences, duplication, complexity, docDrift, coverage } = comparison;
+
+  const complexityDelta = round2(
+    complexity.head.avgCognitiveComplexity - complexity.base.avgCognitiveComplexity,
+  );
+  const fileTotal = files.added.length + files.changed.length + files.removed.length;
+
+  const summary: BranchComparisonSummary = {
+    base: `${comparison.base.ref}@${shortSha(comparison.base.sha)}`,
+    head: `${comparison.head.ref}@${shortSha(comparison.head.sha)}`,
+    verdict: computeVerdict(comparison),
+    headline: buildHeadline(comparison, metric),
+    files: {
+      added: files.added.length,
+      changed: files.changed.length,
+      removed: files.removed.length,
+      ...(fileTotal <= maxPathList
+        ? { paths: { added: files.added, changed: files.changed, removed: files.removed } }
+        : {}),
+    },
+  };
+
+  if (staleReferences.length > 0) summary.staleReferences = staleReferences;
+
+  if (complexity.newHotspots.length > 0 || complexity.resolvedHotspots.length > 0) {
+    summary.complexity = {
+      avgDelta: complexityDelta,
+      newHotspots: complexity.newHotspots
+        .slice(0, maxItems)
+        .map((entry) => fmtHotspot(entry, metric)),
+      newHotspotCount: complexity.newHotspots.length,
+      resolvedCount: complexity.resolvedHotspots.length,
+    };
+  }
+
+  if (duplication.newGroups.length > 0 || duplication.resolvedGroups.length > 0) {
+    summary.duplication = {
+      newGroups: duplication.newGroups.slice(0, maxItems).map((group) => fmtDuplicateGroup(group)),
+      newGroupCount: duplication.newGroups.length,
+      resolvedCount: duplication.resolvedGroups.length,
+      totalGroups: duplication.head.groups,
+    };
+  }
+
+  if (docDrift.newlyStale.length > 0 || docDrift.resolved.length > 0) {
+    summary.docDrift = {
+      newlyStale: docDrift.newlyStale.slice(0, maxItems).map((entry) => entry.replace("::", " → ")),
+      newlyStaleCount: docDrift.newlyStale.length,
+      resolvedCount: docDrift.resolved.length,
+    };
+  }
+
+  if (coverage && (coverage.newHotspots.length > 0 || coverage.resolvedHotspots.length > 0)) {
+    summary.coverage = {
+      avgDelta: round2(coverage.head.avgCoveragePct - coverage.base.avgCoveragePct),
+      newHotspots: coverage.newHotspots
+        .slice(0, maxItems)
+        .map((entry) => fmtRiskHotspot(entry, metric)),
+      newHotspotCount: coverage.newHotspots.length,
+      resolvedCount: coverage.resolvedHotspots.length,
+    };
+  }
+
+  return summary;
+}
+
 export interface CompareBranchesOptions extends BuildGraphAtRefOptions {
   entryPoints?: string[] | undefined;
   headRef?: string | undefined;

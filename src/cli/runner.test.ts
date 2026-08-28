@@ -70,6 +70,8 @@ function makeParsedArgs(overrides: Partial<ParsedArgs> = {}): ParsedArgs {
     watch: false,
     base: undefined,
     compareBranches: undefined,
+    compareFull: false,
+    compareMaxItems: undefined,
     ...overrides,
   };
 }

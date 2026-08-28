@@ -37,6 +37,7 @@ import {
   queryChangeImpact,
   queryTypeGraph,
   slimSerialize,
+  summarizeBranchComparison,
   summarizeWorkspacePackages,
 } from "../index";
 import type { SessionState } from "./cache";
@@ -74,6 +75,8 @@ export type CompareBranchesArgs = {
   complexityMetric?: "cognitiveComplexity" | "complexity";
   complexityThreshold?: number;
   maxCoveragePct?: number;
+  detail?: "summary" | "full";
+  maxItems?: number;
 };
 export type GetCallersArgs = {
   root: string;
@@ -308,9 +311,11 @@ export async function handleGetAffected(
  *   against the same base commit are free after the first. Requires a prior `analyze` call.
  * @param cache - Session state holding the cached graph for `root`.
  * @param args - `root`/`baseRef` identify the comparison; `entryPoints` seeds the base-ref build
- *   (defaults to the entry points from the last `analyze` call); the rest tune the underlying
+ *   (defaults to the entry points from the last `analyze` call); `detail` (`"summary"`, default, or
+ *   `"full"`) picks the token-frugal projection vs. the complete `BranchComparison`; `maxItems`
+ *   caps each delta list in summary mode (default 8); the rest tune the underlying
  *   duplication/complexity/coverage tool calls.
- * @returns TextResponse with the full `BranchComparison`.
+ * @returns TextResponse with a `BranchComparisonSummary` (default) or the full `BranchComparison`.
  */
 export async function handleCompareBranches(
   cache: SessionState,
@@ -329,7 +334,10 @@ export async function handleCompareBranches(
     maxCoveragePct: args.maxCoveragePct,
     ...configToGraphOptions(cache.getConfig(root)),
   });
-  return text(comparison);
+  if (args.detail === "full") return text(comparison);
+  return text(
+    summarizeBranchComparison(comparison, { metric: complexityMetric, maxItems: args.maxItems }),
+  );
 }
 
 /**

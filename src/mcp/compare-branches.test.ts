@@ -27,10 +27,25 @@ function parse(result: { content: Array<{ type: string; text: string }> }): unkn
   return JSON.parse(result.content[0]?.text ?? "");
 }
 
+const fullComparison = (): BranchComparison => ({
+  base: { ref: "main", sha: "abc1234567890" },
+  head: { ref: "HEAD", sha: "def1234567890" },
+  files: { added: [], removed: [], changed: [] },
+  staleReferences: [],
+  duplication: { base: { groups: 0 }, head: { groups: 0 }, newGroups: [], resolvedGroups: [] },
+  complexity: {
+    base: { avgCognitiveComplexity: 0 },
+    head: { avgCognitiveComplexity: 0 },
+    newHotspots: [],
+    resolvedHotspots: [],
+  },
+  docDrift: { base: { staleCount: 0 }, head: { staleCount: 0 }, newlyStale: [], resolved: [] },
+  coverage: null,
+});
+
 describe("handleCompareBranches", { tags: ["handleCompareBranches", "mcp"] }, () => {
-  it("delegates to compareBranches with the fresh head graph", async () => {
-    const comparison = { base: { ref: "main", sha: "abc" } } as unknown as BranchComparison;
-    compareBranchesMock.mockResolvedValue(comparison);
+  it("returns the compact summary by default", async () => {
+    compareBranchesMock.mockResolvedValue(fullComparison());
     const cache = makeCache();
 
     const result = await handleCompareBranches(cache, { root: ROOT, baseRef: "main" });
@@ -41,11 +56,25 @@ describe("handleCompareBranches", { tags: ["handleCompareBranches", "mcp"] }, ()
       expect.anything(),
       expect.objectContaining({ entryPoints: [] }),
     );
+    expect(parse(result)).toMatchObject({ base: "main@abc12345", verdict: "clean" });
+  });
+
+  it("returns the full BranchComparison verbatim with detail:'full'", async () => {
+    const comparison = fullComparison();
+    compareBranchesMock.mockResolvedValue(comparison);
+    const cache = makeCache();
+
+    const result = await handleCompareBranches(cache, {
+      root: ROOT,
+      baseRef: "main",
+      detail: "full",
+    });
+
     expect(parse(result)).toEqual(comparison);
   });
 
   it("falls back to the last analyze() entry points, relativized to root", async () => {
-    compareBranchesMock.mockResolvedValue({} as BranchComparison);
+    compareBranchesMock.mockResolvedValue(fullComparison());
     const cache = makeCache({
       getLastEntryPoints: vi.fn().mockReturnValue([`${ROOT}/src/b.ts`]),
     });
@@ -61,7 +90,7 @@ describe("handleCompareBranches", { tags: ["handleCompareBranches", "mcp"] }, ()
   });
 
   it("prefers explicit entryPoints over the stored last-analyze ones", async () => {
-    compareBranchesMock.mockResolvedValue({} as BranchComparison);
+    compareBranchesMock.mockResolvedValue(fullComparison());
     const cache = makeCache({
       getLastEntryPoints: vi.fn().mockReturnValue([`${ROOT}/src/b.ts`]),
     });

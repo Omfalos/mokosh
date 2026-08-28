@@ -148,14 +148,35 @@ so repeat comparisons against the same base commit are free after the first. Req
 | `complexityMetric` | `"cognitiveComplexity" \| "complexity"` | no | Which per-function score drives the complexity delta (default: `cognitiveComplexity`) |
 | `complexityThreshold` | `number` | no | Minimum per-function score to count as a complexity hotspot (default: 10) |
 | `maxCoveragePct` | `number` | no | Maximum containing-file coverage % to count as a risk hotspot (default: 50) |
+| `detail` | `"summary" \| "full"` | no | `"summary"` (default) returns the compact projection below; `"full"` returns the complete `BranchComparison` |
+| `maxItems` | `number` | no | In summary mode, entries kept per delta list — the true count is always reported alongside (default: 8). Stale references are never truncated |
 
-**Returns:** a `BranchComparison`:
+**Returns (default, `detail: "summary"`)** — a `BranchComparisonSummary`, tuned to be token-frugal
+for review by an AI: read `verdict` + `headline` first, drill into a specific file with a
+follow-up tool call (`find_complex_functions`, `get_dependents`, …) only when needed.
+
+- `base` / `head` — `"<ref>@<short-sha>"` strings.
+- `verdict` — `"clean"` | `"review-worthy"` (new complexity/duplication/doc drift) | `"attention"`
+  (a stale reference or a new risk hotspot — something likely broken).
+- `headline` — 1–6 one-liners; often all a reviewer needs.
+- `files` — `{ added, changed, removed }` counts, plus `paths: { added, changed, removed }`
+  (string lists) unless the diff touches more than 100 files.
+- `staleReferences` — the full `{ file, symbol, stillReferencedBy }[]` (never truncated); key
+  omitted when empty.
+- `complexity` — `{ avgDelta, newHotspots: string[] ("file:line name (score)", capped),
+  newHotspotCount, resolvedCount }`; omitted when there is no delta.
+- `duplication` — `{ newGroups: string[] ("<L>L x<n>: file:a-b, …", capped), newGroupCount,
+  resolvedCount, totalGroups }`; omitted when there is no delta.
+- `docDrift` — `{ newlyStale: string[] ("doc → referencedFile", capped), newlyStaleCount,
+  resolvedCount }`; omitted when there is no delta.
+- `coverage` — `{ avgDelta, newHotspots, newHotspotCount, resolvedCount }`; omitted when null or
+  no delta.
+
+**Returns (`detail: "full"`)** — the complete `BranchComparison`:
 
 - `base` / `head` — `{ ref, sha }` for each side.
 - `files` — `{ added, removed, changed }` file-level diff (imports/exports/category).
-- `staleReferences` — `{ file, symbol, stillReferencedBy }[]`: exported symbols removed at head
-  that an importer in the head graph still names in its import — the "did every call site get
-  updated" check (e.g. a rename that missed a caller).
+- `staleReferences` — `{ file, symbol, stillReferencedBy }[]`.
 - `duplication` — `{ base: { groups }, head: { groups }, newGroups, resolvedGroups }` from
   `find_duplicates` on both graphs.
 - `complexity` — `{ base: { avgCognitiveComplexity }, head: { ... }, newHotspots, resolvedHotspots }`

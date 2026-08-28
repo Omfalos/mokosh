@@ -327,6 +327,8 @@ export async function run(): Promise<void> {
     minChurn: parsed.minChurn,
     base: parsed.base,
     compareBranches: parsed.compareBranches,
+    compareFull: parsed.compareFull,
+    compareMaxItems: parsed.compareMaxItems,
   };
 
   const handler = resolveCommandHandler(parsed);

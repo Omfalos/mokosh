@@ -104,7 +104,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "compare_branches",
     description:
-      "Compare the current graph (root) against baseRef, for reviewing a PR/branch: file diff, stale post-rename references, and deltas for duplication, complexity, doc drift, and coverage/risk hotspots. See docs/mcp.md for details. Requires a prior analyze() call.",
+      "Compare the current graph (root) against baseRef, for reviewing a PR/branch: file diff, stale post-rename references, and deltas for duplication, complexity, doc drift, and coverage/risk hotspots. Returns a compact summary by default (verdict + headline + capped delta lists); pass detail:'full' for every entry. See docs/mcp.md for details. Requires a prior analyze() call.",
     inputSchema: {
       type: "object",
       properties: {
@@ -143,6 +143,17 @@ export const TOOL_DEFINITIONS = [
           type: "number",
           description:
             "Maximum containing-file coverage % to count as a risk hotspot (default: 50)",
+        },
+        detail: {
+          type: "string",
+          enum: ["summary", "full"],
+          description:
+            "'summary' (default): verdict, headline, and each delta list capped at maxItems with true counts; empty sections omitted. 'full': the complete BranchComparison with every entry.",
+        },
+        maxItems: {
+          type: "number",
+          description:
+            "In summary mode, max entries kept per delta list (complexity/duplication/doc-drift/coverage); the true count is always reported alongside (default: 8). Stale references are never truncated.",
         },
       },
       required: ["root", "baseRef"],

@@ -77,6 +77,26 @@ result, it doesn't drive a second checkout.
   mirroring `find_risk_hotspots`'s own guard rather than misreporting every function as a
   regression.
 
+### Output: summary by default
+
+`compareBranches()` always computes the full `BranchComparison`; `summarizeBranchComparison()`
+then projects it to a `BranchComparisonSummary` and that is what the MCP tool and CLI emit by
+default (`detail: "full"` / `--compare-full` opts back into the raw object). The full result is a
+data dump whose largest sections (`complexity.newHotspots`, `duplication.newGroups`) scale with
+the size of the diff — exactly when a low-token result matters most. The summary keeps the
+decision-support content and drops the bulk:
+
+- delta lists are capped at `maxItems` (default 8) as compact `file:line name (score)` strings,
+  with a separate true `*Count`;
+- "things that got better" (`resolvedHotspots`, `resolvedGroups`) collapse to a bare count;
+- sections with no delta are omitted entirely;
+- a `verdict` + `headline[]` lead, so a reviewer (human or AI) can stop reading after two lines
+  when nothing is alarming;
+- `staleReferences` — the one "possible bug" signal — is passed through in full, never truncated.
+
+A realistic 30-file refactor drops from ~2.5–3.5k tokens to ~300–500; a model that wants
+everything asks once with `detail: "full"`.
+
 ---
 
 ## Consequences
