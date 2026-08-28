@@ -130,6 +130,43 @@ Full incoming traversal — every file whose behaviour could change if `file` ch
 
 ---
 
+### `compare_branches`
+
+Compares the current graph (`root`, kept fresh via the same auto-refresh every other tool uses)
+against `baseRef` — for reviewing someone else's PR/branch. The base ref's graph is built via a
+temporary `git worktree`, cached to disk keyed by commit sha (`<root>/mokosh-cache/branch-graphs/`)
+so repeat comparisons against the same base commit are free after the first. Requires a prior
+`analyze` call. See `docs/adr-016-branch-comparison.md` for the mechanism.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `root` | `string` | yes | |
+| `baseRef` | `string` | yes | Git ref to compare against, e.g. `"main"`, `"origin/main"`, or a commit sha |
+| `headRef` | `string` | no | Labels the head side of the result (default: `"HEAD"`). The graph itself always comes from the already-analyzed `root`, not a checkout of this ref |
+| `entryPoints` | `string[]` | no | Entry points to build the base-ref graph from, relative to `root`. Defaults to the entry points from the last `analyze` call for this root |
+| `minDuplicateLines` | `number` | no | Minimum duplicated block size, in source lines, for the duplication delta (default: 6) |
+| `complexityMetric` | `"cognitiveComplexity" \| "complexity"` | no | Which per-function score drives the complexity delta (default: `cognitiveComplexity`) |
+| `complexityThreshold` | `number` | no | Minimum per-function score to count as a complexity hotspot (default: 10) |
+| `maxCoveragePct` | `number` | no | Maximum containing-file coverage % to count as a risk hotspot (default: 50) |
+
+**Returns:** a `BranchComparison`:
+
+- `base` / `head` — `{ ref, sha }` for each side.
+- `files` — `{ added, removed, changed }` file-level diff (imports/exports/category).
+- `staleReferences` — `{ file, symbol, stillReferencedBy }[]`: exported symbols removed at head
+  that an importer in the head graph still names in its import — the "did every call site get
+  updated" check (e.g. a rename that missed a caller).
+- `duplication` — `{ base: { groups }, head: { groups }, newGroups, resolvedGroups }` from
+  `find_duplicates` on both graphs.
+- `complexity` — `{ base: { avgCognitiveComplexity }, head: { ... }, newHotspots, resolvedHotspots }`
+  from `find_complex_functions` on both graphs.
+- `docDrift` — `{ base: { staleCount }, head: { ... }, newlyStale, resolved }` from the
+  `check_doc_drift`/`staleFor` data on both graphs.
+- `coverage` — same shape as `complexity` but from `find_risk_hotspots`, or `null` when either
+  side has no coverage data loaded.
+
+---
+
 ### `get_callers`
 
 Files whose exported functions **call into** a given file (call-graph dependents). More precise than `get_affected`: only files with actual runtime call edges, not just import edges.

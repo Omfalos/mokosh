@@ -7,6 +7,7 @@ import {
   buildFeatureGraph,
   buildResponsibilityGraph,
   buildTypeGraph,
+  compareBranches,
   configToGraphOptions,
   DEFAULT_IGNORE_DIRS,
   detectAllEntryPoints,
@@ -63,6 +64,16 @@ export type GetAffectedArgs = {
   cached?: boolean;
   changedSymbols?: string[];
   withMeta?: boolean;
+};
+export type CompareBranchesArgs = {
+  root: string;
+  baseRef: string;
+  headRef?: string;
+  entryPoints?: string[];
+  minDuplicateLines?: number;
+  complexityMetric?: "cognitiveComplexity" | "complexity";
+  complexityThreshold?: number;
+  maxCoveragePct?: number;
 };
 export type GetCallersArgs = {
   root: string;
@@ -133,6 +144,7 @@ export type ToolArgs =
   | GetDependenciesArgs
   | GetDependentsArgs
   | GetAffectedArgs
+  | CompareBranchesArgs
   | GetCallersArgs
   | FindSymbolArgs
   | FindUnusedArgs
@@ -285,6 +297,39 @@ export async function handleGetAffected(
   const affected = getAffected(graph, file, { testsOnly, changedSymbols });
   const result = annotate(affected);
   return text({ file, affected: result, count: result.length });
+}
+
+/**
+ * @description Compares the current graph (`root`, kept fresh the same way every other handler
+ *   is via `ensureFresh`) against `baseRef` — file diff, exported symbols removed at head that
+ *   an importer still references (a likely-missed rename/removal), and deltas across duplication,
+ *   complexity, doc drift, and (when coverage is loaded) risk hotspots. The base ref's graph is
+ *   built via a temporary `git worktree` and cached to disk by commit sha, so repeat comparisons
+ *   against the same base commit are free after the first. Requires a prior `analyze` call.
+ * @param cache - Session state holding the cached graph for `root`.
+ * @param args - `root`/`baseRef` identify the comparison; `entryPoints` seeds the base-ref build
+ *   (defaults to the entry points from the last `analyze` call); the rest tune the underlying
+ *   duplication/complexity/coverage tool calls.
+ * @returns TextResponse with the full `BranchComparison`.
+ */
+export async function handleCompareBranches(
+  cache: SessionState,
+  args: CompareBranchesArgs,
+): Promise<TextResponse> {
+  const { root, baseRef, headRef, minDuplicateLines, complexityMetric, complexityThreshold } = args;
+  const graph = await cache.ensureFresh(root);
+  const entryPoints =
+    args.entryPoints ?? cache.getLastEntryPoints(root)?.map((ep) => path.relative(root, ep)) ?? [];
+  const comparison = await compareBranches(root, baseRef, graph, {
+    headRef,
+    entryPoints,
+    minDuplicateLines,
+    complexityMetric,
+    complexityThreshold,
+    maxCoveragePct: args.maxCoveragePct,
+    ...configToGraphOptions(cache.getConfig(root)),
+  });
+  return text(comparison);
 }
 
 /**

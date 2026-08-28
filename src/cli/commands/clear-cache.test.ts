@@ -51,4 +51,15 @@ describe("runClearCache", { tags: ["runClearCache"] }, () => {
     expect(() => runClearCache(cachePath)).not.toThrow();
     expect(fs.existsSync(tokenCachePath)).toBe(false);
   });
+
+  it("recursively deletes the branch-graphs directory when present", () => {
+    const cachePath = path.join(dir, "graph.json");
+    const branchGraphDir = path.join(dir, "branch-graphs");
+    fs.mkdirSync(branchGraphDir, { recursive: true });
+    fs.writeFileSync(path.join(branchGraphDir, "abc123.json"), "{}");
+
+    runClearCache(cachePath);
+
+    expect(fs.existsSync(branchGraphDir)).toBe(false);
+  });
 });

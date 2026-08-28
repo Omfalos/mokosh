@@ -70,6 +70,29 @@ describe("SessionState", {
     fs.rmSync(root, { recursive: true, force: true });
   });
 
+  describe("getLastEntryPoints", () => {
+    test("returns undefined before any analyze call", () => {
+      const state = new SessionState();
+      expect(state.getLastEntryPoints(root)).toBeUndefined();
+    });
+
+    test("returns the stored single-package entry points", () => {
+      const state = new SessionState();
+      state.storeLastAnalyze(root, {
+        kind: "single",
+        entryPoints: [`${root}/src/a.ts`],
+        coverageMap: new Map(),
+      });
+      expect(state.getLastEntryPoints(root)).toEqual([`${root}/src/a.ts`]);
+    });
+
+    test("returns undefined for a workspace root", () => {
+      const state = new SessionState();
+      state.storeLastAnalyze(root, { kind: "workspace" });
+      expect(state.getLastEntryPoints(root)).toBeUndefined();
+    });
+  });
+
   describe("getOrBuildChangeImpact / dirty-root invalidation", () => {
     test("builds lazily and reuses the same object across repeated calls", async () => {
       fs.writeFileSync(path.join(root, "src", "a.ts"), "export const a = 1;");

@@ -214,6 +214,19 @@ export class SessionState {
   }
 
   /**
+   * @description Returns the entry points used in the last single-package `analyze` call for
+   *   `root`, so a follow-up tool call (e.g. `compare_branches`) can rebuild an equivalent graph
+   *   at a different ref without the caller having to repeat them. `undefined` for a workspace
+   *   root or one that was never analyzed.
+   * @param root - Absolute project root path.
+   * @returns The stored entry points, or `undefined`.
+   */
+  getLastEntryPoints(root: string): string[] | undefined {
+    const args = this.lastAnalyze.get(root);
+    return args?.kind === "single" ? args.entryPoints : undefined;
+  }
+
+  /**
    * @description Starts an `fs.watch` listener on `root` (recursive, ignoring `node_modules`,
    *   `.git`, `dist`, `build`, and `coverage` directories). When any source file changes, marks
    *   `root` as dirty so the next query transparently triggers an incremental rebuild.

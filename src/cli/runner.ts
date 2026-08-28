@@ -17,6 +17,7 @@ import { run as runCallers } from "./commands/callers";
 import { run as runCheckCycles } from "./commands/check-cycles";
 import { run as runCheckDocDrift } from "./commands/check-doc-drift";
 import { runClearCache } from "./commands/clear-cache";
+import { run as runCompareBranches } from "./commands/compare-branches";
 import { run as runDependencies } from "./commands/dependencies";
 import { run as runDependents } from "./commands/dependents";
 import { run as runDetectFeatures } from "./commands/detect-features";
@@ -148,7 +149,8 @@ function computeAutoScan(parsed: ParsedArgs): boolean {
     parsed.moduleResponsibility ||
     parsed.callGraph ||
     parsed.findSymbol ||
-    parsed.apiSurface
+    parsed.apiSurface ||
+    !!parsed.compareBranches
   );
 }
 
@@ -197,6 +199,11 @@ export function resolveCommandHandler(parsed: ParsedArgs): CommandHandler {
     { name: "--call-graph", flag: parsed.callGraph, handler: runCallGraph },
     { name: "--find-symbol", flag: parsed.findSymbol, handler: runFindSymbol },
     { name: "--api-surface", flag: parsed.apiSurface, handler: runApiSurface },
+    {
+      name: "--compare-branches",
+      flag: !!parsed.compareBranches,
+      handler: runCompareBranches,
+    },
   ];
 
   const active = commands.filter((command) => command.flag);
@@ -319,6 +326,7 @@ export async function run(): Promise<void> {
     maxCoveragePct: parsed.maxCoveragePct,
     minChurn: parsed.minChurn,
     base: parsed.base,
+    compareBranches: parsed.compareBranches,
   };
 
   const handler = resolveCommandHandler(parsed);

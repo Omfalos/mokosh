@@ -79,6 +79,7 @@ vi.mock("./commands/call-graph", () => ({ run: vi.fn() }));
 vi.mock("./commands/callers", () => ({ run: vi.fn() }));
 vi.mock("./commands/check-cycles", () => ({ run: vi.fn() }));
 vi.mock("./commands/check-doc-drift", () => ({ run: vi.fn() }));
+vi.mock("./commands/compare-branches", () => ({ run: vi.fn() }));
 vi.mock("./commands/dependencies", () => ({ run: vi.fn() }));
 vi.mock("./commands/dependents", () => ({ run: vi.fn() }));
 vi.mock("./commands/detect-features", () => ({ run: vi.fn() }));
@@ -162,6 +163,7 @@ function makeParsedArgs(overrides: Partial<ParsedArgs> = {}): ParsedArgs {
     slim: false,
     watch: false,
     base: undefined,
+    compareBranches: undefined,
     ...overrides,
   };
 }

@@ -5,6 +5,7 @@ export { applyConfig, configToGraphOptions, loadMokoshConfig, type MokoshConfig 
 
 // Constants
 export {
+  DEFAULT_BRANCH_GRAPH_CACHE_DIR,
   DEFAULT_CACHE_DIR,
   DEFAULT_DUPLICATION_TOKEN_CACHE_FILE,
   DEFAULT_EXTENSIONS,
@@ -43,6 +44,19 @@ export {
   queryChangeImpact,
   saveChangeImpactCache,
 } from "./graph/change-impact-cache";
+export {
+  type BranchComparison,
+  type BuildGraphAtRefOptions,
+  buildGraphAtRef,
+  type CompareBranchesOptions,
+  type ComplexityDelta,
+  type CoverageDelta,
+  compareBranches,
+  type DocDriftDelta,
+  type DuplicationDelta,
+  type FileDiff,
+  type StaleReference,
+} from "./graph/compare";
 export {
   type CachedFileTokens,
   type DuplicateFamily,

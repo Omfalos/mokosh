@@ -12,6 +12,11 @@ export const DEFAULT_DUPLICATION_TOKEN_CACHE_FILE = "duplication-tokens.json";
  *  seed a session's first `analyze` call so it reuses unchanged nodes instead of parsing cold. */
 export const DEFAULT_GRAPH_CACHE_FILE = "graph.json";
 
+/** Subdirectory of `DEFAULT_CACHE_DIR` holding one JSON file per commit sha — graphs built for
+ *  the "other" ref in a `compareBranches` call (`src/graph/branch-graph-cache.ts`). Keyed by sha
+ *  rather than branch name so entries are immutable and never need invalidation. */
+export const DEFAULT_BRANCH_GRAPH_CACHE_DIR = "branch-graphs";
+
 export const DEFAULT_IGNORE_DIRS: readonly string[] = [
   "node_modules",
   ".git",
