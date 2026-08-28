@@ -104,7 +104,9 @@ Place a `mokosh.config.json` or `mokosh.config.js` in your project root to confi
 }
 ```
 
-`ignoreDirs` and `extensions` are **additive** — they extend the built-in defaults rather than replacing them.
+`ignoreDirs` and `extensions` are **additive** — they extend the built-in defaults rather than replacing them. `ignoreDirs` applies to both the entry-point scan and the graph builder's test/doc discovery walks.
+
+Without a config file, the same directory exclusions can be supplied via the `MOKOSH_IGNORE_DIRS` environment variable (comma-separated), which is merged into the built-in defaults for every build. Useful for the MCP server, which is launched from `.mcp.json` and may not have a `mokosh.config.json` alongside it.
 
 **`mokosh.config.js`** (supports side effects and factory functions):
 ```js

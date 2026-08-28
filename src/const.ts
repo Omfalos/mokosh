@@ -26,6 +26,8 @@ export const DEFAULT_IGNORE_DIRS: readonly string[] = [
   ".cache",
   "mokosh-cache",
   "coverage",
+  ".pytest_cache",
+  "__pycache__",
 ];
 
 export const DEFAULT_EXTENSIONS: readonly string[] = [

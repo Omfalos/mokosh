@@ -22,6 +22,8 @@ export interface BuildGraphAtRefOptions {
   gitStats?: boolean | undefined;
   parallelParsing?: ParallelParsingOption | undefined;
   pathAliases?: Record<string, string[]> | undefined;
+  /** Extra directory names to skip during test/doc discovery, on top of the built-in list. Sourced from `MokoshConfig.ignoreDirs`. */
+  additionalIgnoreDirs?: string[] | undefined;
 }
 
 /**
@@ -58,6 +60,7 @@ export async function buildGraphAtRef(
       options.gitStats ?? false,
       new Map(),
       options.parallelParsing ?? true,
+      options.additionalIgnoreDirs ?? [],
     );
     return builder.build(entryPoints);
   });
