@@ -16,6 +16,9 @@ const uuidFn = IdGenerator.uuid();
  */
 export function parseGherkin(_filePath: string, content: string): ParseResult {
   const rawTags = new Set<string>();
+  const collect = (tags: readonly { name: string }[]) => {
+    for (const tag of tags) rawTags.add(tag.name.startsWith("@") ? tag.name.slice(1) : tag.name);
+  };
 
   try {
     const builder = new AstBuilder(uuidFn);
@@ -25,36 +28,20 @@ export function parseGherkin(_filePath: string, content: string): ParseResult {
     const gherkinDocument = parser.parse(content);
 
     if (gherkinDocument.feature) {
-      // Feature tags
-      gherkinDocument.feature.tags.forEach((tag) => {
-        rawTags.add(tag.name.startsWith("@") ? tag.name.slice(1) : tag.name);
-      });
+      collect(gherkinDocument.feature.tags);
 
-      // Child tags (Scenarios, Rules, etc.)
-      gherkinDocument.feature.children.forEach((child) => {
+      for (const child of gherkinDocument.feature.children) {
         if (child.scenario) {
-          child.scenario.tags.forEach((tag) => {
-            rawTags.add(tag.name.startsWith("@") ? tag.name.slice(1) : tag.name);
-          });
-
-          // Example tags
-          child.scenario.examples.forEach((example) => {
-            example.tags.forEach((tag) => {
-              rawTags.add(tag.name.startsWith("@") ? tag.name.slice(1) : tag.name);
-            });
-          });
+          collect(child.scenario.tags);
+          for (const example of child.scenario.examples) collect(example.tags);
         }
 
         if (child.rule) {
-          child.rule.children.forEach((ruleChild) => {
-            if (ruleChild.scenario) {
-              ruleChild.scenario.tags.forEach((tag) => {
-                rawTags.add(tag.name.startsWith("@") ? tag.name.slice(1) : tag.name);
-              });
-            }
-          });
+          for (const ruleChild of child.rule.children) {
+            if (ruleChild.scenario) collect(ruleChild.scenario.tags);
+          }
         }
-      });
+      }
     }
   } catch (error) {
     console.warn(`[GherkinParser] Failed to parse ${_filePath}:`, error);

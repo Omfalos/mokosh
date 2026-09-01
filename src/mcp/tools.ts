@@ -102,6 +102,64 @@ export const TOOL_DEFINITIONS = [
     },
   },
   {
+    name: "compare_branches",
+    description:
+      "Compare the current graph (root) against baseRef, for reviewing a PR/branch: file diff, stale post-rename references, and deltas for duplication, complexity, doc drift, and coverage/risk hotspots. Returns a compact summary by default (verdict + headline + capped delta lists); pass detail:'full' for every entry. See docs/mcp.md for details. Requires a prior analyze() call.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        root: { type: "string", description: "Absolute path to the project root" },
+        baseRef: {
+          type: "string",
+          description: "Git ref to compare against, e.g. 'main', 'origin/main', or a commit sha",
+        },
+        headRef: {
+          type: "string",
+          description:
+            "Git ref to label the head side of the comparison (default: 'HEAD'). The graph itself always comes from the already-analyzed root, not a checkout of this ref.",
+        },
+        entryPoints: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Entry points to build the base-ref graph from, relative to root. Defaults to the entry points from the last analyze() call for this root.",
+        },
+        minDuplicateLines: {
+          type: "number",
+          description:
+            "Minimum duplicated block size, in source lines, for the duplication delta (default: 6)",
+        },
+        complexityMetric: {
+          type: "string",
+          enum: ["cognitiveComplexity", "complexity"],
+          description:
+            "Which per-function score drives the complexity delta (default: cognitiveComplexity)",
+        },
+        complexityThreshold: {
+          type: "number",
+          description: "Minimum per-function score to count as a complexity hotspot (default: 10)",
+        },
+        maxCoveragePct: {
+          type: "number",
+          description:
+            "Maximum containing-file coverage % to count as a risk hotspot (default: 50)",
+        },
+        detail: {
+          type: "string",
+          enum: ["summary", "full"],
+          description:
+            "'summary' (default): verdict, headline, and each delta list capped at maxItems with true counts; empty sections omitted. 'full': the complete BranchComparison with every entry.",
+        },
+        maxItems: {
+          type: "number",
+          description:
+            "In summary mode, max entries kept per delta list (complexity/duplication/doc-drift/coverage); the true count is always reported alongside (default: 8). Stale references are never truncated.",
+        },
+      },
+      required: ["root", "baseRef"],
+    },
+  },
+  {
     name: "get_callers",
     description:
       "Get files whose exported functions call into a given file (call-graph dependents). More precise than get_affected: only files with actual runtime call edges, not mere imports. Requires prior analyze() call.",

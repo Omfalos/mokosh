@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
-import { applyConfig, loadMokoshConfig } from "./config";
+import { applyConfig, configToGraphOptions, loadMokoshConfig } from "./config";
 import { parseFile } from "./parser";
 import { getBarrelThreshold, getTestLibraries, getTestPatterns } from "./parser/classify";
 
@@ -206,5 +206,21 @@ describe("applyConfig integration with parseFile", {
     applyConfig({ barrelThreshold: 0.5 });
     const result = await parseFile("index.ts", content);
     expect(result.category).toBe("barrel");
+  });
+});
+
+// ─── configToGraphOptions ────────────────────────────────────────────────────
+
+describe("configToGraphOptions", () => {
+  test("maps config.ignoreDirs to additionalIgnoreDirs", () => {
+    expect(configToGraphOptions({ ignoreDirs: ["docs", "example"] }).additionalIgnoreDirs).toEqual([
+      "docs",
+      "example",
+    ]);
+  });
+
+  test("additionalIgnoreDirs is undefined when config omits ignoreDirs", () => {
+    expect(configToGraphOptions({}).additionalIgnoreDirs).toBeUndefined();
+    expect(configToGraphOptions(undefined).additionalIgnoreDirs).toBeUndefined();
   });
 });

@@ -1,10 +1,84 @@
 /** Parses a key:value query string into a structured NodeQuery for use with filterGraph. */
 import type { NodeQuery } from "./types";
 
+/** A clause value's parsing/coercion rule, keyed by the field it lands on in `NodeQuery`. */
+type ClauseValueKind = "string" | "int" | "float" | "boolNotFalse" | "boolIsTrue";
+
+/**
+ * @description Table of `key:value` clauses that reduce to "coerce `value` and assign it to one
+ *   `NodeQuery` field" — every key except the multi-value/special-cased ones (`tag`/`tags`,
+ *   `sort`, `sortdir`) handled directly in {@link applyClause}. Adding a new scalar filter key
+ *   only requires a new table row here, not a new branch.
+ * @type {Record<string, { field: keyof NodeQuery; kind: ClauseValueKind }>}
+ */
+const SIMPLE_CLAUSE_HANDLERS: Record<string, { field: keyof NodeQuery; kind: ClauseValueKind }> = {
+  category: { field: "category", kind: "string" },
+  type: { field: "type", kind: "string" },
+  path: { field: "path", kind: "string" },
+  importsfile: { field: "importsFile", kind: "string" },
+  importedby: { field: "importedBy", kind: "string" },
+  lastauthor: { field: "lastAuthor", kind: "string" },
+  external: { field: "isExternal", kind: "boolIsTrue" },
+  hasdocstring: { field: "hasDocstring", kind: "boolNotFalse" },
+  isdocumented: { field: "isDocumented", kind: "boolNotFalse" },
+  isstale: { field: "isStale", kind: "boolNotFalse" },
+  minimports: { field: "minImports", kind: "int" },
+  maximports: { field: "maxImports", kind: "int" },
+  minsize: { field: "minSize", kind: "int" },
+  maxsize: { field: "maxSize", kind: "int" },
+  limit: { field: "limit", kind: "int" },
+  mincoverage: { field: "minCoverage", kind: "int" },
+  maxcoverage: { field: "maxCoverage", kind: "int" },
+  minexportusage: { field: "minExportUsage", kind: "float" },
+  maxexportusage: { field: "maxExportUsage", kind: "float" },
+  mincomplexity: { field: "minComplexity", kind: "int" },
+  maxcomplexity: { field: "maxComplexity", kind: "int" },
+  mincognitivecomplexity: { field: "minCognitiveComplexity", kind: "int" },
+  maxcognitivecomplexity: { field: "maxCognitiveComplexity", kind: "int" },
+  mincommits: { field: "minCommits", kind: "int" },
+  maxcommits: { field: "maxCommits", kind: "int" },
+};
+
+/**
+ * @description Coerces a raw clause value string per `kind` and assigns it onto `query[field]`.
+ * @param {NodeQuery} query - The query object to mutate.
+ * @param {keyof NodeQuery} field - Which field on `query` to set.
+ * @param {ClauseValueKind} kind - How to parse `value` before assigning.
+ * @param {string} value - The raw (already trimmed, non-empty) clause value.
+ * @returns {void}
+ */
+function assignSimpleClause(
+  query: NodeQuery,
+  field: keyof NodeQuery,
+  kind: ClauseValueKind,
+  value: string,
+): void {
+  const target = query as Record<string, unknown>;
+  switch (kind) {
+    case "string":
+      target[field] = value;
+      break;
+    case "int":
+      target[field] = parseInt(value, 10);
+      break;
+    case "float":
+      target[field] = parseFloat(value);
+      break;
+    case "boolNotFalse":
+      target[field] = value.toLowerCase() !== "false";
+      break;
+    case "boolIsTrue":
+      target[field] = value.toLowerCase() === "true";
+      break;
+  }
+}
+
 /**
  * @description Parses and applies a single `key:value` clause onto `query`, mutating it in
  *   place. Shared by the top-level comma-split loop and by each `|`-separated clause inside an
- *   `any(...)` OR-group, so both contexts recognize exactly the same set of keys.
+ *   `any(...)` OR-group, so both contexts recognize exactly the same set of keys. Most keys are
+ *   handled generically via {@link SIMPLE_CLAUSE_HANDLERS}; `tag`/`tags`, `sort`, and `sortdir`
+ *   need bespoke multi-value or literal-union handling and stay inline.
  * @param {NodeQuery} query - The query object to mutate with this clause's parsed value.
  * @param {string} part - A single `key:value` clause (no surrounding commas).
  * @returns {void}
@@ -16,103 +90,31 @@ function applyClause(query: NodeQuery, part: string): void {
   const value = part.slice(colonIdx + 1).trim();
   if (!key || !value) return;
 
-  switch (key) {
-    case "category":
-      query.category = value;
-      break;
-    case "type":
-      query.type = value;
-      break;
-    case "tag":
-    case "tags":
-      if (value.includes("+")) {
-        query.allTags = [...(query.allTags ?? []), ...value.split("+")];
-      } else {
-        query.tags = [...(query.tags ?? []), value];
-      }
-      break;
-    case "path":
-      query.path = value;
-      break;
-    case "external":
-      query.isExternal = value.toLowerCase() === "true";
-      break;
-    case "importsfile":
-      query.importsFile = value;
-      break;
-    case "importedby":
-      query.importedBy = value;
-      break;
-    case "minimports":
-      query.minImports = parseInt(value, 10);
-      break;
-    case "maximports":
-      query.maxImports = parseInt(value, 10);
-      break;
-    case "minsize":
-      query.minSize = parseInt(value, 10);
-      break;
-    case "maxsize":
-      query.maxSize = parseInt(value, 10);
-      break;
-    case "sort":
-      query.sort = value as
-        | "size"
-        | "imports"
-        | "commitCount90d"
-        | "exportUsage"
-        | "complexity"
-        | "cognitiveComplexity";
-      break;
-    case "sortdir":
-      query.sortDir = value.toLowerCase() === "asc" ? "asc" : "desc";
-      break;
-    case "limit":
-      query.limit = parseInt(value, 10);
-      break;
-    case "hasdocstring":
-      query.hasDocstring = value.toLowerCase() !== "false";
-      break;
-    case "mincoverage":
-      query.minCoverage = parseInt(value, 10);
-      break;
-    case "maxcoverage":
-      query.maxCoverage = parseInt(value, 10);
-      break;
-    case "minexportusage":
-      query.minExportUsage = parseFloat(value);
-      break;
-    case "maxexportusage":
-      query.maxExportUsage = parseFloat(value);
-      break;
-    case "mincomplexity":
-      query.minComplexity = parseInt(value, 10);
-      break;
-    case "maxcomplexity":
-      query.maxComplexity = parseInt(value, 10);
-      break;
-    case "mincognitivecomplexity":
-      query.minCognitiveComplexity = parseInt(value, 10);
-      break;
-    case "maxcognitivecomplexity":
-      query.maxCognitiveComplexity = parseInt(value, 10);
-      break;
-    case "mincommits":
-      query.minCommits = parseInt(value, 10);
-      break;
-    case "maxcommits":
-      query.maxCommits = parseInt(value, 10);
-      break;
-    case "isdocumented":
-      query.isDocumented = value.toLowerCase() !== "false";
-      break;
-    case "isstale":
-      query.isStale = value.toLowerCase() !== "false";
-      break;
-    case "lastauthor":
-      query.lastAuthor = value;
-      break;
+  if (key === "tag" || key === "tags") {
+    if (value.includes("+")) {
+      query.allTags = [...(query.allTags ?? []), ...value.split("+")];
+    } else {
+      query.tags = [...(query.tags ?? []), value];
+    }
+    return;
   }
+  if (key === "sort") {
+    query.sort = value as
+      | "size"
+      | "imports"
+      | "commitCount90d"
+      | "exportUsage"
+      | "complexity"
+      | "cognitiveComplexity";
+    return;
+  }
+  if (key === "sortdir") {
+    query.sortDir = value.toLowerCase() === "asc" ? "asc" : "desc";
+    return;
+  }
+
+  const handler = SIMPLE_CLAUSE_HANDLERS[key];
+  if (handler) assignSimpleClause(query, handler.field, handler.kind, value);
 }
 
 /**

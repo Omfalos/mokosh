@@ -130,6 +130,64 @@ Full incoming traversal — every file whose behaviour could change if `file` ch
 
 ---
 
+### `compare_branches`
+
+Compares the current graph (`root`, kept fresh via the same auto-refresh every other tool uses)
+against `baseRef` — for reviewing someone else's PR/branch. The base ref's graph is built via a
+temporary `git worktree`, cached to disk keyed by commit sha (`<root>/mokosh-cache/branch-graphs/`)
+so repeat comparisons against the same base commit are free after the first. Requires a prior
+`analyze` call. See `docs/adr-016-branch-comparison.md` for the mechanism.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `root` | `string` | yes | |
+| `baseRef` | `string` | yes | Git ref to compare against, e.g. `"main"`, `"origin/main"`, or a commit sha |
+| `headRef` | `string` | no | Labels the head side of the result (default: `"HEAD"`). The graph itself always comes from the already-analyzed `root`, not a checkout of this ref |
+| `entryPoints` | `string[]` | no | Entry points to build the base-ref graph from, relative to `root`. Defaults to the entry points from the last `analyze` call for this root |
+| `minDuplicateLines` | `number` | no | Minimum duplicated block size, in source lines, for the duplication delta (default: 6) |
+| `complexityMetric` | `"cognitiveComplexity" \| "complexity"` | no | Which per-function score drives the complexity delta (default: `cognitiveComplexity`) |
+| `complexityThreshold` | `number` | no | Minimum per-function score to count as a complexity hotspot (default: 10) |
+| `maxCoveragePct` | `number` | no | Maximum containing-file coverage % to count as a risk hotspot (default: 50) |
+| `detail` | `"summary" \| "full"` | no | `"summary"` (default) returns the compact projection below; `"full"` returns the complete `BranchComparison` |
+| `maxItems` | `number` | no | In summary mode, entries kept per delta list — the true count is always reported alongside (default: 8). Stale references are never truncated |
+
+**Returns (default, `detail: "summary"`)** — a `BranchComparisonSummary`, tuned to be token-frugal
+for review by an AI: read `verdict` + `headline` first, drill into a specific file with a
+follow-up tool call (`find_complex_functions`, `get_dependents`, …) only when needed.
+
+- `base` / `head` — `"<ref>@<short-sha>"` strings.
+- `verdict` — `"clean"` | `"review-worthy"` (new complexity/duplication/doc drift) | `"attention"`
+  (a stale reference or a new risk hotspot — something likely broken).
+- `headline` — 1–6 one-liners; often all a reviewer needs.
+- `files` — `{ added, changed, removed }` counts, plus `paths: { added, changed, removed }`
+  (string lists) unless the diff touches more than 100 files.
+- `staleReferences` — the full `{ file, symbol, stillReferencedBy }[]` (never truncated); key
+  omitted when empty.
+- `complexity` — `{ avgDelta, newHotspots: string[] ("file:line name (score)", capped),
+  newHotspotCount, resolvedCount }`; omitted when there is no delta.
+- `duplication` — `{ newGroups: string[] ("<L>L x<n>: file:a-b, …", capped), newGroupCount,
+  resolvedCount, totalGroups }`; omitted when there is no delta.
+- `docDrift` — `{ newlyStale: string[] ("doc → referencedFile", capped), newlyStaleCount,
+  resolvedCount }`; omitted when there is no delta.
+- `coverage` — `{ avgDelta, newHotspots, newHotspotCount, resolvedCount }`; omitted when null or
+  no delta.
+
+**Returns (`detail: "full"`)** — the complete `BranchComparison`:
+
+- `base` / `head` — `{ ref, sha }` for each side.
+- `files` — `{ added, removed, changed }` file-level diff (imports/exports/category).
+- `staleReferences` — `{ file, symbol, stillReferencedBy }[]`.
+- `duplication` — `{ base: { groups }, head: { groups }, newGroups, resolvedGroups }` from
+  `find_duplicates` on both graphs.
+- `complexity` — `{ base: { avgCognitiveComplexity }, head: { ... }, newHotspots, resolvedHotspots }`
+  from `find_complex_functions` on both graphs.
+- `docDrift` — `{ base: { staleCount }, head: { ... }, newlyStale, resolved }` from the
+  `check_doc_drift`/`staleFor` data on both graphs.
+- `coverage` — same shape as `complexity` but from `find_risk_hotspots`, or `null` when either
+  side has no coverage data loaded.
+
+---
+
 ### `get_callers`
 
 Files whose exported functions **call into** a given file (call-graph dependents). More precise than `get_affected`: only files with actual runtime call edges, not just import edges.

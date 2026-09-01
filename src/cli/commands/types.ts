@@ -38,4 +38,7 @@ export interface CommandContext {
   maxCoveragePct: number | undefined;
   minChurn: number | undefined;
   base: string | undefined;
+  compareBranches: string | undefined;
+  compareFull: boolean;
+  compareMaxItems: number | undefined;
 }

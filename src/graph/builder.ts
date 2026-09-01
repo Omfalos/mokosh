@@ -15,8 +15,8 @@ import { DefaultResolver, type PathResolver } from "./resolver.js";
 /** Conventional top-level test-directory names probed as siblings between the entry-derived scan root and `rootDir`. */
 const CONVENTIONAL_TEST_DIR_NAMES = ["tests", "test", "__tests__", "specs", "spec"];
 
-/** Directory names skipped by `walkProject`'s discovery passes (test files, docs), independent of `DEFAULT_IGNORE_DIRS` scanning. */
-const WALK_IGNORE_DIRS = new Set([
+/** Directory names skipped by `walkProject`'s discovery passes (test files, docs), independent of `DEFAULT_IGNORE_DIRS` scanning. Extended per-build by `GraphBuilder`'s `additionalIgnoreDirs` (from `MokoshConfig.ignoreDirs`). */
+const WALK_IGNORE_DIRS = [
   "node_modules",
   ".git",
   "dist",
@@ -25,10 +25,25 @@ const WALK_IGNORE_DIRS = new Set([
   ".cache",
   "mokosh-cache",
   "coverage",
-]);
+  ".pytest_cache",
+  "__pycache__",
+];
 
 /** Below this many files, the worker-pool spin-up cost outweighs the parallelism benefit — parse in-process instead. */
 const DEFAULT_MIN_FILES_FOR_POOL = 600;
+
+/**
+ * @description Parses the comma-separated `MOKOSH_IGNORE_DIRS` env var into a list of directory
+ *   names to skip during discovery. Lets a deployment (e.g. the MCP server launched from
+ *   `.mcp.json`) exclude directories without a `mokosh.config.json`. Blank entries are dropped.
+ * @returns Trimmed, non-empty directory names, or an empty array when the var is unset.
+ */
+function envIgnoreDirs(): string[] {
+  return (process.env.MOKOSH_IGNORE_DIRS ?? "")
+    .split(",")
+    .map((name) => name.trim())
+    .filter(Boolean);
+}
 
 /** Configures whether/how `parseFile` calls are offloaded to a `piscina` worker pool. `false` always parses in-process. */
 export type ParallelParsingOption = boolean | { minFiles?: number; maxThreads?: number };
@@ -93,6 +108,7 @@ export class GraphBuilder {
   private progressCallback?: (count: number) => void;
   private pool: Piscina | null = null;
   private gitStatsMap: Map<string, GitFileStats> | null = null;
+  private readonly walkIgnoreDirs: Set<string>;
 
   /**
    * @param rootDir - Absolute path to the project root; all node paths in the graph are relative to this.
@@ -102,6 +118,7 @@ export class GraphBuilder {
    * @param gitStats - When true, fetches `commitCount90d` and `lastAuthor` for each cache-missed file via git log.
    * @param coverageMap - Pre-loaded coverage map (relative path → line %). When non-empty, populates `coveragePct` on each node after the graph is built.
    * @param parallelParsing - Controls worker-pool offloading of `parseFile`. `true`/omitted enables it once a cheap pre-scan finds at least `minFiles` (default 20) files under `rootDir`; `false` always parses in-process; an object overrides `minFiles`/`maxThreads`.
+   * @param additionalIgnoreDirs - Directory names to skip during the test-file and doc-file discovery walks, on top of the built-in list (`node_modules`, `dist`, `coverage`, …) and anything in the `MOKOSH_IGNORE_DIRS` env var. Sourced from `MokoshConfig.ignoreDirs`.
    */
   constructor(
     private rootDir: string,
@@ -111,8 +128,14 @@ export class GraphBuilder {
     private readonly enableGitStats = false,
     private readonly coverageMap: Map<string, number> = new Map(),
     private readonly parallelParsing: ParallelParsingOption = true,
+    additionalIgnoreDirs: string[] = [],
   ) {
     this.previousGraph = previousGraph;
+    this.walkIgnoreDirs = new Set([
+      ...WALK_IGNORE_DIRS,
+      ...additionalIgnoreDirs,
+      ...envIgnoreDirs(),
+    ]);
     this.resolver = resolver || new DefaultResolver(rootDir);
     this.lockFile = loadLockFile(rootDir);
     if (progressCallback) {
@@ -229,7 +252,7 @@ export class GraphBuilder {
       }
       for (const entry of entries) {
         if (entry.isDirectory()) {
-          if (!WALK_IGNORE_DIRS.has(entry.name)) stack.push(path.join(current, entry.name));
+          if (!this.walkIgnoreDirs.has(entry.name)) stack.push(path.join(current, entry.name));
         } else if (entry.isFile()) {
           count++;
           if (count >= threshold) return true;
@@ -306,7 +329,7 @@ export class GraphBuilder {
     for (const entry of entries) {
       const fullPath = path.join(scanRoot, entry.name);
       if (entry.isDirectory()) {
-        if (!WALK_IGNORE_DIRS.has(entry.name)) this.walkProject(fullPath, matches);
+        if (!this.walkIgnoreDirs.has(entry.name)) this.walkProject(fullPath, matches);
       } else if (entry.isFile() && matches(entry)) {
         this.enqueue(fullPath);
       }

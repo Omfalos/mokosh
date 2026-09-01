@@ -34,6 +34,9 @@ export function makeContext(overrides: Partial<CommandContext> & { graph: Graph 
     maxCoveragePct: undefined,
     minChurn: undefined,
     base: undefined,
+    compareBranches: undefined,
+    compareFull: false,
+    compareMaxItems: undefined,
     ...overrides,
   };
 }

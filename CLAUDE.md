@@ -92,7 +92,10 @@ src/
                       responsibility/, call-graph/, symbol.ts, type-graph.ts, api-surface.ts,
                       change-impact-cache.ts, queries.ts (shared CLI/MCP query shaping),
                       duplication/ (suffix-array based cross-language dup detection — see
-                      docs/adr-012 through adr-015-duplicate-detection*.md)
+                      docs/adr-012 through adr-015-duplicate-detection*.md), compare.ts +
+                      worktree.ts + branch-graph-cache.ts (compare_branches: diffs the current
+                      graph against another git ref via a temporary worktree, sha-cached to disk
+                      — see docs/adr-016-branch-comparison.md)
 
   parser/             per-language parsers (lang/, one file per language), style/ (CSS/SCSS/Stylus
                       via real ASTs), complexity.ts + complexity/ (per-language complexity +
@@ -191,4 +194,4 @@ Run `/pre-update` — it calls `get_affected` to show blast radius before any ed
 - `traversal.md` — graph traversal semantics
 - `lock-files.md` — lock file parsing
 - `releasing.md` — release process and commit conventions
-- `adr-001-styles-parsing.md` through `adr-015-suffix-array-duplicate-detection.md` — ADRs for key architecture/parser decisions
+- `adr-001-styles-parsing.md` through `adr-016-branch-comparison.md` — ADRs for key architecture/parser decisions

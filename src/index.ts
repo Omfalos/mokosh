@@ -5,6 +5,7 @@ export { applyConfig, configToGraphOptions, loadMokoshConfig, type MokoshConfig 
 
 // Constants
 export {
+  DEFAULT_BRANCH_GRAPH_CACHE_DIR,
   DEFAULT_CACHE_DIR,
   DEFAULT_DUPLICATION_TOKEN_CACHE_FILE,
   DEFAULT_EXTENSIONS,
@@ -43,6 +44,22 @@ export {
   queryChangeImpact,
   saveChangeImpactCache,
 } from "./graph/change-impact-cache";
+export {
+  type BranchComparison,
+  type BranchComparisonSummary,
+  type BuildGraphAtRefOptions,
+  buildGraphAtRef,
+  type CompareBranchesOptions,
+  type ComplexityDelta,
+  type CoverageDelta,
+  compareBranches,
+  type DocDriftDelta,
+  type DuplicationDelta,
+  type FileDiff,
+  type StaleReference,
+  type SummarizeOptions,
+  summarizeBranchComparison,
+} from "./graph/compare";
 export {
   type CachedFileTokens,
   type DuplicateFamily,
@@ -184,7 +201,7 @@ import {
  * @param rootDir - Absolute or relative path to the project root; resolved internally.
  * @param entryPoints - File paths (relative to `rootDir`) that seed the graph walk.
  * @param previousGraph - An earlier graph to diff against for incremental builds; pass `null` for a full build.
- * @param options - `silent` suppresses progress output; `gitStats` attaches git churn data; `coverageMap` maps file paths to line-coverage percentages; `parallelParsing` controls worker-pool offloading of file parsing (see {@link ParallelParsingOption}); `pathAliases` overrides/extends tsconfig path-alias resolution (see `MokoshConfig.pathAliases`).
+ * @param options - `silent` suppresses progress output; `gitStats` attaches git churn data; `coverageMap` maps file paths to line-coverage percentages; `parallelParsing` controls worker-pool offloading of file parsing (see {@link ParallelParsingOption}); `pathAliases` overrides/extends tsconfig path-alias resolution (see `MokoshConfig.pathAliases`); `additionalIgnoreDirs` skips extra directory names during test/doc discovery (see `MokoshConfig.ignoreDirs`).
  * @returns The fully-built Graph with all reachable nodes and import edges populated.
  */
 export async function createImportMap(
@@ -197,6 +214,7 @@ export async function createImportMap(
     coverageMap?: Map<string, number>;
     parallelParsing?: ParallelParsingOption | undefined;
     pathAliases?: Record<string, string[]> | undefined;
+    additionalIgnoreDirs?: string[] | undefined;
   } = {},
 ): Promise<Graph> {
   const progressCallback = options.silent
@@ -215,6 +233,7 @@ export async function createImportMap(
     options.gitStats ?? false,
     options.coverageMap ?? new Map(),
     options.parallelParsing ?? true,
+    options.additionalIgnoreDirs ?? [],
   );
   return await builder.build(entryPoints);
 }

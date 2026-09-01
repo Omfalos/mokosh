@@ -47,6 +47,74 @@ describe("GraphBuilder test-file discovery scoping", () => {
   });
 });
 
+describe("GraphBuilder ignore-dir handling", () => {
+  test("a markdown doc referencing a file under an ignored dir does not add that file as a node", async () => {
+    const root = path.join(process.cwd(), "test-builder-ignore-md");
+    fs.mkdirSync(path.join(root, "src"), { recursive: true });
+    fs.mkdirSync(path.join(root, "dist"), { recursive: true });
+    fs.mkdirSync(path.join(root, "coverage"), { recursive: true });
+
+    fs.writeFileSync(path.join(root, "src", "index.js"), "export const a = 1;");
+    fs.writeFileSync(path.join(root, "dist", "bundle.js"), "module.exports = {};");
+    fs.writeFileSync(path.join(root, "coverage", "coverage-summary.json"), "{}");
+    fs.writeFileSync(
+      path.join(root, "README.md"),
+      "See `dist/bundle.js` for the build output and `coverage/coverage-summary.json` for coverage.",
+    );
+
+    try {
+      const graph = await createImportMap(root, ["src/index.js"]);
+      const paths = graph.serialize().nodes.map((n) => n.path);
+
+      expect(paths).toContain("README.md");
+      expect(paths).not.toContain("dist/bundle.js");
+      expect(paths).not.toContain("coverage/coverage-summary.json");
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("MOKOSH_IGNORE_DIRS env var excludes matching directories from doc discovery", async () => {
+    const root = path.join(process.cwd(), "test-builder-env-ignore");
+    fs.mkdirSync(path.join(root, "src"), { recursive: true });
+    fs.mkdirSync(path.join(root, "notes"), { recursive: true });
+    fs.writeFileSync(path.join(root, "src", "index.js"), "export const a = 1;");
+    fs.writeFileSync(path.join(root, "notes", "todo.md"), "# Todo");
+
+    const prev = process.env.MOKOSH_IGNORE_DIRS;
+    process.env.MOKOSH_IGNORE_DIRS = "notes";
+    try {
+      const graph = await createImportMap(root, ["src/index.js"]);
+      expect(graph.serialize().nodes.map((n) => n.path)).not.toContain("notes/todo.md");
+    } finally {
+      if (prev === undefined) delete process.env.MOKOSH_IGNORE_DIRS;
+      else process.env.MOKOSH_IGNORE_DIRS = prev;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("additionalIgnoreDirs excludes matching directories from doc discovery", async () => {
+    const root = path.join(process.cwd(), "test-builder-additional-ignore");
+    fs.mkdirSync(path.join(root, "src"), { recursive: true });
+    fs.mkdirSync(path.join(root, "docs"), { recursive: true });
+
+    fs.writeFileSync(path.join(root, "src", "index.js"), "export const a = 1;");
+    fs.writeFileSync(path.join(root, "docs", "guide.md"), "# Guide");
+
+    try {
+      const withDocs = await createImportMap(root, ["src/index.js"]);
+      expect(withDocs.serialize().nodes.map((n) => n.path)).toContain("docs/guide.md");
+
+      const withoutDocs = await createImportMap(root, ["src/index.js"], null, {
+        additionalIgnoreDirs: ["docs"],
+      });
+      expect(withoutDocs.serialize().nodes.map((n) => n.path)).not.toContain("docs/guide.md");
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
 vi.mock("node:child_process", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:child_process")>();
   return { ...actual, execFileSync: vi.fn().mockReturnValue("") };

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ParsedArgs } from "./args";
 import { run as runCallGraph } from "./commands/call-graph";
 import { run as runCallers } from "./commands/callers";
+import { run as runCompareBranches } from "./commands/compare-branches";
 import { run as runGraphOutput } from "./commands/graph-output";
 import { resolveCommandHandler } from "./runner";
 
@@ -68,6 +69,9 @@ function makeParsedArgs(overrides: Partial<ParsedArgs> = {}): ParsedArgs {
     slim: false,
     watch: false,
     base: undefined,
+    compareBranches: undefined,
+    compareFull: false,
+    compareMaxItems: undefined,
     ...overrides,
   };
 }
@@ -84,6 +88,9 @@ describe("resolveCommandHandler", { tags: ["resolveCommandHandler", "runner"] },
   it("resolves the handler for a single active command flag", () => {
     expect(resolveCommandHandler(makeParsedArgs({ callers: true }))).toBe(runCallers);
     expect(resolveCommandHandler(makeParsedArgs({ callGraph: true }))).toBe(runCallGraph);
+    expect(resolveCommandHandler(makeParsedArgs({ compareBranches: "main" }))).toBe(
+      runCompareBranches,
+    );
   });
 
   it("errors and exits when more than one command flag is set", () => {

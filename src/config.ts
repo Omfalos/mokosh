@@ -163,8 +163,8 @@ export function applyConfig(config: MokoshConfig): void {
 
 /**
  * @description Extracts the subset of `MokoshConfig` fields that affect graph
- *   construction (`gitStats`, `parallelParsing`, `pathAliases`) into a plain options
- *   object, ready to spread into `createImportMap`/`createWorkspaceGraph` calls. Single
+ *   construction (`gitStats`, `parallelParsing`, `pathAliases`, `ignoreDirs`) into a plain
+ *   options object, ready to spread into `createImportMap`/`createWorkspaceGraph` calls. Single
  *   source of truth for this mapping so every graph-building call site — CLI, MCP,
  *   and secondary command-level rebuilds — stays in sync as new config fields are added.
  * @param config - The loaded config, or `undefined` when none has been loaded yet.
@@ -174,10 +174,12 @@ export function configToGraphOptions(config: MokoshConfig | undefined): {
   gitStats: boolean;
   parallelParsing: ParallelParsingOption | undefined;
   pathAliases: Record<string, string[]> | undefined;
+  additionalIgnoreDirs: string[] | undefined;
 } {
   return {
     gitStats: config?.gitStats ?? false,
     parallelParsing: config?.parallelParsing,
     pathAliases: config?.pathAliases,
+    additionalIgnoreDirs: config?.ignoreDirs,
   };
 }

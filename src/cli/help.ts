@@ -74,6 +74,13 @@ MCP parity (mirrors the MCP server's tools for use when MCP is unavailable):
   --max-coverage-pct <N>       Max file coverage % to include (default: 50, use with --find-risk-hotspots)
   --min-churn <N>              Min 90-day commit count to include (default: 0, ignored if gitStats
                                 is off; use with --find-risk-hotspots)
+  --compare-branches <ref>     Review a PR/branch: diff the current graph against <ref> (via a
+                                temporary git worktree) — file changes, stale post-rename
+                                references, and duplication/complexity/doc-drift/coverage deltas
+  --compare-full               Print the complete BranchComparison instead of the compact summary
+                                (use with --compare-branches)
+  --compare-max-items <N>      Entries kept per summary delta list (default: 8; true counts always
+                                reported; use with --compare-branches)
   --workspace-packages         List monorepo packages and their cross-package dependencies
   --workspace-affected         Cross-package blast-radius for --file in a monorepo
   --find-symbol                Find every file that exports --function <name> by exact name, with
