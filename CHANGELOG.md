@@ -1,3 +1,12 @@
+## [0.5.0](https://github.com/Omfalos/mokosh/compare/v0.4.4...v0.5.0) (2026-09-02)
+
+### Features
+
+* add JVM language support (Java, Kotlin, Scala, Groovy) ([#9](https://github.com/Omfalos/mokosh/issues/9)) ([7a81f14](https://github.com/Omfalos/mokosh/commit/7a81f1406c2cd6d45414a6752f5dde61aa627a6a))
+* **jvm:** complexity Java + call edges, annotation categories, JUnit/ScalaTest tag strategies ([c0fb73d](https://github.com/Omfalos/mokosh/commit/c0fb73dfa62a28dc8b5c15a84861b9992190b9ad))
+* **jvm:** gradle/sbt workspace detectors + cross-package edge tagging ([d4b5e55](https://github.com/Omfalos/mokosh/commit/d4b5e558bbb86db372a5ffa391f12ea0e15731a4))
+* **jvm:** resolve Gradle/sbt dependency versions for JVM imports ([9e5ec52](https://github.com/Omfalos/mokosh/commit/9e5ec520ce34616c7699e62a8f184dc2ba8f2b52))
+
 ## [0.4.4](https://github.com/Omfalos/mokosh/compare/v0.4.3...v0.4.4) (2026-08-25)
 
 ### Features
