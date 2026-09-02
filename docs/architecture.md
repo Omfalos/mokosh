@@ -38,7 +38,7 @@ Graph / WorkspaceGraph                  src/graph/model.ts, workspace-model.ts
   Map<relPath, FileNode>
 ```
 
-For monorepos, `createWorkspaceGraph()` runs `detectMonorepo()` first (detects Turborepo → Nx → pnpm → Yarn → npm in priority order), then builds one `Graph` per package, wraps them in a `WorkspaceGraph`, and preserves cross-package edges via `ImportEdge.isWorkspace`. See [Monorepo Support](./monorepo.md).
+For monorepos, `createWorkspaceGraph()` runs `detectMonorepo()` first (detects Turborepo → Nx → pnpm → Yarn → npm → Gradle → sbt in priority order), then builds one `Graph` per package, wraps them in a `WorkspaceGraph`, and preserves cross-package edges via `ImportEdge.isWorkspace` (JVM cross-module edges are tagged by a post-build `annotateCrossPackageEdges()` pass). See [Monorepo Support](./monorepo.md).
 
 ---
 

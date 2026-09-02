@@ -2,9 +2,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { gradleDetector } from "./gradle";
 import { npmDetector } from "./npm";
 import { nxDetector } from "./nx";
 import { pnpmDetector } from "./pnpm";
+import { sbtDetector } from "./sbt";
 import { turborepoDetector } from "./turborepo";
 import { yarnDetector } from "./yarn";
 
@@ -246,5 +248,115 @@ describe("turborepoDetector", {
     write("turbo.json", JSON.stringify({ pipeline: {} }));
     const pkgs = turborepoDetector.detect(root);
     expect(pkgs).toEqual([]);
+  });
+});
+
+// ─── gradle ───────────────────────────────────────────────────────────────────
+
+describe("gradleDetector", { tags: ["gradle", "gradleDetector", "jvm"] }, () => {
+  test("returns null when no settings.gradle* is present", () => {
+    expect(gradleDetector.detect(root)).toBeNull();
+  });
+
+  test("returns null for a single-module build (settings.gradle with no include)", () => {
+    write("settings.gradle", "rootProject.name = 'app'\n");
+    write("src/main/java/com/example/App.java", "package com.example;\nclass App {}\n");
+    expect(gradleDetector.detect(root)).toBeNull();
+  });
+
+  test("parses Groovy-style include lines into modules", () => {
+    write("settings.gradle", "rootProject.name = 'demo'\ninclude ':app', ':core:data'\n");
+    write("app/src/main/kotlin/App.kt", "package app\nclass App\n");
+    write("core/data/src/main/kotlin/Repo.kt", "package core.data\nclass Repo\n");
+    const pkgs = gradleDetector.detect(root);
+    expect(pkgs?.map((p) => p.name).sort()).toEqual(["app", "core:data"]);
+    const core = pkgs?.find((p) => p.name === "core:data");
+    expect(core?.relativeRoot).toBe(path.join("core", "data"));
+    expect(core?.entryPoints.some((e) => e.endsWith("Repo.kt"))).toBe(true);
+  });
+
+  test("parses Kotlin-DSL include(...) with line wrapping", () => {
+    write(
+      "settings.gradle.kts",
+      'rootProject.name = "demo"\ninclude(\n  ":app",\n  ":libs:util",\n)\n',
+    );
+    write("app/src/main/java/A.java", "package a;\nclass A {}\n");
+    write("libs/util/src/main/java/U.java", "package u;\nclass U {}\n");
+    const pkgs = gradleDetector.detect(root);
+    expect(pkgs?.map((p) => p.name).sort()).toEqual(["app", "libs:util"]);
+  });
+
+  test("ignores commented-out include lines", () => {
+    write("settings.gradle", "include ':app'\n// include ':old'\n/* include ':gone' */\n");
+    write("app/src/main/java/A.java", "package a;\nclass A {}\n");
+    const pkgs = gradleDetector.detect(root);
+    expect(pkgs?.map((p) => p.name)).toEqual(["app"]);
+  });
+
+  test("drops modules that have no source files", () => {
+    write("settings.gradle", "include ':app', ':empty'\n");
+    write("app/src/main/java/A.java", "package a;\nclass A {}\n");
+    fs.mkdirSync(path.join(root, "empty"), { recursive: true });
+    const pkgs = gradleDetector.detect(root);
+    expect(pkgs?.map((p) => p.name)).toEqual(["app"]);
+  });
+});
+
+// ─── sbt ──────────────────────────────────────────────────────────────────────
+
+describe("sbtDetector", { tags: ["sbt", "sbtDetector", "jvm"] }, () => {
+  test("returns null when build.sbt or project/ is missing", () => {
+    write("build.sbt", 'name := "root"\n');
+    expect(sbtDetector.detect(root)).toBeNull();
+  });
+
+  test("returns null for a single-project build (no sub-projects)", () => {
+    write("build.sbt", 'name := "root"\nscalaVersion := "3.3.1"\n');
+    write("project/build.properties", "sbt.version=1.9.8\n");
+    write("src/main/scala/Main.scala", "package main\nobject Main\n");
+    expect(sbtDetector.detect(root)).toBeNull();
+  });
+
+  test("parses project.in(file(...)) definitions", () => {
+    write(
+      "build.sbt",
+      'lazy val core = project.in(file("core"))\nlazy val app = (project in file("modules/app"))\n',
+    );
+    write("project/build.properties", "sbt.version=1.9.8\n");
+    write("core/src/main/scala/Core.scala", "package core\nobject Core\n");
+    write("modules/app/src/main/scala/App.scala", "package app\nobject App\n");
+    const pkgs = sbtDetector.detect(root);
+    expect(pkgs?.map((p) => p.name).sort()).toEqual(["app", "core"]);
+    const app = pkgs?.find((p) => p.name === "app");
+    expect(app?.relativeRoot).toBe(path.join("modules", "app"));
+  });
+
+  test("defaults the directory to the val name when no file(...) is given", () => {
+    write("build.sbt", "lazy val util = project\n");
+    write("project/build.properties", "sbt.version=1.9.8\n");
+    write("util/src/main/scala/U.scala", "package util\nobject U\n");
+    const pkgs = sbtDetector.detect(root);
+    expect(pkgs?.map((p) => p.name)).toEqual(["util"]);
+    expect(pkgs?.[0]?.relativeRoot).toBe("util");
+  });
+
+  test('drops the root aggregate (project in file("."))', () => {
+    write(
+      "build.sbt",
+      'lazy val root = (project in file("."))\nlazy val core = project.in(file("core"))\n',
+    );
+    write("project/build.properties", "sbt.version=1.9.8\n");
+    write("core/src/main/scala/C.scala", "package core\nobject C\n");
+    const pkgs = sbtDetector.detect(root);
+    expect(pkgs?.map((p) => p.name)).toEqual(["core"]);
+  });
+
+  test("reads sub-project definitions from project/*.scala", () => {
+    write("build.sbt", 'name := "root"\n');
+    write("project/build.properties", "sbt.version=1.9.8\n");
+    write("project/Build.scala", 'object B {\n  lazy val svc = project.in(file("svc"))\n}\n');
+    write("svc/src/main/scala/S.scala", "package svc\nobject S\n");
+    const pkgs = sbtDetector.detect(root);
+    expect(pkgs?.map((p) => p.name)).toEqual(["svc"]);
   });
 });

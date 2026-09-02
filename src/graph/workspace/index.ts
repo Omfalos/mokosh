@@ -1,8 +1,10 @@
 /** Runs all registered monorepo detectors and returns the layout describing the detected tool and packages. */
 import path from "node:path";
+import { gradleDetector } from "./detectors/gradle";
 import { npmDetector } from "./detectors/npm";
 import { nxDetector } from "./detectors/nx";
 import { pnpmDetector } from "./detectors/pnpm";
+import { sbtDetector } from "./detectors/sbt";
 
 import { turborepoDetector } from "./detectors/turborepo";
 import { yarnDetector } from "./detectors/yarn";
@@ -10,12 +12,15 @@ import type { MonorepoDetector } from "./registry";
 import { getMonorepoDetectors, registerMonorepoDetector } from "./registry";
 import type { MonorepoLayout, WorkspacePackage } from "./types";
 
-// Register in priority order: orchestration tools first, then package managers.
+// Register in priority order: JS orchestration tools first, then JS package managers,
+// then JVM build systems (Gradle, sbt) at lowest priority.
 registerMonorepoDetector(turborepoDetector);
 registerMonorepoDetector(nxDetector);
 registerMonorepoDetector(pnpmDetector);
 registerMonorepoDetector(yarnDetector);
 registerMonorepoDetector(npmDetector);
+registerMonorepoDetector(gradleDetector);
+registerMonorepoDetector(sbtDetector);
 
 /**
  * @description Runs all registered monorepo detectors against `rootDir` and merges

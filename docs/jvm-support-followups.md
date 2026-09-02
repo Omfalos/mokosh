@@ -79,10 +79,14 @@ literals → sbt `build.sbt` / `project/*.scala` `%`/`%%` literals into
 (`src/graph/builder.ts`) has a JVM branch doing longest-group-prefix match on the dotted
 specifier. Workspace detectors still pending.
 
-**Remaining:**
-- Detectors in `src/graph/workspace/detectors/`: `gradle.ts` (`settings.gradle(.kts)`
-  `include(...)`), `sbt.ts` (`lazy val m = project.in(file("..."))`). Register in
-  `src/graph/workspace/index.ts` after `npmDetector`.
+**Workspace detectors — done** (2026-09-02). `src/graph/workspace/detectors/gradle.ts`
+(`settings.gradle(.kts)` `include(...)`) and `sbt.ts` (`lazy val m = project.in(file("..."))`,
+plus `project/*.scala`), registered in `src/graph/workspace/index.ts` after `npmDetector`.
+Single-module builds return `null` (repo stays a flat graph). Cross-module edges are tagged
+`isWorkspace` by `WorkspaceGraph.annotateCrossPackageEdges()` — a post-build pass, since
+`JvmLangResolver` resolves across modules but is not package-boundary aware.
+
+**Remaining:** none for this item.
 
 ### 5. Noise control for the synthetic same-package edge
 

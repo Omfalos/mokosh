@@ -285,18 +285,28 @@ expected, not an error).
 
 ### Multi-module repos — Gradle and sbt workspace detectors
 
-`detectMonorepo()` currently tries Turborepo → Nx → pnpm → Yarn → npm. Add two detectors at
-lowest priority, after the JS ones:
+**Done** (2026-09-02). `detectMonorepo()` tried Turborepo → Nx → pnpm → Yarn → npm; two
+detectors were added at lowest priority, after the JS ones
+(`src/graph/workspace/detectors/gradle.ts`, `sbt.ts`, registered in
+`src/graph/workspace/index.ts`):
 
-- **Gradle detector** — fires when `settings.gradle` / `settings.gradle.kts` is present, parsing
-  `include(":app", ":core:data", ...)` into package roots (`:core:data` → `<root>/core/data`).
+- **Gradle detector** — fires when `settings.gradle` / `settings.gradle.kts` is present *and*
+  declares `include`d modules. Scans for quoted colon-prefixed project paths (covers both
+  `include ':a', ':b'` and `include(":a", ":b")`, with line wrapping and comment stripping);
+  `:core:data` → `<root>/core/data`. A single-module build (no `include`) returns `null`.
 - **sbt detector** — fires when `build.sbt` plus a `project/` dir is present, parsing
-  `lazy val <name> = project.in(file("<path>"))` (and the shorthand `= project` → `<root>/<name>`)
-  into package roots.
+  `lazy val <name> = project` (optionally `.in(file("<path>"))` / `in file("<path>")`; shorthand
+  `= project` → `<root>/<name>`), from `build.sbt` and any `project/*.scala`. The root aggregate
+  (`project in file(".")`) is dropped; a build with no sub-projects returns `null`.
 
-Each module becomes a `Graph` in the `WorkspaceGraph`; cross-module imports resolve through
-`JvmLangResolver` and are tagged `isWorkspace`. This reuses the entire monorepo path
-(`get_workspace_affected`, package-level dep map) for free.
+Each module becomes a `Graph` in the `WorkspaceGraph`, seeded from every JVM source file it
+contains (JVM modules have no single index file). Cross-module imports resolve through
+`JvmLangResolver` (project-wide package index) and are tagged `isWorkspace` /
+`workspacePackage` by `WorkspaceGraph.annotateCrossPackageEdges()`, run once after all package
+graphs are built — the resolver returns concrete file paths with no package-boundary awareness,
+so the tagging is a post-build pass keyed on which package owns each edge's target. This reuses
+the entire monorepo path (`get_workspace_affected`, package-level dep map) for free. Modules
+with a non-standard `projectDir` / `unmanagedSourceDirectories` override are not relocated.
 
 If neither detector is built in the first cut, a Gradle/sbt multi-module repo still works as a
 single flat `Graph` — `JvmLangResolver`'s package index spans every module, so cross-module FQN
@@ -339,6 +349,8 @@ Ship JVM support in this order, each step independently useful:
    `LockFileData.jvmDependencies` keyed by Maven group id; `attachLockfileVersion` matches an
    external FQN import by longest group-id prefix. See `docs/lock-files.md`.
 6. **Workspace detectors** in `detectMonorepo()` — Gradle `include(...)`, then sbt `project.in`.
+   **Done** (2026-09-02): `src/graph/workspace/detectors/{gradle,sbt}.ts`, registered after
+   `npmDetector`; cross-module edges tagged by `WorkspaceGraph.annotateCrossPackageEdges()`.
 7. **Classifiers**: `classify.ts` heuristics, JUnit/Spock/ScalaTest tag strategies,
    `complexity/java.ts`.
 

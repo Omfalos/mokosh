@@ -11,8 +11,19 @@ Detection is attempted in priority order:
 3. **pnpm** — `pnpm-workspace.yaml`
 4. **Yarn** — `package.json` `workspaces` field
 5. **npm** — `package.json` `workspaces` field
+6. **Gradle** — `settings.gradle` / `settings.gradle.kts` with `include(...)` modules
+7. **sbt** — `build.sbt` + `project/` with `project.in(file("..."))` sub-projects
 
 Multiple tools can be active simultaneously (e.g. Turborepo + pnpm). `detectMonorepo` returns all detected types in `MonorepoLayout.types`.
+
+The JVM detectors (Gradle, sbt) run at lowest priority and only fire for genuinely
+multi-module builds — a single-module Gradle/sbt project returns `null` so the repo builds as
+one flat graph. Each module's graph is seeded from every JVM source file it contains (JVM
+modules have no single index file), and cross-module import edges are tagged `isWorkspace`
+after all packages are built by `WorkspaceGraph.annotateCrossPackageEdges()` — the
+`JvmLangResolver` resolves cross-module FQN imports via a project-wide package index but is
+not itself package-boundary aware. Non-standard `projectDir` / `unmanagedSourceDirectories`
+overrides are not honoured (see `docs/adr-017-jvm-languages.md`).
 
 ## CLI
 

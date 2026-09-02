@@ -291,6 +291,7 @@ export async function createWorkspaceGraph(
     wg.addPackage(pkg, graph);
   }
 
+  wg.annotateCrossPackageEdges();
   return wg;
 }
 

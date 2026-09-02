@@ -41,6 +41,33 @@ export class WorkspaceGraph {
   }
 
   /**
+   * @description Marks every local import edge that crosses a package boundary as a workspace
+   *   edge (`isWorkspace: true`, `workspacePackage` set to the target package name). JS
+   *   resolvers tag these at resolution time from the `workspaceMap`, but JVM (and any other
+   *   `LangResolver` that resolves cross-module by a project-wide index) returns concrete file
+   *   paths with no package awareness — so cross-module Gradle/sbt edges would otherwise be
+   *   invisible to `getPackageDependencies` and the cross-package step of
+   *   `getAffectedAcrossPackages`. Idempotent: edges already tagged are left untouched.
+   *   Call once after all packages are registered.
+   */
+  annotateCrossPackageEdges(): void {
+    for (const { graph } of this.packages.values()) {
+      for (const node of graph.nodes.values()) {
+        const sourcePkg = this.getPackageForFile(node.path);
+        if (!sourcePkg) continue;
+        for (const imp of node.imports) {
+          if (imp.isExternal || imp.isWorkspace) continue;
+          const targetPkg = this.getPackageForFile(imp.toPath);
+          if (targetPkg && targetPkg.name !== sourcePkg.name) {
+            imp.isWorkspace = true;
+            imp.workspacePackage = targetPkg.name;
+          }
+        }
+      }
+    }
+  }
+
+  /**
    * @description Returns the workspace package whose `relativeRoot` is a path prefix of `relPath`.
    * @param {string} relPath - A monorepo-root-relative file path to look up.
    * @returns {WorkspacePackage | undefined} The owning package, or `undefined` if none matches.

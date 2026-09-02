@@ -197,6 +197,96 @@ describe("getAffectedAcrossPackages", {
   });
 });
 
+// ─── annotateCrossPackageEdges ───────────────────────────────────────────────
+
+describe("annotateCrossPackageEdges", {
+  tags: ["FileNode", "Graph", "WorkspaceGraph", "WorkspacePackage", "workspace-model"],
+}, () => {
+  // JVM-style fixture: a plain local edge (no isWorkspace) whose target lives in another package.
+  function makeJvmWorkspace(): WorkspaceGraph {
+    const repo = makeNode({ path: "core/data/src/main/kotlin/Repo.kt", type: "kotlin" });
+    const app = makeNode({
+      path: "app/src/main/kotlin/App.kt",
+      type: "kotlin",
+      imports: [
+        {
+          fromPath: "app/src/main/kotlin/App.kt",
+          toPath: "core/data/src/main/kotlin/Repo.kt",
+          rawSpecifier: "core.data.Repo",
+          isStyle: false,
+          type: "static",
+        },
+      ],
+    });
+    const wg = new WorkspaceGraph("/mono", "gradle");
+    wg.addPackage(makePkg("app", "app"), makeGraph([app]));
+    wg.addPackage(makePkg("core:data", "core/data"), makeGraph([repo]));
+    return wg;
+  }
+
+  test("tags a cross-package local edge as a workspace edge", () => {
+    const wg = makeJvmWorkspace();
+    wg.annotateCrossPackageEdges();
+
+    const { graph } = wg.packages.get("app") as { graph: Graph; pkg: WorkspacePackage };
+    const edge = (graph.nodes.get("app/src/main/kotlin/App.kt") as FileNode).imports[0];
+    expect(edge?.isWorkspace).toBe(true);
+    expect(edge?.workspacePackage).toBe("core:data");
+  });
+
+  test("feeds getPackageDependencies and getAffectedAcrossPackages", () => {
+    const wg = makeJvmWorkspace();
+    wg.annotateCrossPackageEdges();
+
+    expect(wg.getPackageDependencies().get("app")).toEqual(["core:data"]);
+    const affected = wg.getAffectedAcrossPackages("core/data/src/main/kotlin/Repo.kt");
+    expect(affected.map((a) => a.file)).toContain("app/src/main/kotlin/App.kt");
+  });
+
+  test("leaves intra-package and external edges untouched", () => {
+    const helper = makeNode({ path: "app/src/main/kotlin/Helper.kt", type: "kotlin" });
+    const app = makeNode({
+      path: "app/src/main/kotlin/App.kt",
+      type: "kotlin",
+      imports: [
+        {
+          fromPath: "app/src/main/kotlin/App.kt",
+          toPath: "app/src/main/kotlin/Helper.kt",
+          rawSpecifier: "app.Helper",
+          isStyle: false,
+          type: "static",
+        },
+        {
+          fromPath: "app/src/main/kotlin/App.kt",
+          toPath: "com.google.gson",
+          rawSpecifier: "com.google.gson.Gson",
+          isStyle: false,
+          type: "static",
+          isExternal: true,
+        },
+      ],
+    });
+    const wg = new WorkspaceGraph("/mono", "gradle");
+    wg.addPackage(makePkg("app", "app"), makeGraph([app, helper]));
+    wg.annotateCrossPackageEdges();
+
+    const edges = (wg.packages.get("app") as { graph: Graph }).graph.nodes.get(
+      "app/src/main/kotlin/App.kt",
+    )?.imports;
+    expect(edges?.[0]?.isWorkspace).toBeUndefined();
+    expect(edges?.[1]?.isWorkspace).toBeUndefined();
+  });
+
+  test("does not overwrite an edge already tagged by a JS resolver", () => {
+    const wg = makeTwoPackageWorkspace();
+    wg.annotateCrossPackageEdges();
+    const edge = (wg.packages.get("@org/app") as { graph: Graph }).graph.nodes.get(
+      "packages/app/src/page.ts",
+    )?.imports[0];
+    expect(edge?.workspacePackage).toBe("@org/shared");
+  });
+});
+
 // ─── serialize / deserialize ──────────────────────────────────────────────────
 
 describe("serialize / deserialize", {

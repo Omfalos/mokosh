@@ -51,7 +51,7 @@ Consumers
   MCP server (src/mcp/)        Tool-call interface for AI assistants
 ```
 
-For monorepos, `createWorkspaceGraph()` runs `detectMonorepo()` first (tries Turborepo → Nx → pnpm → Yarn → npm detectors in priority order), then builds one `Graph` per package and wraps them in a `WorkspaceGraph`. Cross-package edges are preserved via `ImportEdge.isWorkspace`.
+For monorepos, `createWorkspaceGraph()` runs `detectMonorepo()` first (tries Turborepo → Nx → pnpm → Yarn → npm → Gradle → sbt detectors in priority order), then builds one `Graph` per package and wraps them in a `WorkspaceGraph`. Cross-package edges are preserved via `ImportEdge.isWorkspace` — for JVM, tagged by a post-build `WorkspaceGraph.annotateCrossPackageEdges()` pass since `JvmLangResolver` isn't package-boundary aware.
 
 ## Entry points
 
