@@ -1,9 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
-import { parsePackageLock, parsePnpmLock, parseYarnLock } from "./lockfile";
+import { parsePackageLock, parsePnpmLock, parseYarnLock } from "./js";
 
-describe("LockFileParser", {
+describe("JS lock file parsers", {
   tags: ["lockfile", "parsePackageLock", "parsePnpmLock", "parseYarnLock"],
 }, () => {
   const tmpDir = path.resolve("./tmp-lock-test");

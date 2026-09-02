@@ -66,18 +66,20 @@ the existing scanner, count `if` / `when` / `for` / `while` / `&&` / `||` / `?:`
 ~80% right, cheap. Ship for Kotlin at least. Leave `CALL_EDGE_TYPES` unset (call edges still
 need an AST).
 
-### 4. Gradle / sbt dependency versions + multi-module (ADR-017 Phase 5)
+### 4. Gradle / sbt dependency versions + multi-module (ADR-017 Phase 5–6)
 
 **Why:** every third-party import is currently just `external`, no version — can't answer "which
 modules pull `log4j-core`, at what version" (Log4Shell-style triage). And real Android/Scala
 repos are 20–100 modules; `get_workspace_affected` needs module boundaries to be useful.
 
-**Approach:**
-- Version reader in `src/parser/lockfile.ts`: `gradle/libs.versions.toml` (easy, high value)
-  → `**/gradle.lockfile` → `build.gradle(.kts)` literals; sbt `build.sbt` `%`/`%%` literals.
-  Key `LockFileData.dependencies` by Maven group id; add a JVM-aware branch to
-  `attachLockfileVersion` (`src/graph/builder.ts`) doing longest-group-prefix match on the
-  dotted specifier.
+**Status:** version reader **done** (2026-09-02). `src/parser/lockfile.ts` now reads
+`gradle/libs.versions.toml` → `gradle.lockfile` (shallow-walked, depth ≤ 2) → `build.gradle(.kts)`
+literals → sbt `build.sbt` / `project/*.scala` `%`/`%%` literals into
+`LockFileData.jvmDependencies`, keyed by Maven group id. `attachLockfileVersion`
+(`src/graph/builder.ts`) has a JVM branch doing longest-group-prefix match on the dotted
+specifier. Workspace detectors still pending.
+
+**Remaining:**
 - Detectors in `src/graph/workspace/detectors/`: `gradle.ts` (`settings.gradle(.kts)`
   `include(...)`), `sbt.ts` (`lazy val m = project.in(file("..."))`). Register in
   `src/graph/workspace/index.ts` after `npmDetector`.

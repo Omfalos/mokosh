@@ -1,29 +1,8 @@
-/** Parses npm, Yarn, and pnpm lock files to extract installed package versions for import-edge annotation. */
+/** Parses npm, Yarn, and pnpm lock files to extract installed package versions. */
 import fs from "node:fs";
 import path from "node:path";
 import { load as loadYaml } from "js-yaml";
-
-/**
- * Represents the parsed data from a lock file.
- */
-export interface LockFileData {
-  /**
-   * Map of package names to their version and nested dependencies.
-   */
-  dependencies: Record<string, { version: string; dependencies?: Record<string, string> }>;
-}
-
-/**
- * Lock file basenames mokosh knows how to parse for version annotation. Exported so other
- * features (e.g. `findDuplicates`) can exclude these files by the same single source of truth
- * instead of re-declaring the list — a lock file's repeated JSON/YAML dependency blocks are
- * real textual repetition, but not code duplication.
- */
-export const LOCK_FILE_NAMES: readonly string[] = [
-  "package-lock.json",
-  "yarn.lock",
-  "pnpm-lock.yaml",
-];
+import { LOCK_FILE_NAMES, type LockFileData } from "./types";
 
 interface PkgData {
   version: string;
@@ -240,26 +219,25 @@ export function parsePnpmLock(filePath: string): LockFileData {
   return result;
 }
 
+/** Parser for each JS lock file basename, tried in `LOCK_FILE_NAMES` order. */
+const JS_LOCK_FILE_PARSERS: Record<string, (lockFilePath: string) => LockFileData> = {
+  "package-lock.json": parsePackageLock,
+  "yarn.lock": parseYarnLock,
+  "pnpm-lock.yaml": parsePnpmLock,
+};
+
 /**
- * @description Detects and loads the first supported lock file found in `rootDir`.
- * Checks for `package-lock.json`, `yarn.lock`, and `pnpm-lock.yaml` in that order.
- * @param rootDir - The project root directory to search for lock files.
- * @returns Parsed lock file data from the first detected lock file, or `null` if none is found.
+ * @description Loads the first JS lock file present in `rootDir` — `package-lock.json`,
+ * `yarn.lock`, `pnpm-lock.yaml`, in that order. Exactly one is used: a project has npm *or*
+ * Yarn *or* pnpm, not several.
+ * @param rootDir - The project root directory to search.
+ * @returns Parsed lock file data, or `null` when no JS lock file is present.
  */
-export function loadLockFile(rootDir: string): LockFileData | null {
-  const parsers: Record<string, (lockFilePath: string) => LockFileData> = {
-    "package-lock.json": parsePackageLock,
-    "yarn.lock": parseYarnLock,
-    "pnpm-lock.yaml": parsePnpmLock,
-  };
-  const candidates = LOCK_FILE_NAMES.map(
-    (filename) => [filename, parsers[filename] as (lockFilePath: string) => LockFileData] as const,
-  );
-
-  for (const [filename, parser] of candidates) {
+export function loadJsLockFile(rootDir: string): LockFileData | null {
+  for (const filename of LOCK_FILE_NAMES) {
     const filePath = path.join(rootDir, filename);
-    if (fs.existsSync(filePath)) return parser(filePath);
+    if (fs.existsSync(filePath))
+      return (JS_LOCK_FILE_PARSERS[filename] as (p: string) => LockFileData)(filePath);
   }
-
   return null;
 }

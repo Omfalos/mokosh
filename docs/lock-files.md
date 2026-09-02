@@ -10,6 +10,27 @@ Mokosh currently supports the following lock files:
 - **`yarn.lock`**: Supports both Yarn v1 (classic) and Yarn v2/v3+ (Berry) formats.
 - **`pnpm-lock.yaml`**: Supports pnpm-specific lock file structure.
 
+### JVM dependency metadata (Gradle / sbt)
+
+For JVM projects there is no single lock file, so Mokosh reads dependency versions from build
+metadata instead, keyed by Maven **group id**. Sources are merged in priority order, first hit
+wins:
+
+1. **`gradle/libs.versions.toml`** — the Gradle version catalog (`[versions]` + `[libraries]`,
+   including `version.ref` aliases and the `"group:artifact:version"` shorthand).
+2. **`gradle.lockfile`** — Gradle dependency locking; exact resolved versions. Discovered by a
+   shallow walk (depth ≤ 2) so per-module Android layouts are covered.
+3. **`build.gradle` / `build.gradle.kts`** — string-literal coordinates (`"group:artifact:version"`
+   and the `group:`/`name:`/`version:` map form). Best-effort — no expression evaluation, so
+   `ext` / variable / `buildSrc`-indirected versions are not resolved.
+4. **`build.sbt` / `project/*.scala`** — sbt operator form (`"group" %% "artifact" % "version"`
+   and the plain `%` variant). `val`-indirected versions are not resolved.
+
+Because a JVM `import` names a fully-qualified type rather than a package, an external import is
+matched to a coordinate by **longest group-id prefix** (`org.junit.jupiter.api.Test` → group
+`org.junit.jupiter`). Package names frequently diverge from Maven group ids
+(`okhttp3` vs `com.squareup.okhttp3`), so a missing version is expected, not an error.
+
 ## How It Works
 
 1.  **Detection**: When initializing the `GraphBuilder`, Mokosh looks for a lock file in the specified root directory in the following order: `package-lock.json`, `yarn.lock`, and `pnpm-lock.yaml`.

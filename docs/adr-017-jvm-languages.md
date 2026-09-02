@@ -335,7 +335,9 @@ Ship JVM support in this order, each step independently useful:
 4. **Scala parser** — hand-rolled scanner (brace-group imports, block-scoped imports, Scala 2/3
    syntax fork, consecutive `package` lines composed into one FQN). `FileType` gains `"scala"`.
 5. **Dependency version readers** in `lockfile.ts` — Gradle (catalog → lockfile → build script)
-   and sbt (`build.sbt` → `project/*.scala`).
+   and sbt (`build.sbt` → `project/*.scala`). **Done** (2026-09-02): parsed into
+   `LockFileData.jvmDependencies` keyed by Maven group id; `attachLockfileVersion` matches an
+   external FQN import by longest group-id prefix. See `docs/lock-files.md`.
 6. **Workspace detectors** in `detectMonorepo()` — Gradle `include(...)`, then sbt `project.in`.
 7. **Classifiers**: `classify.ts` heuristics, JUnit/Spock/ScalaTest tag strategies,
    `complexity/java.ts`.

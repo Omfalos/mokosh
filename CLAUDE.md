@@ -100,7 +100,9 @@ src/
   parser/             per-language parsers (lang/, one file per language), style/ (CSS/SCSS/Stylus
                       via real ASTs), complexity.ts + complexity/ (per-language complexity +
                       call-edge extraction — see docs/adr-011-go-python-call-edges.md), tagging/
-                      (AST tag-collection strategies), registry.ts, classify.ts, lockfile.ts
+                      (AST tag-collection strategies), registry.ts, classify.ts, lockfile/
+                      (dependency-version metadata: js.ts npm/yarn/pnpm, gradle.ts, sbt.ts,
+                      jvm.ts discovery, index.ts loadLockFile orchestrator)
 
   query/              parseQuery() + filterGraph() — the --query DSL engine (see below)
   tags/               proposeTagsFromDiff, applyTags, strategies/ (one per test framework:

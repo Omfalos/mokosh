@@ -4,11 +4,12 @@ import path from "node:path";
 import Piscina from "piscina";
 import { type GitFileStats, getRepoGitStats } from "../git.js";
 import { getTestPatterns } from "../parser/classify.js";
-import { type LockFileData, loadLockFile } from "../parser/lockfile.js";
+import { type LockFileData, loadLockFile } from "../parser/lockfile/index.js";
 import { getFileType, parseFile } from "../parser.js";
 import type { DependencyGraph } from "../types/graph";
 import type { CallEdge, FileNode, ImportEdge } from "../types/node";
 import { enrichGraph, enrichLibraryTags } from "./enrichment.js";
+import { JVM_TYPES } from "./language-support.js";
 import { Graph } from "./model.js";
 import { DefaultResolver, type PathResolver } from "./resolver.js";
 
@@ -615,11 +616,28 @@ export class GraphBuilder {
 
   /**
    * @description Looks up the package version from the lock file and attaches it to the import edge.
-   * Scoped packages (`@scope/pkg/deep/path`) are normalised to their two-segment name before lookup.
+   * Scoped npm packages (`@scope/pkg/deep/path`) are normalised to their two-segment name before
+   * lookup. JVM imports name a fully-qualified type, so they are matched against the Gradle/sbt
+   * group ids in `jvmDependencies` by longest group-prefix — a best-effort heuristic, since a
+   * package name frequently does not equal its Maven group id, so a missing version is expected.
    * @param imp - The external import edge to annotate; mutated in place.
    */
   private attachLockfileVersion(imp: ImportEdge): void {
     if (!this.lockFile) return;
+
+    const jvmDeps = this.lockFile.jvmDependencies;
+    if (jvmDeps && JVM_TYPES.has(getFileType(imp.fromPath))) {
+      const spec = imp.rawSpecifier.replace(/\.\*$/, "");
+      let bestGroup = "";
+      for (const group of Object.keys(jvmDeps)) {
+        if ((spec === group || spec.startsWith(`${group}.`)) && group.length > bestGroup.length) {
+          bestGroup = group;
+        }
+      }
+      if (bestGroup) imp.version = jvmDeps[bestGroup]?.version;
+      return;
+    }
+
     const libName = imp.rawSpecifier.startsWith("@")
       ? imp.rawSpecifier.split("/").slice(0, 2).join("/")
       : (imp.rawSpecifier.split("/")[0] as string);

@@ -2,6 +2,14 @@
 import type { FileType } from "../types/parse";
 import type { Graph } from "./model";
 
+/** JVM languages — share the `JvmLangResolver` package model and Gradle/sbt dependency metadata. */
+export const JVM_TYPES: ReadonlySet<FileType> = new Set<FileType>([
+  "java",
+  "kotlin",
+  "scala",
+  "groovy",
+]);
+
 /** File types whose parser ever populates `FileNode.exports`. */
 export const EXPORT_TRACKING_TYPES: ReadonlySet<FileType> = new Set<FileType>([
   "typescript",

@@ -148,3 +148,36 @@ describe("GraphBuilder gitStats batching", () => {
     }
   });
 });
+
+describe("GraphBuilder JVM dependency versions", () => {
+  test("annotates an external JVM import with the version from a Gradle catalog by longest group-prefix", async () => {
+    const root = path.join(process.cwd(), "test-builder-jvm-versions");
+    fs.mkdirSync(path.join(root, "gradle"), { recursive: true });
+    fs.mkdirSync(path.join(root, "app", "src", "main", "kotlin", "com", "example", "app"), {
+      recursive: true,
+    });
+
+    // The heuristic fires when the FQN import starts with the full Maven group id — as it does
+    // for `org.junit.jupiter.*` under group `org.junit.jupiter`. Package names that diverge from
+    // the group id (e.g. `okhttp3` vs `com.squareup.okhttp3`) stay unversioned by design.
+    fs.writeFileSync(
+      path.join(root, "gradle", "libs.versions.toml"),
+      `[libraries]\njunit = "org.junit.jupiter:junit-jupiter:5.10.2"\n`,
+    );
+    fs.writeFileSync(
+      path.join(root, "app", "src", "main", "kotlin", "com", "example", "app", "Client.kt"),
+      "package com.example.app\n\nimport org.junit.jupiter.api.Test\n\nclass Client\n",
+    );
+
+    try {
+      const graph = await createImportMap(root, ["app/src/main/kotlin/com/example/app/Client.kt"]);
+      const node = graph.serialize().nodes.find((n) => n.path.endsWith("Client.kt"));
+      const junitEdge = node?.imports.find((e) => e.rawSpecifier === "org.junit.jupiter.api.Test");
+
+      expect(junitEdge?.isExternal).toBe(true);
+      expect(junitEdge?.version).toBe("5.10.2");
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
