@@ -194,4 +194,4 @@ Run `/pre-update` — it calls `get_affected` to show blast radius before any ed
 - `traversal.md` — graph traversal semantics
 - `lock-files.md` — lock file parsing
 - `releasing.md` — release process and commit conventions
-- `adr-001-styles-parsing.md` through `adr-016-branch-comparison.md` — ADRs for key architecture/parser decisions
+- `adr-001-styles-parsing.md` through `adr-017-jvm-languages.md` — ADRs for key architecture/parser decisions

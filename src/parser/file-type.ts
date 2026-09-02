@@ -39,6 +39,16 @@ export function getFileType(filePath: string): FileType {
     case ".go":
       return "go";
     case ".java":
+      return "java";
+    case ".kt":
+    case ".kts":
+      return "kotlin";
+    case ".scala":
+    case ".sc":
+      return "scala";
+    case ".groovy":
+    case ".gradle":
+      return "groovy";
     case ".cpp":
     case ".cc":
     case ".cxx":

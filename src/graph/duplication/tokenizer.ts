@@ -2,8 +2,8 @@
  * Language-agnostic source tokenizer for duplicate-code detection. Strips per-language
  * comment syntax, then splits what remains into a normalized token stream shared by every
  * language `DEFAULT_EXTENSIONS` covers — one generic tokenizer rather than a per-language
- * lexer, so `findDuplicates` works uniformly across TS/JS, Python, Go, CoffeeScript,
- * LiveScript, Lua, Gherkin, style files, and Markdown.
+ * lexer, so `findDuplicates` works uniformly across TS/JS, Python, Go, Java, Kotlin, Scala,
+ * Groovy, CoffeeScript, LiveScript, Lua, Gherkin, style files, and Markdown.
  */
 import type { FileType } from "../../types/parse";
 
@@ -28,6 +28,10 @@ const COMMENT_SYNTAX: Partial<Record<FileType, CommentSyntax>> = {
   typescript: { line: ["//"], block: [["/*", "*/"]] },
   javascript: { line: ["//"], block: [["/*", "*/"]] },
   go: { line: ["//"], block: [["/*", "*/"]] },
+  java: { line: ["//"], block: [["/*", "*/"]] },
+  kotlin: { line: ["//"], block: [["/*", "*/"]] },
+  scala: { line: ["//"], block: [["/*", "*/"]] },
+  groovy: { line: ["//"], block: [["/*", "*/"]] },
   css: { block: [["/*", "*/"]] },
   scss: { line: ["//"], block: [["/*", "*/"]] },
   less: { line: ["//"], block: [["/*", "*/"]] },

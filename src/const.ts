@@ -28,6 +28,8 @@ export const DEFAULT_IGNORE_DIRS: readonly string[] = [
   "coverage",
   ".pytest_cache",
   "__pycache__",
+  ".gradle",
+  "target",
 ];
 
 export const DEFAULT_EXTENSIONS: readonly string[] = [
@@ -47,6 +49,13 @@ export const DEFAULT_EXTENSIONS: readonly string[] = [
   ".lua",
   ".py",
   ".go",
+  ".java",
+  ".kt",
+  ".kts",
+  ".scala",
+  ".sc",
+  ".groovy",
+  ".gradle",
   ".feature",
   ".md",
   ".mdx",

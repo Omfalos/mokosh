@@ -1,4 +1,5 @@
 export { GoLangResolver } from "./go";
+export { JvmLangResolver } from "./jvm";
 export { LuaLangResolver } from "./lua";
 export { MarkdownLangResolver } from "./markdown";
 export { PythonLangResolver } from "./python";

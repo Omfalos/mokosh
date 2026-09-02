@@ -3,10 +3,14 @@ import { getFileType } from "./parser/file-type";
 import { parseCoffeeScript } from "./parser/lang/coffee";
 import { parseGherkin } from "./parser/lang/gherkin";
 import { parseGo } from "./parser/lang/go";
+import { parseGroovy } from "./parser/lang/groovy";
+import { parseJava } from "./parser/lang/java";
+import { parseKotlin } from "./parser/lang/kotlin";
 import { parseLiveScript } from "./parser/lang/ls";
 import { parseLua } from "./parser/lang/lua";
 import { parseMarkdown } from "./parser/lang/markdown";
 import { parsePython } from "./parser/lang/python";
+import { parseScala } from "./parser/lang/scala";
 import { parseCodeFile } from "./parser/lang/typescript";
 import type { ParserFunction } from "./parser/registry";
 import { getParserForType, registerParser } from "./parser/registry";
@@ -27,6 +31,10 @@ for (const [type, parser] of [
   ["lua", parseLua],
   ["python", parsePython],
   ["go", parseGo],
+  ["java", parseJava],
+  ["kotlin", parseKotlin],
+  ["scala", parseScala],
+  ["groovy", parseGroovy],
   ["gherkin", parseGherkin],
   ["markdown", parseMarkdown],
 ] satisfies [FileType, ParserFunction][]) {

@@ -178,3 +178,5 @@ list, factory-function configs, and programmatic config-loading:
 - [ADR-013: Duplicate Detection Noise Reduction](./docs/adr-013-duplicate-detection-noise-reduction.md)
 - [ADR-014: Duplicate Detection at Scale](./docs/adr-014-duplicate-detection-scale.md)
 - [ADR-015: Suffix-Array Duplicate Detection](./docs/adr-015-suffix-array-duplicate-detection.md)
+- [ADR-016: Branch/PR Comparison](./docs/adr-016-branch-comparison.md)
+- [ADR-017: JVM Language Support (Java, Kotlin, Scala, Groovy)](./docs/adr-017-jvm-languages.md)

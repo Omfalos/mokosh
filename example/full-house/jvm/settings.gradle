@@ -1,0 +1,4 @@
+// @tag app
+rootProject.name = 'jvm-full-house'
+include ':app'
+include ':core'

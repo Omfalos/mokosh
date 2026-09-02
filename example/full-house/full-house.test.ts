@@ -217,3 +217,141 @@ describe(
     });
   },
 );
+
+/**
+ * End-to-end coverage (parse → resolve → graph) for the JVM languages (Java via @lezer/java,
+ * Kotlin/Scala/Groovy via hand-rolled scanners) and the shared JvmLangResolver, complementing
+ * the unit tests in src/parser/lang/{java,kotlin,scala,groovy}.test.ts and
+ * src/graph/lang-resolvers/jvm.test.ts.
+ *
+ * Fixture layout is a two-module Gradle-style tree under jvm/:
+ *   jvm/settings.gradle, jvm/app/build.gradle          → Groovy build scripts (category: config)
+ *   jvm/app/src/main/{java,kotlin,scala,groovy}/...     → app module sources
+ *   jvm/core/src/main/java/com/example/core/CoreUtil.java → separate module imported by :app
+ */
+describe("full-house example: JVM languages", { tags: ["example", "jvm"] }, () => {
+  const rootDir = path.join(__dirname, "jvm");
+  const entryPoints = [
+    "app/src/main/java/com/example/app/App.java",
+    "app/src/main/kotlin/com/example/app/Ui.kt",
+    "app/src/main/scala/com/example/app/Report.scala",
+    "app/src/main/groovy/com/example/app/Formatter.groovy",
+    "settings.gradle",
+    "app/build.gradle",
+  ];
+  const build = () =>
+    createImportMap(rootDir, entryPoints, null, { silent: true, parallelParsing: false });
+
+  test("Java: FQN import resolves across Gradle modules to a concrete file", async () => {
+    const graph = await build();
+    const app = graph.nodes.get("app/src/main/java/com/example/app/App.java");
+
+    expect(app?.type).toBe("java");
+    expect(app?.category).toBe("logic");
+    expect(app?.exports).toEqual([{ name: "App" }]);
+    expect(app?.tags).toContainEqual({ name: "app", kind: "comment-marker" });
+    expect(app?.imports).toContainEqual(
+      expect.objectContaining({
+        rawSpecifier: "com.example.core.CoreUtil",
+        toPath: "core/src/main/java/com/example/core/CoreUtil.java",
+        isExternal: false,
+      }),
+    );
+  });
+
+  test("Kotlin: multiple top-level types in one file are all exported (name != file name)", async () => {
+    const graph = await build();
+    const repos = graph.nodes.get("app/src/main/kotlin/com/example/data/Repositories.kt");
+
+    expect(repos?.type).toBe("kotlin");
+    expect(repos?.exports).toEqual([{ name: "UserRepo" }, { name: "Session" }]);
+    // `import com.example.core.CoreUtil as Core` — alias dropped, cross-language edge to Java.
+    expect(repos?.imports).toContainEqual(
+      expect.objectContaining({
+        rawSpecifier: "com.example.core.CoreUtil",
+        toPath: "core/src/main/java/com/example/core/CoreUtil.java",
+        isExternal: false,
+      }),
+    );
+  });
+
+  test("Kotlin: a type declared in a differently-named file resolves via package expansion", async () => {
+    const graph = await build();
+    const ui = graph.nodes.get("app/src/main/kotlin/com/example/app/Ui.kt");
+
+    expect(ui?.tags).toContainEqual({ name: "ui", kind: "comment-marker" });
+    // `UserRepo` lives in Repositories.kt; the resolver falls back to the package directory.
+    expect(ui?.imports).toContainEqual(
+      expect.objectContaining({
+        rawSpecifier: "com.example.data.UserRepo",
+        toPath: "app/src/main/kotlin/com/example/data/Repositories.kt",
+        isExternal: false,
+      }),
+    );
+  });
+
+  test("Scala: brace-group and block-scoped imports are both captured", async () => {
+    const graph = await build();
+    const report = graph.nodes.get("app/src/main/scala/com/example/app/Report.scala");
+
+    expect(report?.type).toBe("scala");
+    expect(report?.exports).toEqual([{ name: "Report" }]);
+    // `import com.example.data.{ User, UserRepo }` → one edge per member.
+    expect(report?.imports).toContainEqual(
+      expect.objectContaining({ rawSpecifier: "com.example.data.User", isExternal: false }),
+    );
+    expect(report?.imports).toContainEqual(
+      expect.objectContaining({ rawSpecifier: "com.example.data.UserRepo", isExternal: false }),
+    );
+    // Block-scoped `import scala.collection.mutable.ListBuffer` inside a def — still scanned.
+    expect(report?.imports).toContainEqual(
+      expect.objectContaining({ rawSpecifier: "scala.collection.mutable.ListBuffer" }),
+    );
+  });
+
+  test("Groovy: `import static` resolves to the enclosing type's file", async () => {
+    const graph = await build();
+    const formatter = graph.nodes.get("app/src/main/groovy/com/example/app/Formatter.groovy");
+
+    expect(formatter?.type).toBe("groovy");
+    expect(formatter?.exports).toEqual([{ name: "Formatter" }]);
+    expect(formatter?.imports).toContainEqual(
+      expect.objectContaining({
+        rawSpecifier: "com.example.core.CoreUtil",
+        toPath: "core/src/main/java/com/example/core/CoreUtil.java",
+        isExternal: false,
+      }),
+    );
+  });
+
+  test("same-package siblings are linked even with no explicit import (synthetic edge)", async () => {
+    const graph = await build();
+    const app = graph.nodes.get("app/src/main/java/com/example/app/App.java");
+
+    // App.java, Ui.kt, Report.scala, Formatter.groovy all declare `package com.example.app`
+    // and reference each other with no `import` line — JVM allows that. The synthetic
+    // `com.example.app.*` edge makes the coupling visible to blast-radius analysis.
+    const siblingTargets = (app?.imports ?? [])
+      .filter((e) => e.rawSpecifier === "com.example.app.*")
+      .map((e) => e.toPath);
+    expect(siblingTargets).toEqual(
+      expect.arrayContaining([
+        "app/src/main/kotlin/com/example/app/Ui.kt",
+        "app/src/main/scala/com/example/app/Report.scala",
+        "app/src/main/groovy/com/example/app/Formatter.groovy",
+      ]),
+    );
+    // never itself
+    expect(siblingTargets).not.toContain("app/src/main/java/com/example/app/App.java");
+  });
+
+  test("Gradle build scripts are parsed as Groovy and categorised as config", async () => {
+    const graph = await build();
+
+    expect(graph.nodes.get("settings.gradle")).toMatchObject({ type: "groovy", category: "config" });
+    expect(graph.nodes.get("app/build.gradle")).toMatchObject({
+      type: "groovy",
+      category: "config",
+    });
+  });
+});
