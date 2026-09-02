@@ -11,6 +11,10 @@ export type FileType =
   | "gherkin"
   | "python"
   | "go"
+  | "java"
+  | "kotlin"
+  | "scala"
+  | "groovy"
   | "markdown"
   | "unknown";
 

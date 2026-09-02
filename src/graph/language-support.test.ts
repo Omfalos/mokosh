@@ -96,6 +96,28 @@ describe("getLanguageCoverage", { tags: ["getLanguageCoverage", "Graph", "FileNo
     );
   });
 
+  test("reports exportsTracked (but not importSymbols / callEdges) for JVM languages", () => {
+    const graph = makeGraph([
+      makeNode("src/A.java", "java"),
+      makeNode("src/B.kt", "kotlin"),
+      makeNode("src/C.scala", "scala"),
+      makeNode("src/D.groovy", "groovy"),
+    ]);
+
+    const coverage = getLanguageCoverage(graph);
+
+    for (const type of ["java", "kotlin", "scala", "groovy"] as const) {
+      expect(coverage).toContainEqual(
+        expect.objectContaining({
+          type,
+          exportsTracked: true,
+          importSymbolsTracked: false,
+          callEdgesTracked: false,
+        }),
+      );
+    }
+  });
+
   test("sorts by file count descending", () => {
     const graph = makeGraph([
       makeNode("src/a.lua", "lua"),

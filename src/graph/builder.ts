@@ -575,7 +575,20 @@ export class GraphBuilder {
       const results = this.resolver.resolveAll(filePath, imp.rawSpecifier);
       if (results.length === 0) continue;
 
+      // A synthetic JVM same-package edge (`<pkg>.*`, side-effect) that resolved to external
+      // means the file is alone in its package — it is not a real dependency, so drop it
+      // rather than record a phantom external import (and library tag).
+      const isUnresolvedPackageEdge =
+        imp.type === "side-effect" &&
+        imp.rawSpecifier.endsWith(".*") &&
+        results.every((resolved) => resolved.isExternal);
+      if (isUnresolvedPackageEdge) continue;
+
       for (const resolved of results) {
+        // A file never depends on itself — skip self-edges (e.g. the synthetic same-package
+        // edge, or a Scala brace import that names a sibling type declared in the same file).
+        if (!resolved.isExternal && resolved.path === filePath) continue;
+
         const edge: ImportEdge = {
           ...imp,
           toPath: resolved.isExternal ? resolved.path : path.relative(this.rootDir, resolved.path),
