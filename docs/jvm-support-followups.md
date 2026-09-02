@@ -46,15 +46,19 @@ name set — no real parser needed. Turns blast-radius from "the package" into "
 **Touches:** `src/graph/lang-resolvers/jvm.ts` (or a post-build enrichment pass in
 `src/graph/enrichment.ts`), needs the package→type-names map threaded in.
 
-### 2. Java complexity + call graph (ADR-017 Phase 6)
+### 2. Java complexity + call graph (ADR-017 Phase 7) — **done** (2026-09-02)
 
 **Why:** `@lezer/java` already produces a real tree. `find_complex_functions` /
 `find_risk_hotspots` / `get_callers` work for TS/Go/Python and are simply unwired for Java.
 "Which methods are complex, undertested, and churny" is the primary Java code-health question.
 
-**Approach:** `src/parser/complexity/java.ts` mirroring `src/parser/complexity/go.ts`
-(`computeComplexity`, `collectFunctionComplexity`, `collectRawCallEdges`); wire results into
-`parseJava`'s `ParseResult`. Add `java` to `CALL_EDGE_TYPES` in `src/graph/language-support.ts`.
+**Done:** `src/parser/complexity/java.ts` mirrors `src/parser/complexity/go.ts`
+(`computeComplexity` + `collectFunctionComplexity`), wired into `parseJava`'s `ParseResult`
+along with a `collectRawCallEdges` pass; `"java"` added to `CALL_EDGE_TYPES` in
+`src/graph/language-support.ts`. Cyclomatic counts `if` / loops / non-default `switch` labels /
+`catch` / ternary / `&&` / `||`; cognitive ports the Go nesting model. **Call edges cover
+static (`Foo.bar()`) and constructor (`new Foo()`) calls on imported types only** — instance
+calls through a variable are not captured (documented in ADR-017 limitations).
 
 ### 3. Coarse Kotlin / Scala complexity
 
@@ -96,14 +100,17 @@ Single-module builds return `null` (repo stays a flat graph). Cross-module edges
 edges; consider down-weighting them in `get_affected` traversal (`src/graph/analyzer.ts` /
 `change-impact-cache.ts`) so package-granular edges don't dominate a result.
 
-### 6. Annotation-driven category refinement
+### 6. Annotation-driven category refinement — **done** (2026-09-02)
 
 **Why:** `@RestController` / `@Service` / `@Repository` / `@Entity` / `@Composable` /
 `@Component` are strong role signals a JVM engineer expects `query category:ui|logic` to honour.
 
-**Approach:** regex pass over the file head in `src/parser/classify.ts` (or the JVM parsers),
-mapping common Spring / JPA / Compose annotations to `ui` / `logic` / `config`. Cheap,
-meaningfully better than path+import heuristics.
+**Done:** `classifyJvm` (`src/parser/lang/jvm-scan.ts`) now takes annotation + type-name hints.
+`@Configuration` / `@SpringBootApplication` → `config`; `@Composable` / `*Activity` /
+`*Fragment` / `*ViewModel` / `*Screen` → `ui`; `@Service` / `@RestController` / `@Repository` /
+`@Component` / `@Entity` → `logic`. Gradle-script and test-source-set/import detection still win
+first. Java feeds the hints from its Lezer tree walk; Kotlin/Scala/Groovy via the shared
+`scanJvmClassifyHints` regex scan.
 
 ---
 

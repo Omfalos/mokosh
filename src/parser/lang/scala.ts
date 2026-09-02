@@ -7,6 +7,7 @@ import {
   extractJvmPackage,
   jvmImportEdge,
   jvmPackageEdge,
+  scanJvmClassifyHints,
   scanTagMarkers,
   stripJvmComments,
 } from "./jvm-scan";
@@ -112,6 +113,10 @@ export function parseScala(filePath: string, content: string): ParseResult {
     category: classifyJvm(
       filePath,
       imports.map((edge) => edge.rawSpecifier),
+      {
+        typeNames: [...exportNames],
+        annotations: scanJvmClassifyHints(content).annotations,
+      },
     ),
   };
 }

@@ -87,4 +87,30 @@ describe("parseJava tags & category", { tags: ["parseJava", "java"] }, () => {
   test("plain source file is logic", () => {
     expect(parseJava("src/main/java/com/x/A.java", `class A {}`).category).toBe("logic");
   });
+
+  test("@Service / @RestController stereotypes are logic", () => {
+    expect(
+      parseJava("src/main/java/com/x/UserService.java", `@Service\nclass UserService {}`).category,
+    ).toBe("logic");
+  });
+
+  test("@Configuration is config", () => {
+    expect(
+      parseJava("src/main/java/com/x/AppConfig.java", `@Configuration\nclass AppConfig {}`)
+        .category,
+    ).toBe("config");
+  });
+
+  test("a *ViewModel / *Activity type name is ui", () => {
+    expect(
+      parseJava("src/main/java/com/x/ProfileViewModel.java", `class ProfileViewModel {}`).category,
+    ).toBe("ui");
+  });
+
+  test("test source set still wins over an annotation", () => {
+    expect(
+      parseJava("app/src/test/java/com/x/AppConfig.java", `@Configuration\nclass AppConfig {}`)
+        .category,
+    ).toBe("test");
+  });
 });

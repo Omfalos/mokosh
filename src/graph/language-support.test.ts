@@ -96,7 +96,7 @@ describe("getLanguageCoverage", { tags: ["getLanguageCoverage", "Graph", "FileNo
     );
   });
 
-  test("reports exportsTracked (but not importSymbols / callEdges) for JVM languages", () => {
+  test("reports exportsTracked (but not importSymbols) for JVM languages", () => {
     const graph = makeGraph([
       makeNode("src/A.java", "java"),
       makeNode("src/B.kt", "kotlin"),
@@ -108,14 +108,27 @@ describe("getLanguageCoverage", { tags: ["getLanguageCoverage", "Graph", "FileNo
 
     for (const type of ["java", "kotlin", "scala", "groovy"] as const) {
       expect(coverage).toContainEqual(
-        expect.objectContaining({
-          type,
-          exportsTracked: true,
-          importSymbolsTracked: false,
-          callEdgesTracked: false,
-        }),
+        expect.objectContaining({ type, exportsTracked: true, importSymbolsTracked: false }),
       );
     }
+  });
+
+  test("Java tracks call edges; Kotlin/Scala/Groovy do not (no pure-JS AST yet)", () => {
+    const graph = makeGraph([
+      makeNode("src/A.java", "java"),
+      makeNode("src/B.kt", "kotlin"),
+      makeNode("src/C.scala", "scala"),
+      makeNode("src/D.groovy", "groovy"),
+    ]);
+
+    const coverage = getLanguageCoverage(graph);
+    const callEdgesFor = (type: string) =>
+      coverage.find((entry) => entry.type === type)?.callEdgesTracked;
+
+    expect(callEdgesFor("java")).toBe(true);
+    expect(callEdgesFor("kotlin")).toBe(false);
+    expect(callEdgesFor("scala")).toBe(false);
+    expect(callEdgesFor("groovy")).toBe(false);
   });
 
   test("sorts by file count descending", () => {

@@ -46,6 +46,28 @@ export function stripJvmComments(source: string): string {
 }
 
 /**
+ * @description Best-effort scan of a JVM source file for the signals {@link classifyJvm} needs:
+ *   annotation names applied anywhere in the file (`@Service`, `@Composable`, …) and the bare
+ *   names of declared types (`class` / `object` / `interface` / `trait` / `enum X`). Comments are
+ *   stripped first so commented-out code doesn't leak in. Deliberately conservative and
+ *   syntax-agnostic — a shared substitute for the AST the hand-rolled scanners don't have.
+ * @param source - Full file source text.
+ * @returns Hints suitable to pass straight to {@link classifyJvm}; both arrays are always present.
+ */
+export function scanJvmClassifyHints(source: string): Required<JvmClassifyHints> {
+  const clean = stripJvmComments(source);
+  const annotations = new Set<string>();
+  for (const match of clean.matchAll(/@([A-Z]\w*)/g)) {
+    if (match[1]) annotations.add(match[1]);
+  }
+  const typeNames = new Set<string>();
+  for (const match of clean.matchAll(/\b(?:class|object|interface|trait|enum)\s+([A-Za-z_]\w*)/g)) {
+    if (match[1]) typeNames.add(match[1]);
+  }
+  return { annotations: [...annotations], typeNames: [...typeNames] };
+}
+
+/**
  * @description Builds an external `ImportEdge` for a JVM FQN specifier. All JVM imports are
  *   marked external at parse time; `JvmLangResolver` resolves them to local files later.
  * @param fromPath - Path of the importing file.
@@ -111,15 +133,55 @@ export function extractJvmPackage(source: string, isScala: boolean): string | nu
   return parts.length > 0 ? parts.join(".") : null;
 }
 
+/** Framework annotations that mark a file as `config` (Spring Java config, etc.). */
+const CONFIG_ANNOTATIONS = new Set([
+  "Configuration",
+  "SpringBootApplication",
+  "EnableAutoConfiguration",
+]);
+
+/** Framework annotations that mark a file as a UI component (Jetpack Compose). */
+const UI_ANNOTATIONS = new Set(["Composable", "Preview"]);
+
+/** Framework annotations that mark a file as business `logic` (Spring / JPA stereotypes). */
+const LOGIC_ANNOTATIONS = new Set([
+  "RestController",
+  "Controller",
+  "Service",
+  "Repository",
+  "Component",
+  "Entity",
+  "MappedSuperclass",
+  "Embeddable",
+]);
+
+/** Type-name suffixes that mark a file as a UI class (Android). */
+const UI_NAME_SUFFIXES = ["Activity", "Fragment", "ViewModel", "Screen", "Composable"];
+
+/** Extra signals for {@link classifyJvm}, collected by each parser from the file's declarations. */
+export interface JvmClassifyHints {
+  /** Bare top-level type names declared in the file. */
+  typeNames?: string[];
+  /** Bare annotation names applied to top-level declarations (without the leading `@`). */
+  annotations?: string[];
+}
+
 /**
- * @description Shared category heuristic for JVM scanner languages: Gradle build scripts are
- *   `config`; files under a test source set or importing a known test framework are `test`;
- *   everything else is `logic`.
+ * @description Shared category heuristic for every JVM language: Gradle build scripts are
+ *   `config`; files under a test source set or importing a known test framework are `test`
+ *   (these always win); otherwise framework annotations and Android naming conventions refine
+ *   `ui` / `config` / `logic`; everything else is `logic`.
  * @param filePath - Path to the source file.
  * @param importSpecifiers - Raw FQN specifiers from the file's `import` lines.
+ * @param hints - Optional declaration signals (top-level type names, applied annotations) used
+ *   for annotation- and name-driven `ui` / `config` refinement.
  * @returns The resolved node category.
  */
-export function classifyJvm(filePath: string, importSpecifiers: string[]): NodeCategory {
+export function classifyJvm(
+  filePath: string,
+  importSpecifiers: string[],
+  hints: JvmClassifyHints = {},
+): NodeCategory {
   const normalized = filePath.replace(/\\/g, "/");
   const base = normalized.split("/").pop() ?? "";
 
@@ -134,5 +196,12 @@ export function classifyJvm(filePath: string, importSpecifiers: string[]): NodeC
   ) {
     return "test";
   }
+
+  const annotations = hints.annotations ?? [];
+  if (annotations.some((a) => CONFIG_ANNOTATIONS.has(a))) return "config";
+  if (annotations.some((a) => UI_ANNOTATIONS.has(a))) return "ui";
+  if ((hints.typeNames ?? []).some((n) => UI_NAME_SUFFIXES.some((s) => n.endsWith(s)))) return "ui";
+  if (annotations.some((a) => LOGIC_ANNOTATIONS.has(a))) return "logic";
+
   return "logic";
 }

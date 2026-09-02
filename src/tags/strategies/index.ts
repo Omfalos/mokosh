@@ -3,7 +3,8 @@
  *
  * Two categories of strategy:
  *   Language strategies  — auto-selected by file extension, always active regardless of config:
- *                          Gherkin (.feature), Pytest (.py), Go (*_test.go)
+ *                          Gherkin (.feature), Pytest (.py), Go (*_test.go), JUnit (.java /
+ *                          .groovy test files), ScalaTest (.scala test files)
  *   Framework strategies — selected per file by import-specifier detection for TS/JS files
  *                          where multiple frameworks are common: Vitest, Playwright, Cypress,
  *                          Jest. A repo mixing frameworks (e.g. Jest for unit tests, Playwright
@@ -21,8 +22,10 @@ import { GherkinStrategy } from "./gherkin";
 import { matchesGlob } from "./glob";
 import { GoStrategy } from "./go";
 import { JestStrategy } from "./jest";
+import { JUnitStrategy } from "./junit";
 import { PlaywrightStrategy } from "./playwright";
 import { PytestStrategy } from "./pytest";
+import { ScalaTestStrategy } from "./scalatest";
 import { TS_EXTENSIONS } from "./ts-ast-utils";
 import type { TagApplierStrategy, TagFramework } from "./types";
 import { VitestStrategy } from "./vitest";
@@ -121,6 +124,8 @@ export function createStrategies(
     new GherkinStrategy(), // .feature
     new PytestStrategy(), // .py
     new GoStrategy(), // *_test.go
+    new JUnitStrategy(), // .java / .groovy test files (JUnit 5 / Spock 2)
+    new ScalaTestStrategy(), // .scala test files
     new AutoFrameworkStrategy(rootDir, defaultFramework, Object.entries(frameworkOverrides)), // TS/JS, framework detected per file
   ];
 }

@@ -75,4 +75,14 @@ class NonEmptyList
     );
     expect(category).toBe("test");
   });
+
+  test("a *ViewModel class name is ui", () => {
+    expect(
+      parseScala("src/main/scala/com/x/FeedViewModel.scala", `class FeedViewModel`).category,
+    ).toBe("ui");
+  });
+
+  test("@Service annotation is logic", () => {
+    expect(parseScala("src/main/scala/com/x/S.scala", `@Service\nclass S`).category).toBe("logic");
+  });
 });

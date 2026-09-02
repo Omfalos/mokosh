@@ -73,4 +73,23 @@ describe("parseKotlin category", { tags: ["parseKotlin", "kotlin"] }, () => {
       parseKotlin("A.kt", `import io.kotest.core.spec.style.StringSpec\nclass A`).category,
     ).toBe("test");
   });
+
+  test("@Composable function makes the file ui", () => {
+    expect(
+      parseKotlin("src/main/kotlin/com/x/Profile.kt", `@Composable\nfun Profile() {}`).category,
+    ).toBe("ui");
+  });
+
+  test("a *ViewModel class name is ui", () => {
+    expect(
+      parseKotlin("src/main/kotlin/com/x/ProfileViewModel.kt", `class ProfileViewModel`).category,
+    ).toBe("ui");
+  });
+
+  test("@Service annotation is logic, @Configuration is config", () => {
+    expect(parseKotlin("src/main/kotlin/com/x/S.kt", `@Service\nclass S`).category).toBe("logic");
+    expect(parseKotlin("src/main/kotlin/com/x/C.kt", `@Configuration\nobject C`).category).toBe(
+      "config",
+    );
+  });
 });

@@ -249,7 +249,7 @@ Lists every distinct tag name present in the graph, with how many nodes carry it
 
 ### `find_complex_functions`
 
-Scan every file's per-function complexity breakdown and return functions/methods at or above a threshold, sorted worst-first. Populated for TypeScript/JavaScript, Go, and Python (see [ADR-011](./adr-011-go-python-call-edges.md)).
+Scan every file's per-function complexity breakdown and return functions/methods at or above a threshold, sorted worst-first. Populated for TypeScript/JavaScript, Go, Python, and Java (see [ADR-011](./adr-011-go-python-call-edges.md), [ADR-017](./adr-017-jvm-languages.md)).
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -441,7 +441,7 @@ Groups files by domain: returns which files each feature hub (high-import orches
 
 ### `get_call_graph`
 
-Look up callers and callees for a named function. Returns the file that defines the function, all files/functions that call it, and all files/functions it calls. Always requires a function name — never returns the full call graph unfiltered. Call edges are populated for TypeScript/JavaScript, Go, and Python files (see [ADR-011](./adr-011-go-python-call-edges.md) for per-language coverage differences).
+Look up callers and callees for a named function. Returns the file that defines the function, all files/functions that call it, and all files/functions it calls. Always requires a function name — never returns the full call graph unfiltered. Call edges are populated for TypeScript/JavaScript, Go, Python, and Java files (see [ADR-011](./adr-011-go-python-call-edges.md), [ADR-017](./adr-017-jvm-languages.md) for per-language coverage differences — Java captures static and constructor calls only).
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -459,7 +459,7 @@ match. Precision depends on what the defining file's language parser tracks:
 
 | Precision | Languages | What `callers`/`importers` means |
 |---|---|---|
-| `call` | TypeScript/JavaScript, Go, Python | Function-level callers via call edges — coverage differs per language, see [ADR-011](./adr-011-go-python-call-edges.md) |
+| `call` | TypeScript/JavaScript, Go, Python, Java | Function-level callers via call edges — coverage differs per language, see [ADR-011](./adr-011-go-python-call-edges.md) and [ADR-017](./adr-017-jvm-languages.md) |
 | `file-level` | Lua, CoffeeScript, SCSS/Less, and everything else with populated exports | Whole-file dependents — an importer might not use this specific export |
 
 Files whose parser never populates `exports` at all (CoffeeScript, LiveScript, Lua, Gherkin,
@@ -502,7 +502,7 @@ Drop the cached dependency graph for a project root, forcing the next `analyze` 
 
 ### `apply_tags`
 
-Writes `@tag` annotations into test file source code based on the dependency graph. Tags of kind `import` (filename-derived) and `comment-marker` (domain semantic, propagated from source files) are written as an idempotent block; re-running replaces the block in place. Tags already present in the file are excluded to avoid duplication. Supports TypeScript/JavaScript (`// <mokosh-tags>` block with `// @tag` lines) and Gherkin `.feature` files (`# <mokosh-tags>` block with `@tagname` lines). See [ADR-008](./adr-008-tag-applier-strategies.md).
+Writes `@tag` annotations into test file source code based on the dependency graph. Tags of kind `import` (filename-derived) and `comment-marker` (domain semantic, propagated from source files) are written as an idempotent block; re-running replaces the block in place. Tags already present in the file are excluded to avoid duplication. Per-language strategies: TypeScript/JavaScript (`// <mokosh-tags>` block with `// @tag` lines, framework-format aware), Gherkin `.feature` (`# <mokosh-tags>` block), Pytest `.py` (`pytestmark`), Go `*_test.go` (`//go:build mokosh_*`), JUnit/Spock `.java` / `.groovy` test files (`// mokosh:tags` block of `@Tag("…")` annotations), and ScalaTest `.scala` test files (`// mokosh:tags a, b` marker comment — a marker only, not a natively-filterable tag; see [ADR-017](./adr-017-jvm-languages.md)). See [ADR-008](./adr-008-tag-applier-strategies.md).
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|

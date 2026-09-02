@@ -1,7 +1,7 @@
 # ADR-017: JVM Language Support (Java, Kotlin, Scala, Groovy)
 
-**Date:** 2026-09-01 (revised 2026-09-02 — Scala + Groovy added)
-**Status:** Proposed
+**Date:** 2026-09-01 (revised 2026-09-02 — Scala + Groovy added; all 7 steps implemented)
+**Status:** Accepted — implemented
 
 > Post-dogfood punch list and blind spots: `docs/jvm-support-followups.md`.
 
@@ -48,7 +48,7 @@ allows — see the tier table below):
 
 | Language | Parser | Import graph | Complexity / cognitive / call-edges | Duplicate detection |
 |---|---|---|---|---|
-| **Java** | `@lezer/java` (real tree) | ✅ | ✅ (follow-up: `src/parser/complexity/java.ts`) | ✅ (free — generic tokenizer) |
+| **Java** | `@lezer/java` (real tree) | ✅ | ✅ done (`src/parser/complexity/java.ts`; call edges = static + constructor calls only) | ✅ (free — generic tokenizer) |
 | **Kotlin** | hand-rolled scanner | ✅ | ❌ until a pure-JS AST exists | ✅ (free) |
 | **Scala** | hand-rolled scanner | ✅ | ❌ until a pure-JS AST exists | ✅ (free) |
 | **Groovy** | hand-rolled scanner | ✅ (lite — see below) | ❌ until a pure-JS AST exists | ✅ (free — the main motivator) |
@@ -352,7 +352,23 @@ Ship JVM support in this order, each step independently useful:
    **Done** (2026-09-02): `src/graph/workspace/detectors/{gradle,sbt}.ts`, registered after
    `npmDetector`; cross-module edges tagged by `WorkspaceGraph.annotateCrossPackageEdges()`.
 7. **Classifiers**: `classify.ts` heuristics, JUnit/Spock/ScalaTest tag strategies,
-   `complexity/java.ts`.
+   `complexity/java.ts`. **Done** (2026-09-02):
+   - `src/parser/complexity/java.ts` (cyclomatic + cognitive + per-method breakdown, mirroring
+     `complexity/go.ts`), wired into `parseJava`; `"java"` added to `CALL_EDGE_TYPES`. Java call
+     edges cover **static method calls** (`Foo.bar()`) and **constructor calls** (`new Foo()`) on
+     imported types — instance calls through a variable need type inference and are skipped
+     (same class of gap as Go's unqualified-call limitation).
+   - `classifyJvm` (`src/parser/lang/jvm-scan.ts`) extended with annotation / naming hints:
+     `@Configuration` / `@SpringBootApplication` → `config`; `@Composable` / `*Activity` /
+     `*Fragment` / `*ViewModel` / `*Screen` → `ui`; `@Service` / `@RestController` / `@Entity`
+     etc. → `logic`. Test source set + test-framework imports still win. The four parsers feed
+     the hints from their existing declaration scan (Java from the Lezer tree; Kotlin/Scala/
+     Groovy via `scanJvmClassifyHints`).
+   - `src/tags/strategies/junit.ts` (`.java` / `.groovy` test files → a `// mokosh:tags` block
+     of `@Tag("…")` annotations + managed `org.junit.jupiter.api.Tag` import; JUnit 5 / Spock 2
+     both run on the JUnit Platform) and `src/tags/strategies/scalatest.ts` (`.scala` test files
+     → a `// mokosh:tags a, b` marker comment — see the Scala-tag limitation below), registered
+     in `createStrategies` as extension-selected language strategies.
 
 No new native dependencies. One new pure-JS dependency: `@lezer/java`.
 
@@ -364,6 +380,8 @@ No new native dependencies. One new pure-JS dependency: `@lezer/java`.
 |---|---|
 | Same-package coupling is package-granular, not symbol-precise | The synthetic `<own-package>.*` edge links a file to *every* sibling in its package, not only the ones it actually references — correct for blast-radius, noisier for `get_dependencies` |
 | Kotlin / Scala / Groovy have no complexity / call-edges | No pure-JS AST for any of them; `find_complex_functions` / `find_risk_hotspots` exclude `.kt` / `.scala` / `.groovy` functions until a grammar exists |
+| Java call edges are static + constructor calls only | `Foo.bar()` and `new Foo()` on an imported type resolve; instance calls through a variable or field (`this.converter.convert()`) need type inference and are not captured. A future pass could track local/param/field declared types against the imported-type set |
+| Scala tag injection is a marker comment, not a native tag | `apply_tags` writes `// mokosh:tags a, b` above a `.scala` suite so `propose_tags` → `apply_tags` → `list_tags` round-trips; it does **not** make `testOnly -- -n a` work. ScalaTest class-level string tags need a generated `@TagAnnotation` type; `taggedAs` is per-test. Native per-test injection is a possible future enhancement |
 | Files with no `package` declaration are unindexed | Default-package classes and package-less scripts don't resolve and can't be resolved *to*; brace-nested Scala `package a { … }` is read as the outer package only |
 | Non-standard source layouts | The package index is layout-independent, but Gradle `sourceSets { }` / sbt `unmanagedSourceDirectories` that relocate a package's files without changing their `package` line, Bazel layouts, and generated sources under `build/` / `target/` still under-resolve |
 | Scala cross-build dirs | `src/main/scala-2.13/` and `src/main/scala-3/` files are indexed by their (identical) `package` line, so a type present in both variants resolves to both; mokosh does not know which the build targets |

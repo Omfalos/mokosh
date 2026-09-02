@@ -39,6 +39,7 @@ export const CALL_EDGE_TYPES: ReadonlySet<FileType> = new Set<FileType>([
   "javascript",
   "go",
   "python",
+  "java",
 ]);
 
 export interface LanguageCoverage {

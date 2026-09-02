@@ -62,4 +62,10 @@ def helper() {}
     );
     expect(category).toBe("test");
   });
+
+  test("@Service annotation is logic (not shallow default)", () => {
+    expect(parseGroovy("src/main/groovy/com/x/S.groovy", `@Service\nclass S {}`).category).toBe(
+      "logic",
+    );
+  });
 });
