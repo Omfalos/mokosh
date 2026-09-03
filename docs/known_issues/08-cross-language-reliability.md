@@ -60,7 +60,7 @@ edges, ADR-017 JVM) with no parity checklist, so each language covers a differen
 1. **Kotlin call edges + complexity** — largest user base with a total gap; the Java Lezer
    approach doesn't port (hand-rolled scanner), so needs a real Kotlin grammar
    (`@lezer` Kotlin or tree-sitter via the ADR-002 constraints) — spike first.
-2. **JVM category accuracy** ([issue 3d](03-jvm-cycle-detection-noise.md)) — cheap, high
+2. **JVM category accuracy** (issue 3d, fixed in #11) — cheap, high
    value.
 3. **Import-symbol tracking for JVM** — currently `no` everywhere; needed for
    `exportUsageRatio` / dead-export analysis to work on JVM.

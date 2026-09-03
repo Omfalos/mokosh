@@ -93,4 +93,4 @@ new `src/query/dup-parser.ts` + `src/query/dup-filter.ts`, `src/query/types.ts`,
 
 6a's `signal:` key depends on [issue 5](05-find-duplicates-and-cycles-noise.md)'s
 `DuplicateGroup.signals`. `crossPackage` depends on the workspace graph being available
-([issues 1 & 2](01-monorepo-workspace-packages-timeout.md)). Otherwise independent.
+(issues 1 & 2, fixed in #12). Otherwise independent.

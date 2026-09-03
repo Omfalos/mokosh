@@ -24,7 +24,7 @@ Markdown code-span file references (ADR-009) are added as real graph edges, and
 `GraphAnalyzer.findCycles` (`src/graph/analyzer.ts`, `GraphAnalyzer.findCycles`) treats them
 like imports. Docs linking each other is normal and not a defect — reporting it as a "circular
 dependency" is pure noise. The JVM same-package clique
-([issue 3](03-jvm-cycle-detection-noise.md)) is the other big contributor.
+(issue 3, fixed in #11) is the other big contributor.
 
 ### 5b — `find_duplicates` reports non-actionable repetition
 
@@ -56,7 +56,7 @@ file exclusion — `src/graph/duplication/index.ts`), but they don't cover the a
 ### 5a — kind-aware cycle detection
 
 - Introduce an edge-kind concept (reuse `ImportEdge.type` + the new `isSamePackage` flag from
-  [issue 3](03-jvm-cycle-detection-noise.md); add `isDocReference` for markdown code-span
+  issue 3 (fixed, #11); add `isDocReference` for markdown code-span
   edges, set where ADR-009 references are resolved).
 - `findCycles` skips `isSamePackage` and `isDocReference` edges by default. Add an opt-in
   `includeKinds` param to `analyze` / a dedicated `find_cycles` tool for callers who do want
@@ -115,7 +115,7 @@ file exclusion — `src/graph/duplication/index.ts`), but they don't cover the a
 
 ## Dependencies
 
-5a's `isSamePackage` flag comes from [issue 3](03-jvm-cycle-detection-noise.md). 5b's
+5a's `isSamePackage` flag comes from issue 3 (fixed, #11). 5b's
 language-aware suppression overlaps [issue 7](07-per-language-analysis-semantics.md) — share
 the per-language config surface. `DuplicateGroup.signals` feeds
 [issue 6](06-duplicates-query-language.md).
