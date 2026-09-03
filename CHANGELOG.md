@@ -1,3 +1,21 @@
+## [0.5.1](https://github.com/Omfalos/mokosh/compare/v0.5.0...v0.5.1) (2026-09-03)
+
+### ⚠ BREAKING CHANGES
+
+* **workspace:** `analyze([])` on a monorepo returns a layout-only payload by
+  default (`monorepoType`, `packageCount`, `packages`, `dependsOnResolved`,
+  `nodeCountsResolved`, `note`) instead of `{ nodeCount, categories, cycles }`; pass
+  `eager: true` for the old shape. `get_workspace_packages` returns the same layout
+  shape and no longer requires a prior `analyze`. Top-level docs outside every
+  package are no longer folded into every package graph.
+
+### Bug Fixes
+
+* **duplicates:** drop generated code, import blocks & doc-link cycle noise ([4c52860](https://github.com/Omfalos/mokosh/commit/4c52860e82d7275343af9b3e2fb8bc0cf65f3f4a))
+* **jvm:** capture Java constructor call edges through generic types ([#10](https://github.com/Omfalos/mokosh/issues/10)) ([61c1bbf](https://github.com/Omfalos/mokosh/commit/61c1bbfc1a28f1d31177ed01f97056c76aa71f82))
+* **jvm:** scope synthetic same-package edges to their module + source root ([#11](https://github.com/Omfalos/mokosh/issues/11)) ([f327151](https://github.com/Omfalos/mokosh/commit/f327151e7e895f8e75c361ba4df8104dcba1b97b))
+* **workspace:** stop monorepo analyze & get_workspace_packages from timing out ([#12](https://github.com/Omfalos/mokosh/issues/12)) ([4448649](https://github.com/Omfalos/mokosh/commit/4448649d58772b6d84426cdc6766bea062aa64e2))
+
 ## [0.5.0](https://github.com/Omfalos/mokosh/compare/v0.4.4...v0.5.0) (2026-09-02)
 
 ### Features
