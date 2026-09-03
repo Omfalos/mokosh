@@ -180,6 +180,99 @@ describe("SessionState", {
     });
   });
 
+  describe("workspace layout memoization + in-flight build sharing", () => {
+    test("getLayout runs detectMonorepo once per root", () => {
+      const state = new SessionState();
+      const first = state.getLayout(root);
+      const second = state.getLayout(root);
+      expect(second).toBe(first); // same object reference → not re-detected
+    });
+
+    test("invalidate forces the layout to be re-detected", () => {
+      const state = new SessionState();
+      const first = state.getLayout(root);
+      state.invalidate(root);
+      expect(state.getLayout(root)).not.toBe(first);
+    });
+
+    test("persists the workspace graph to disk and hydrates a fresh session when the digest matches", async () => {
+      fs.writeFileSync(path.join(root, "src", "a.ts"), "export const a = 1;");
+      const wg = makeWorkspaceGraph(root, [makeNode("src/a.ts")]);
+      vi.mocked(createWorkspaceGraph).mockResolvedValue(wg);
+
+      const session1 = new SessionState();
+      await session1.getOrBuildWorkspace(root);
+      expect(fs.existsSync(path.join(root, "mokosh-cache", "workspace-graph.json"))).toBe(true);
+
+      vi.mocked(createWorkspaceGraph).mockClear();
+      const session2 = new SessionState();
+      const hydrated = await session2.getOrBuildWorkspace(root);
+
+      expect(vi.mocked(createWorkspaceGraph)).not.toHaveBeenCalled();
+      expect([...hydrated.packages.keys()]).toEqual([...wg.packages.keys()]);
+    });
+
+    test("rebuilds instead of hydrating once a source file changes", async () => {
+      fs.writeFileSync(path.join(root, "src", "a.ts"), "export const a = 1;");
+      vi.mocked(createWorkspaceGraph).mockResolvedValue(
+        makeWorkspaceGraph(root, [makeNode("src/a.ts")]),
+      );
+      await new SessionState().getOrBuildWorkspace(root);
+
+      fs.writeFileSync(path.join(root, "src", "a.ts"), "export const a = 2; // changed");
+      vi.mocked(createWorkspaceGraph).mockClear();
+      vi.mocked(createWorkspaceGraph).mockResolvedValue(
+        makeWorkspaceGraph(root, [makeNode("src/a.ts")]),
+      );
+      await new SessionState().getOrBuildWorkspace(root);
+
+      expect(vi.mocked(createWorkspaceGraph)).toHaveBeenCalledTimes(1);
+    });
+
+    test("forceFresh bypasses a valid disk cache", async () => {
+      fs.writeFileSync(path.join(root, "src", "a.ts"), "export const a = 1;");
+      vi.mocked(createWorkspaceGraph).mockResolvedValue(
+        makeWorkspaceGraph(root, [makeNode("src/a.ts")]),
+      );
+      await new SessionState().getOrBuildWorkspace(root);
+
+      vi.mocked(createWorkspaceGraph).mockClear();
+      vi.mocked(createWorkspaceGraph).mockResolvedValue(
+        makeWorkspaceGraph(root, [makeNode("src/a.ts")]),
+      );
+      await new SessionState().getOrBuildWorkspace(root, { forceFresh: true });
+
+      expect(vi.mocked(createWorkspaceGraph)).toHaveBeenCalledTimes(1);
+    });
+
+    test("getOrBuildWorkspace shares one build across concurrent callers and passes the memoized layout", async () => {
+      let resolveBuild!: (wg: WorkspaceGraph) => void;
+      vi.mocked(createWorkspaceGraph).mockReturnValueOnce(
+        new Promise<WorkspaceGraph>((res) => {
+          resolveBuild = res;
+        }),
+      );
+
+      const state = new SessionState();
+      const p1 = state.getOrBuildWorkspace(root);
+      const p2 = state.getOrBuildWorkspace(root);
+
+      resolveBuild(makeWorkspaceGraph(root, [makeNode("src/a.ts")]));
+      const [g1, g2] = await Promise.all([p1, p2]);
+      expect(g1).toBe(g2); // both concurrent callers get the one built graph
+
+      expect(vi.mocked(createWorkspaceGraph)).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(createWorkspaceGraph).mock.calls[0]?.[1]).toMatchObject({
+        layout: state.getLayout(root),
+      });
+
+      // After settle the in-flight entry is gone and the resolved graph is cached.
+      const p3 = state.getOrBuildWorkspace(root);
+      await expect(p3).resolves.toBe(await p1);
+      expect(vi.mocked(createWorkspaceGraph)).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe("getOrBuild disk-cache seeding", () => {
     function graphCachePath(): string {
       return path.join(root, "mokosh-cache", "graph.json");

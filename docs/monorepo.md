@@ -45,6 +45,21 @@ Pass `entryPoints: []` to `analyze` to trigger workspace detection:
 { "name": "analyze", "arguments": { "root": "/path/to/monorepo", "entryPoints": [] } }
 ```
 
+This returns the **package layout immediately** (`monorepoType`, `packageCount`, package list).
+The per-package dependency graphs are built lazily on the first `get_workspace_affected` call —
+so `analyze([])` stays fast even on a large JVM monorepo. Pass `eager: true` to build every
+package graph up front and get the `{ nodeCount, categories, cycles }` payload instead.
+
+Once built, the workspace graph is persisted to `mokosh-cache/workspace-graph.json` and keyed by
+a digest of every source file's mtime+size — a later session against an unchanged repo hydrates
+it from disk instead of rebuilding. A file edit invalidates only its own package on the next
+rebuild (the rest are reused incrementally).
+
+**Very large monorepos:** scope the build to a subset with
+`analyze({ entryPoints: [], packages: ["core", "api"] })`. Prune generated source trees from the
+JVM package-index scan with `ignoreDirs` in `mokosh.config.json` (or the `MOKOSH_IGNORE_DIRS`
+env var). Tune parallelism with `MOKOSH_WORKSPACE_CONCURRENCY` (default: CPU count; `1` = sequential).
+
 Then use the workspace-specific tools:
 
 ### `get_workspace_packages`
@@ -53,10 +68,17 @@ Then use the workspace-specific tools:
 { "name": "get_workspace_packages", "arguments": { "root": "/path/to/monorepo" } }
 ```
 
-Returns each package with its node count and the workspace packages it depends on:
+Answered from the repo layout and `package.json` manifests alone — **no `analyze` required** and
+no graph build. Returns each package with the workspace packages it depends on, plus per-package
+`nodeCount` and (for Gradle/sbt) exact `dependsOn` **only when a workspace graph is already
+built** — the `dependsOnResolved` / `nodeCountsResolved` flags say which:
 
 ```json
 {
+  "monorepoType": "pnpm",
+  "packageCount": 2,
+  "dependsOnResolved": true,
+  "nodeCountsResolved": true,
   "packages": [
     { "name": "@myorg/shared", "relativeRoot": "packages/shared", "nodeCount": 24, "dependsOn": [] },
     { "name": "@myorg/api",    "relativeRoot": "packages/api",    "nodeCount": 61, "dependsOn": ["@myorg/shared"] }

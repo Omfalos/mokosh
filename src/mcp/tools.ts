@@ -13,7 +13,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "analyze",
     description:
-      "Build the dependency graph for a project from entry points. Returns a summary of node count, categories, and cycles. Must be called before get_dependencies, get_dependents, get_affected, or propose_tags. Pass an empty entryPoints array to auto-detect a monorepo (pnpm/npm/yarn/Nx/Turborepo) and build per-package graphs — use get_workspace_packages and get_workspace_affected for monorepo queries.",
+      "Build the dependency graph for a project from entry points. Returns a summary of node count, categories, and cycles. Must be called before get_dependencies, get_dependents, get_affected, or propose_tags. Pass an empty entryPoints array to auto-detect a monorepo (pnpm/npm/yarn/Nx/Turborepo/Gradle/sbt): this returns the package layout immediately and builds per-package graphs lazily on the first get_workspace_affected call — pass eager:true to build them all up front. Use get_workspace_packages and get_workspace_affected for monorepo queries.",
     inputSchema: {
       type: "object",
       properties: {
@@ -26,6 +26,17 @@ export const TOOL_DEFINITIONS = [
           items: { type: "string" },
           description:
             "Entry point files relative to root (e.g. ['src/index.ts']). Pass [] to trigger monorepo auto-detection.",
+        },
+        eager: {
+          type: "boolean",
+          description:
+            "Monorepo only: build every package graph before returning (restores the { nodeCount, categories, cycles } payload) instead of the fast layout-only response. Default false.",
+        },
+        packages: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Monorepo only: restrict the build to these package names or relative roots. The escape hatch for very large monorepos.",
         },
       },
       required: ["root", "entryPoints"],
@@ -418,7 +429,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "get_workspace_packages",
     description:
-      "List all workspace packages detected in a monorepo, with their node counts and inter-package dependencies. Requires a prior analyze() call with empty entryPoints on a monorepo root.",
+      "List all workspace packages detected in a monorepo: name, relativeRoot, and dependsOn. Answers from the repo layout and package.json manifests alone — no analyze() required and no graph build, so it is fast on large monorepos. Per-package nodeCount (and, for Gradle/sbt monorepos, exact dependsOn edges) are included only when a workspace graph is already built from a prior analyze() call; check the dependsOnResolved / nodeCountsResolved flags in the response.",
     inputSchema: {
       type: "object",
       properties: {

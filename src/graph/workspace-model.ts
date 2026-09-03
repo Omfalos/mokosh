@@ -1,7 +1,7 @@
 /** WorkspaceGraph holds one per-package Graph for a monorepo and exposes cross-package blast-radius queries. */
 import type { FileNode } from "../types/node";
 import { Graph } from "./model";
-import type { WorkspacePackage } from "./workspace";
+import type { WorkspacePackage } from "./workspace/types";
 
 /** @description JSON-safe snapshot of a `WorkspaceGraph`, suitable for writing to disk and restoring via `WorkspaceGraph.deserialize`. */
 export interface SerializedWorkspaceGraph {

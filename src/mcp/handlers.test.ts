@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { WorkspaceGraph } from "../graph/workspace-model";
-import { Graph } from "../index";
+import { detectMonorepo, Graph } from "../index";
 import type { SerializedGraph } from "../types/graph";
 import { SessionState } from "./cache";
 import {
@@ -102,6 +102,7 @@ function makeCache(): SessionState {
     getOrBuild: vi.fn().mockResolvedValue(graph),
     require: vi.fn().mockReturnValue(graph),
     ensureFresh: vi.fn().mockResolvedValue(graph),
+    getLayout: vi.fn((r: string) => detectMonorepo(r)),
     storeLastAnalyze: vi.fn(),
     startWatching: vi.fn(),
     getOrBuildChangeImpact: vi.fn().mockReturnValue({ impact: new Map(), graphHash: "" }),
@@ -1110,6 +1111,7 @@ function makeWorkspaceCache(wg: WorkspaceGraph): SessionState {
     requireWorkspace: vi.fn().mockReturnValue(wg),
     hasWorkspace: vi.fn().mockReturnValue(true),
     ensureFreshWorkspace: vi.fn().mockResolvedValue(wg),
+    getLayout: vi.fn((r: string) => detectMonorepo(r)),
     storeLastAnalyze: vi.fn(),
     startWatching: vi.fn(),
   } as unknown as SessionState;
@@ -1182,6 +1184,80 @@ describe("handleAnalyze (monorepo auto-detection)", {
     };
     expect(data.nodeCount).toBe(3);
   });
+
+  test("progressive default: returns the layout without building per-package graphs", async () => {
+    const { detectMonorepo } = await import("../index.js");
+    vi.mocked(detectMonorepo).mockReturnValue({
+      type: "pnpm",
+      types: ["pnpm"],
+      root: ROOT,
+      packages: [
+        {
+          name: "@org/shared",
+          root: `${ROOT}/packages/shared`,
+          relativeRoot: "packages/shared",
+          entryPoints: [],
+        },
+      ],
+      packageMap: new Map(),
+    });
+    const cache = makeWorkspaceCache(makeWorkspaceFixture());
+    vi.mocked(cache.hasWorkspace).mockReturnValue(false);
+
+    const data = parse(await handleAnalyze(cache, { root: ROOT, entryPoints: [] })) as {
+      monorepoType: string;
+      nodeCountsResolved: boolean;
+    };
+
+    expect(data.monorepoType).toBe("pnpm");
+    expect(data.nodeCountsResolved).toBe(false);
+    expect(cache.getOrBuildWorkspace).not.toHaveBeenCalled();
+    expect(cache.storeLastAnalyze).toHaveBeenCalledWith(ROOT, { kind: "workspace" });
+
+    vi.mocked(detectMonorepo).mockReturnValue({
+      type: "none",
+      types: [],
+      packages: [],
+      packageMap: new Map(),
+      root: ROOT,
+    });
+  });
+
+  test("eager:true builds every package graph and returns node counts", async () => {
+    const { detectMonorepo } = await import("../index.js");
+    vi.mocked(detectMonorepo).mockReturnValue({
+      type: "pnpm",
+      types: ["pnpm"],
+      root: ROOT,
+      packages: [
+        {
+          name: "@org/shared",
+          root: `${ROOT}/packages/shared`,
+          relativeRoot: "packages/shared",
+          entryPoints: [],
+        },
+      ],
+      packageMap: new Map(),
+    });
+    const wg = makeWorkspaceFixture();
+    const cache = makeWorkspaceCache(wg);
+
+    const data = parse(
+      await handleAnalyze(cache, { root: ROOT, entryPoints: [], eager: true }),
+    ) as { packageCount: number; packages: Array<{ package: string; nodeCount: number }> };
+
+    expect(cache.getOrBuildWorkspace).toHaveBeenCalled();
+    expect(data.packageCount).toBe(2);
+    expect(data.packages.every((p) => typeof p.nodeCount === "number")).toBe(true);
+
+    vi.mocked(detectMonorepo).mockReturnValue({
+      type: "none",
+      types: [],
+      packages: [],
+      packageMap: new Map(),
+      root: ROOT,
+    });
+  });
 });
 
 describe("handleGetWorkspacePackages", {
@@ -1206,18 +1282,41 @@ describe("handleGetWorkspacePackages", {
     "workspace-model",
   ],
 }, () => {
-  test("returns package list with node counts and dependencies", async () => {
+  test("returns package list with node counts and dependencies from a cached graph", async () => {
+    const { detectMonorepo } = await import("../index.js");
+    vi.mocked(detectMonorepo).mockReturnValue({
+      type: "pnpm",
+      types: ["pnpm"],
+      root: ROOT,
+      packages: [
+        {
+          name: "@org/shared",
+          root: `${ROOT}/packages/shared`,
+          relativeRoot: "packages/shared",
+          entryPoints: [],
+        },
+        {
+          name: "@org/app",
+          root: `${ROOT}/packages/app`,
+          relativeRoot: "packages/app",
+          entryPoints: [],
+        },
+      ],
+      packageMap: new Map(),
+    });
     const wg = makeWorkspaceFixture();
     const cache = makeWorkspaceCache(wg);
 
     const data = parse(await handleGetWorkspacePackages(cache, { root: ROOT })) as {
       monorepoType: string;
       packageCount: number;
+      nodeCountsResolved: boolean;
       packages: Array<{ name: string; nodeCount: number; dependsOn: string[] }>;
     };
 
     expect(data.monorepoType).toBe("pnpm");
     expect(data.packageCount).toBe(2);
+    expect(data.nodeCountsResolved).toBe(true);
 
     const shared = data.packages.find(
       (p) => p.name === "@org/shared",
@@ -1228,6 +1327,56 @@ describe("handleGetWorkspacePackages", {
     expect(shared.dependsOn).toEqual([]);
     expect(app.nodeCount).toBe(1);
     expect(app.dependsOn).toContain("@org/shared");
+
+    vi.mocked(detectMonorepo).mockReturnValue({
+      type: "none",
+      types: [],
+      packages: [],
+      packageMap: new Map(),
+      root: ROOT,
+    });
+  });
+
+  test("answers from the layout alone when no workspace graph is cached — no build", async () => {
+    const { detectMonorepo } = await import("../index.js");
+    vi.mocked(detectMonorepo).mockReturnValue({
+      type: "pnpm",
+      types: ["pnpm"],
+      root: ROOT,
+      packages: [
+        {
+          name: "@org/shared",
+          root: `${ROOT}/packages/shared`,
+          relativeRoot: "packages/shared",
+          entryPoints: [],
+        },
+      ],
+      packageMap: new Map(),
+    });
+    const cache = makeWorkspaceCache(makeWorkspaceFixture());
+    vi.mocked(cache.hasWorkspace).mockReturnValue(false);
+
+    const data = parse(await handleGetWorkspacePackages(cache, { root: ROOT })) as {
+      monorepoType: string;
+      packageCount: number;
+      nodeCountsResolved: boolean;
+      packages: Array<{ name: string; nodeCount?: number }>;
+    };
+
+    expect(data.monorepoType).toBe("pnpm");
+    expect(data.packageCount).toBe(1);
+    expect(data.nodeCountsResolved).toBe(false);
+    expect(data.packages[0]?.nodeCount).toBeUndefined();
+    expect(cache.getOrBuildWorkspace).not.toHaveBeenCalled();
+    expect(cache.ensureFreshWorkspace).not.toHaveBeenCalled();
+
+    vi.mocked(detectMonorepo).mockReturnValue({
+      type: "none",
+      types: [],
+      packages: [],
+      packageMap: new Map(),
+      root: ROOT,
+    });
   });
 });
 

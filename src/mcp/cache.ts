@@ -5,18 +5,23 @@ import type { MokoshConfig } from "../config";
 import {
   buildChangeImpactCache,
   type ChangeImpactCache,
+  computeWorkspaceSourceDigest,
   configToGraphOptions,
   createImportMap,
   createWorkspaceGraph,
   DEFAULT_CACHE_DIR,
   DEFAULT_DUPLICATION_TOKEN_CACHE_FILE,
   DEFAULT_GRAPH_CACHE_FILE,
+  DEFAULT_WORKSPACE_GRAPH_CACHE_FILE,
   type DuplicationTokenCache,
+  detectMonorepo,
   Graph,
   loadTokenCacheFromDisk,
+  type MonorepoLayout,
   type ParallelParsingOption,
+  type SerializedWorkspaceGraph,
   saveTokenCacheToDisk,
-  type WorkspaceGraph,
+  WorkspaceGraph,
 } from "../index";
 import { IGNORE_WATCH } from "../watch-ignore";
 
@@ -34,6 +39,53 @@ function graphCachePath(root: string, config: MokoshConfig | undefined): string 
   return config?.cachePath
     ? path.resolve(root, config.cachePath)
     : path.join(root, DEFAULT_CACHE_DIR, DEFAULT_GRAPH_CACHE_FILE);
+}
+
+/** Where the disk-persisted *workspace* graph for `root` lives — the cache directory (derived
+ *  from the same `cachePath` override) plus `workspace-graph.json`. */
+function workspaceGraphCachePath(root: string, config: MokoshConfig | undefined): string {
+  const cacheDir = config?.cachePath
+    ? path.dirname(path.resolve(root, config.cachePath))
+    : path.join(root, DEFAULT_CACHE_DIR);
+  return path.join(cacheDir, DEFAULT_WORKSPACE_GRAPH_CACHE_FILE);
+}
+
+/**
+ * @description Hydrates a persisted workspace graph from disk, but only if its stored source
+ *   digest still matches the live tree. Never throws — a missing/corrupt/foreign/stale file
+ *   degrades to `null` (a full rebuild), never a wrong answer.
+ * @param cachePath - Path written by {@link saveWorkspaceDiskCache}.
+ * @param expectedDigest - Current `computeWorkspaceSourceDigest` result for the root.
+ * @returns The deserialized `WorkspaceGraph`, or `null`.
+ */
+function loadWorkspaceDiskCache(cachePath: string, expectedDigest: string): WorkspaceGraph | null {
+  try {
+    if (!fs.existsSync(cachePath)) return null;
+    const parsed = JSON.parse(fs.readFileSync(cachePath, "utf-8")) as {
+      digest?: string;
+      graph?: SerializedWorkspaceGraph;
+    };
+    if (!parsed.graph || parsed.digest !== expectedDigest) return null;
+    return WorkspaceGraph.deserialize(parsed.graph);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * @description Persists a built workspace graph plus the source digest it was built from. Never
+ *   throws: a write failure (read-only fs, etc.) is logged to stderr and otherwise ignored.
+ * @param cachePath - Destination file.
+ * @param digest - The digest the graph was built against.
+ * @param wg - The workspace graph to serialize.
+ */
+function saveWorkspaceDiskCache(cachePath: string, digest: string, wg: WorkspaceGraph): void {
+  try {
+    fs.mkdirSync(path.dirname(cachePath), { recursive: true });
+    fs.writeFileSync(cachePath, JSON.stringify({ digest, graph: wg.serialize() }));
+  } catch (err) {
+    process.stderr.write(`Warning: failed to persist workspace graph cache: ${err}\n`);
+  }
 }
 
 /**
@@ -75,6 +127,8 @@ export class SessionState {
   private readonly graphs = new Map<string, Graph>();
   private readonly configs = new Map<string, MokoshConfig>();
   private readonly workspaceGraphs = new Map<string, WorkspaceGraph>();
+  private readonly layouts = new Map<string, MonorepoLayout>();
+  private readonly workspaceBuilds = new Map<string, Promise<WorkspaceGraph>>();
   private readonly changeImpactCaches = new Map<string, ChangeImpactCache>();
   private readonly dirtyRoots = new Set<string>();
   private readonly watchers = new Map<string, FSWatcher>();
@@ -147,25 +201,73 @@ export class SessionState {
   }
 
   /**
+   * @description Returns the monorepo layout for `root`, running `detectMonorepo` at most once
+   *   per session. `detectMonorepo` walks every Gradle/sbt module on a JVM monorepo, so both
+   *   `handleAnalyze` and `handleGetWorkspacePackages` sharing this result matters.
+   * @param root - Absolute project root path.
+   * @returns The (memoized) `MonorepoLayout`.
+   */
+  getLayout(root: string): MonorepoLayout {
+    const cached = this.layouts.get(root);
+    if (cached) return cached;
+    const layout = detectMonorepo(root);
+    this.layouts.set(root, layout);
+    return layout;
+  }
+
+  /**
    * @description Builds (or returns the cached) workspace graph for a monorepo root.
    *   Workspace graphs are never incrementally updated — a fresh build is triggered when
-   *   the cache is empty for this root.
+   *   the cache is empty for this root. A build already in flight for `root` (e.g. a
+   *   concurrent `analyze` + `get_workspace_affected`) is awaited rather than started again.
+   *   On a cold start the graph is hydrated from `<root>/mokosh-cache/workspace-graph.json`
+   *   when its stored source digest still matches the live tree; `forceFresh` skips that
+   *   (used after the file watcher flags a change).
    */
   async getOrBuildWorkspace(
     root: string,
     options: {
-      packages?: string[];
+      packages?: string[] | undefined;
       silent?: boolean;
       gitStats?: boolean;
       parallelParsing?: ParallelParsingOption | undefined;
       pathAliases?: Record<string, string[]> | undefined;
+      additionalIgnoreDirs?: string[] | undefined;
+      forceFresh?: boolean;
+      previousWorkspace?: WorkspaceGraph | undefined;
     } = {},
   ): Promise<WorkspaceGraph> {
     const cached = this.workspaceGraphs.get(root);
     if (cached) return cached;
-    const workspaceGraph = await createWorkspaceGraph(root, options);
-    this.workspaceGraphs.set(root, workspaceGraph);
-    return workspaceGraph;
+
+    const inFlight = this.workspaceBuilds.get(root);
+    if (inFlight) return inFlight;
+
+    const { forceFresh, ...buildOptions } = options;
+    const cachePath = workspaceGraphCachePath(root, this.configs.get(root));
+    const { digest, files } = computeWorkspaceSourceDigest(root);
+
+    const hydrated = forceFresh ? null : loadWorkspaceDiskCache(cachePath, digest);
+    if (hydrated) {
+      this.workspaceGraphs.set(root, hydrated);
+      return hydrated;
+    }
+
+    const build = createWorkspaceGraph(root, {
+      ...buildOptions,
+      layout: this.getLayout(root),
+      projectFiles: files,
+    })
+      .then((workspaceGraph) => {
+        this.workspaceGraphs.set(root, workspaceGraph);
+        saveWorkspaceDiskCache(cachePath, digest, workspaceGraph);
+        return workspaceGraph;
+      })
+      .finally(() => {
+        this.workspaceBuilds.delete(root);
+      });
+    this.workspaceBuilds.set(root, build);
+    return build;
   }
 
   /**
@@ -275,12 +377,23 @@ export class SessionState {
    * @throws {Error} if `analyze` has never been called for this root.
    */
   async ensureFreshWorkspace(root: string): Promise<WorkspaceGraph> {
-    if (!this.dirtyRoots.has(root)) return this.requireWorkspace(root);
+    if (!this.dirtyRoots.has(root)) {
+      const cached = this.workspaceGraphs.get(root);
+      if (cached) return cached;
+      // Progressive `analyze` returns before building; the first workspace query that needs
+      // edges triggers the build here.
+      return this.getOrBuildWorkspace(root, configToGraphOptions(this.configs.get(root)));
+    }
     this.dirtyRoots.delete(root);
     this.changeImpactCaches.delete(root);
+    const previousWorkspace = this.workspaceGraphs.get(root);
     this.workspaceGraphs.delete(root);
     const config = this.configs.get(root);
-    return this.getOrBuildWorkspace(root, configToGraphOptions(config));
+    return this.getOrBuildWorkspace(root, {
+      ...configToGraphOptions(config),
+      forceFresh: true,
+      previousWorkspace,
+    });
   }
 
   /**
@@ -342,6 +455,8 @@ export class SessionState {
     const had = this.graphs.has(root) || this.workspaceGraphs.has(root);
     this.graphs.delete(root);
     this.workspaceGraphs.delete(root);
+    this.workspaceBuilds.delete(root);
+    this.layouts.delete(root);
     this.changeImpactCaches.delete(root);
     this.dirtyRoots.delete(root);
     this.duplicationTokenCaches.delete(root);
