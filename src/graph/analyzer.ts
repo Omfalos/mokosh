@@ -71,6 +71,11 @@ export class GraphAnalyzer {
       if (node) {
         for (const imp of node.imports) {
           if (!imp.toPath || imp.isExternal) continue;
+          // Synthetic JVM same-package edges wire every package into a clique (and, before the
+          // index was partitioned, main↔test); they are implicit sibling coupling, not real
+          // import cycles. Blast-radius analyses still use them — only structural cycle
+          // detection opts out here.
+          if (imp.isSamePackage) continue;
 
           if (recStack.has(imp.toPath)) {
             // Found a cycle

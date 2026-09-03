@@ -421,3 +421,41 @@ No new native dependencies. One new pure-JS dependency: `@lezer/java`.
   set.
 - Two build systems (Gradle, sbt) each need their own version reader and workspace detector;
   sbt's `.scala` build definitions are only partially analysable without evaluating them.
+
+---
+
+## Amendment (2026-09-03): partition the package index by module + source root
+
+Dogfooding v0.5.0 against Java/Kotlin **monorepos** (`docs/known_issues/03-jvm-cycle-detection-noise.md`)
+showed the package-name-only index over-resolves the synthetic same-package edge across two
+boundaries a reader cares about:
+
+- **`src/main` ↔ `src/test`** — test files conventionally re-declare the main package, so
+  `com.example.Foo` and `com.example.FooTest` landed in one bucket and wired a main↔test
+  2-cycle for every tested class (plus longer `app → lib → app` loops once a test pulled in
+  another module), and polluted `get_affected` / `get_dependents` with production → test edges.
+- **Cross-module package-name collision** — separate Gradle/sbt modules sharing `util` /
+  `model` / `di` package names merged, producing module-level cycles.
+
+Change: `PackageIndex` is now `Map<packageName, PackagePartition[]>`, where each partition is
+one `(module, source-root)` slice. `jvmPathPartition(absPath)` derives both from the innermost
+`.../src/<root>/...` path segment — path-only, no filesystem probing, so it is a pure function
+of the path and safe under `DefaultResolver`'s directory-keyed resolution cache.
+
+- The **synthetic `<pkg>.*` wildcard** resolves only within the importer's own slice
+  (`module` **and** literal source-root segment equal), with a filename-based
+  defence-in-depth drop of test-named targets for unconventional layouts.
+- **Explicit `import a.b.C`** is unchanged — it still searches every slice of the package, so
+  a `src/test/` file importing `src/main/`, or a real cross-module import, resolves as before.
+
+The synthetic edge also now carries `isSamePackage: true` (`ImportEdge`, set in
+`jvmPackageEdge`); `GraphAnalyzer.findCycles` skips it, so the latent intra-package clique
+(every package a complete digraph) no longer surfaces as cycles, while blast-radius analyses
+(`get_affected` / `get_dependents` / `get_workspace_affected`) keep it. `classifyJvm` gained
+TestNG / AssertJ / Truth / Hamcrest / MockK import prefixes and a weak `*Test` / `*Spec` /
+`*IT` filename fallback (checked last, after annotations and source-root).
+
+Single-module behaviour is unchanged — one module, one `main` slice per package. This
+partitioned index is also what the workspace-build perf work
+(`docs/known_issues/01-…`, `02-…`) will share instead of rebuilding a whole-repo index per
+package.

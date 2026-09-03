@@ -9,7 +9,7 @@ dependencies.
 |---|------|---------|
 | 1 | [`01-monorepo-workspace-packages-timeout.md`](01-monorepo-workspace-packages-timeout.md) | `get_workspace_packages` times out in MCP clients (Cursor) on monorepos |
 | 2 | [`02-monorepo-empty-entrypoints-timeout.md`](02-monorepo-empty-entrypoints-timeout.md) | `analyze` with `entryPoints: []` times out in monorepos |
-| 3 | [`03-jvm-cycle-detection-noise.md`](03-jvm-cycle-detection-noise.md) | JVM cycle detection is noise: whole packages flagged as cycles, "app depends on its own tests" |
+| 3 | [`03-jvm-cycle-detection-noise.md`](03-jvm-cycle-detection-noise.md) | JVM monorepo cycle noise: test files share package names with main, producing false cross-package cycles (`app ↔ app`, `app → lib → app`); single-module repos mostly fine |
 | 4 | [`04-java-generics-call-edges.md`](04-java-generics-call-edges.md) | Java generics drop call edges (`new Foo<T>()`), breaking `get_call_graph` / `get_callers` |
 | 5 | [`05-find-duplicates-and-cycles-noise.md`](05-find-duplicates-and-cycles-noise.md) | `find_duplicates` and `cycles` bury real findings under false positives (docs reported as cycles, generated code as duplicates) |
 | 6 | [`06-duplicates-query-language.md`](06-duplicates-query-language.md) | `find_duplicates` output is too large for an LLM to consume; needs a `key:value` query/slim/summary layer |
@@ -21,8 +21,9 @@ dependencies.
 - **Issues 1 & 2** are the same build path (`createWorkspaceGraph`) hitting the MCP call
   timeout from two entry tools — fix together.
 - **Issues 1/2 and 3** both depend on redesigning the **JVM package index**
-  (`src/graph/lang-resolvers/jvm.ts`) to be partitioned by module + source root: fixes the
-  cycle noise *and* lets one index be shared across the workspace build.
+  (`src/graph/lang-resolvers/jvm.ts`) to be partitioned by module + source root (`src/main`
+  vs `src/test`): this is issue 3's primary fix — it kills the main↔test and cross-module
+  cycles — *and* lets one index be shared across the workspace build.
 - **Issues 3 and 5** both need **edge-kind-aware `findCycles`** — issue 3 adds
   `isSamePackage`, issue 5 adds `isDocReference` and skips both by default.
 - **Issues 5, 6 and 7** all touch the `find_duplicates` result shape: issue 5 adds
@@ -34,7 +35,8 @@ dependencies.
 ## Suggested order
 
 1. **Issue 4** — isolated, small, no dependencies.
-2. **Issue 3** — introduces the partitioned package index + `isSamePackage` edge flag.
+2. **Issue 3** — partition the package index by module + source root (kills the cross-package
+   test cycles); also lands the `isSamePackage` edge flag for the latent intra-package clique.
 3. **Issue 5** — edge-kind-aware cycles (reuses issue 3's flag) + generated-code filtering;
    lands the `DuplicateGroup.signals` field.
 4. **Issue 7** — per-language definition extractors; lands `kind: "definition"` groups.

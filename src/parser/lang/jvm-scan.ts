@@ -16,7 +16,40 @@ const TEST_IMPORT_PREFIXES = [
   "spock.lang",
   "io.kotest",
   "org.spekframework",
+  "org.testng",
+  "org.assertj",
+  "com.google.truth",
+  "org.hamcrest",
+  "io.mockk",
+  "com.nhaarman.mockitokotlin2",
 ];
+
+/**
+ * Conventional Gradle/Maven/sbt source-root names that hold test code, as they appear in the
+ * `.../src/<root>/...` path segment. Shared between {@link classifyJvm} (path-based test
+ * classification) and the resolver's source-root partitioning so the list is defined once.
+ */
+export const TEST_SOURCE_ROOTS = ["test", "androidTest", "integrationTest", "it"] as const;
+
+/** A JVM module source root, derived from the `src/<root>/` path segment. */
+export type SourceRoot = "main" | (typeof TEST_SOURCE_ROOTS)[number] | "unknown";
+
+const TEST_SOURCE_ROOT_RE = new RegExp(`/src/(${TEST_SOURCE_ROOTS.join("|")})/`);
+
+/** Filename stems that weakly suggest a test file when no stronger signal classified it. */
+const TEST_NAME_SUFFIX_RE = /(?:Test|Tests|Spec|IT|ITCase)$/;
+
+/**
+ * @description Whether a file's base name follows a conventional JVM test-class naming pattern
+ *   (`FooTest`, `BarSpec`, `BazIT`, …). A weak signal — used as a last-resort classification
+ *   fallback and as defence-in-depth in the resolver for repos with unconventional layouts.
+ * @param fileName - File name or base name, with or without extension.
+ * @returns True when the stem ends in a recognised test suffix.
+ */
+export function looksLikeJvmTestName(fileName: string): boolean {
+  const stem = fileName.replace(/\.\w+$/, "");
+  return TEST_NAME_SUFFIX_RE.test(stem);
+}
 
 /**
  * @description Scans raw source for `// @tag name` comment markers.
@@ -104,6 +137,7 @@ export function jvmPackageEdge(fromPath: string, packageName: string): ImportEdg
     isExternal: true,
     isStyle: false,
     type: "side-effect",
+    isSamePackage: true,
   };
 }
 
@@ -188,7 +222,7 @@ export function classifyJvm(
   if (base.endsWith(".gradle") || base === "build.gradle.kts" || base === "settings.gradle.kts") {
     return "config";
   }
-  if (/\/src\/(test|androidTest|integrationTest|it)\//.test(normalized)) return "test";
+  if (TEST_SOURCE_ROOT_RE.test(normalized)) return "test";
   if (
     importSpecifiers.some((spec) =>
       TEST_IMPORT_PREFIXES.some((prefix) => spec === prefix || spec.startsWith(`${prefix}.`)),
@@ -202,6 +236,11 @@ export function classifyJvm(
   if (annotations.some((a) => UI_ANNOTATIONS.has(a))) return "ui";
   if ((hints.typeNames ?? []).some((n) => UI_NAME_SUFFIXES.some((s) => n.endsWith(s)))) return "ui";
   if (annotations.some((a) => LOGIC_ANNOTATIONS.has(a))) return "logic";
+
+  // Weakest signal, checked last: a `FooTest` / `BarSpec` / `BazIT` file name outside a
+  // recognised test root and with no test-framework import (unconventional layouts, TestNG
+  // projects that also skipped the import list).
+  if (looksLikeJvmTestName(base)) return "test";
 
   return "logic";
 }
