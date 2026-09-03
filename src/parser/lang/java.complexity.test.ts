@@ -134,4 +134,16 @@ describe("java complexity", { tags: ["java", "parseJava", "complexity"] }, () =>
     const { functions } = parseJava("A.java", `class A { A() { if (true) {} } }`);
     expect(functions?.map((fn) => fn.name)).toEqual(["A"]);
   });
+
+  test("a generic method declaration is qualified as Owner.method (regression)", () => {
+    const { functions } = parseJava(
+      "A.java",
+      `class Box {
+  <T> T pick(T a, T b) { return a != null ? a : b; }
+}`,
+    );
+    const pick = functions?.find((fn) => fn.name === "Box.pick");
+    expect(pick?.name).toBe("Box.pick");
+    expect(pick?.complexity).toBe(2);
+  });
 });
