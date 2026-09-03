@@ -3,7 +3,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import { DEFAULT_IGNORE_DIRS } from "../../const";
-import { extractJvmPackage } from "../../parser/lang/jvm-scan";
+import {
+  extractJvmPackage,
+  looksLikeJvmTestName,
+  type SourceRoot,
+  TEST_SOURCE_ROOTS,
+} from "../../parser/lang/jvm-scan";
 import type { LangResolver, ResolvedImport } from "./types";
 
 /** Source-file extensions the index covers. `.gradle` is excluded — Groovy build scripts rarely declare a package and are not import targets. */
@@ -15,8 +20,60 @@ const MAX_SCAN_DEPTH = 12;
 /** Bytes read from the head of each file to find its `package` line. */
 const PACKAGE_SCAN_BYTES = 4096;
 
-/** Maps a dotted package name to the absolute paths of every source file declaring it. */
-type PackageIndex = Map<string, string[]>;
+/**
+ * One `(module, source-root)` slice of a package: the files declaring package `P` that also live
+ * in the same Gradle/sbt module and the same `src/<root>/` source set. The synthetic
+ * same-package edge only ever resolves within a single slice; explicit FQN imports search across
+ * all slices of a package.
+ */
+interface PackagePartition {
+  /** Absolute path of the enclosing module — everything before `/src/`, or the file's directory when there is no `src/` layout. */
+  module: string;
+  /** Literal `src/<segment>` name (`main`, `test`, `foo`, …), or `""` when there is no `src/` layout. Discriminates slices within one module. */
+  rootSegment: string;
+  /** Normalised source-root kind, used for the test/main defence-in-depth check. */
+  sourceRoot: SourceRoot;
+  /** Absolute paths of the source files in this slice, sorted. */
+  files: string[];
+}
+
+/** Maps a dotted package name to its `(module, source-root)` slices. */
+type PackageIndex = Map<string, PackagePartition[]>;
+
+const TEST_ROOT_SET = new Set<string>(TEST_SOURCE_ROOTS);
+
+/**
+ * @description Splits an absolute JVM source path into the enclosing module and its source root,
+ *   from the innermost `.../src/<root>/...` segment. Path-only — no filesystem probing — so the
+ *   result is a pure function of the path and safe to use under `DefaultResolver`'s
+ *   directory-keyed resolution cache (every file in one directory yields the same partition).
+ * @param absPath - Absolute path to a JVM source file.
+ * @returns The module root, the literal source-root segment, and its normalised kind.
+ */
+export function jvmPathPartition(absPath: string): {
+  module: string;
+  rootSegment: string;
+  sourceRoot: SourceRoot;
+} {
+  const norm = absPath.replace(/\\/g, "/");
+  const match = norm.match(/^(.*)\/src\/([^/]+)(?:\/|$)/);
+  if (!match?.[1] || !match[2]) {
+    const slash = norm.lastIndexOf("/");
+    return {
+      module: slash === -1 ? norm : norm.slice(0, slash),
+      rootSegment: "",
+      sourceRoot: "unknown",
+    };
+  }
+  const rootSegment = match[2];
+  const sourceRoot: SourceRoot =
+    rootSegment === "main"
+      ? "main"
+      : TEST_ROOT_SET.has(rootSegment)
+        ? (rootSegment as SourceRoot)
+        : "unknown";
+  return { module: match[1], rootSegment, sourceRoot };
+}
 
 /**
  * @description Resolves fully-qualified JVM imports (`com.example.data.UserRepository`,
@@ -48,15 +105,16 @@ export class JvmLangResolver implements LangResolver {
 
   /**
    * @description Resolves a JVM import specifier to all matching local source files.
-   * @param currentFile - Absolute path of the importing file; excluded from the results so a
-   *   file's synthetic `<own-package>.*` edge never points at itself.
+   * @param currentFile - Absolute path of the importing file. Its `(module, source-root)` slice
+   *   scopes the synthetic `<own-package>.*` wildcard; self-edges are dropped later by the
+   *   graph builder.
    * @param specifier - Fully-qualified name, optionally ending in `.*` for a package wildcard.
    * @param rootDir - Absolute project root to index.
    * @param _resolveLocal - Generic resolver callback (unused for JVM).
    * @returns Every resolved source file, or `null` when the import is external/unresolvable.
    */
   resolve(
-    _currentFile: string,
+    currentFile: string,
     specifier: string,
     rootDir: string,
     _resolveLocal: (currentFile: string, specifier: string) => ResolvedImport | null,
@@ -69,14 +127,35 @@ export class JvmLangResolver implements LangResolver {
     if (segments.length === 0) return null;
 
     if (isWildcard) {
-      return toResults(index.get(segments.join(".")));
+      // The synthetic same-package edge. Constrain it to the importer's own module + source
+      // root: Java/Kotlin test files conventionally re-declare the main package under
+      // `src/test/`, and separate Gradle/sbt modules routinely share package names
+      // (`util`, `model`, `di`) — expanding across either boundary invents dependencies and
+      // cycles (see docs/known_issues/03). Explicit `import a.b.C` below is *not* constrained.
+      const partitions = index.get(segments.join("."));
+      if (!partitions) return null;
+      const here = jvmPathPartition(currentFile);
+      const sameSlice = partitions.filter(
+        (part) => part.module === here.module && part.rootSegment === here.rootSegment,
+      );
+      const callerIsTest = here.sourceRoot !== "main" && here.sourceRoot !== "unknown";
+      const files = sameSlice.flatMap((part) =>
+        // Defence-in-depth for repos that drop `Foo` and `FooTest` in one unconventional
+        // directory: a non-test file's synthetic edge never targets a test-named sibling.
+        callerIsTest
+          ? part.files
+          : part.files.filter((file) => !looksLikeJvmTestName(baseNameNoExt(file))),
+      );
+      return toResults(files);
     }
 
     // `a.b.C`: the type's simple name is `segments[splitAt]`, the package is everything before
     // it. Try the last segment first (`C` in package `a.b`), then earlier ones so a nested type
-    // `a.b.Outer.Inner` still resolves against package `a.b`, type `Outer`.
+    // `a.b.Outer.Inner` still resolves against package `a.b`, type `Outer`. Explicit imports
+    // legitimately cross source roots (a `src/test/` file importing `src/main/`) and modules,
+    // so every slice of the package is in scope here.
     for (let splitAt = segments.length - 1; splitAt >= 1; splitAt--) {
-      const files = index.get(segments.slice(0, splitAt).join("."));
+      const files = allFilesFor(index, segments.slice(0, splitAt).join("."));
       if (!files) continue;
       const typeName = segments[splitAt];
       const byName = files.filter((file) => baseNameNoExt(file) === typeName);
@@ -103,13 +182,29 @@ export class JvmLangResolver implements LangResolver {
 }
 
 /**
- * @description Walks `rootDir` and groups every JVM source file by its declared `package`.
+ * @description Walks `rootDir` and groups every JVM source file by its declared `package`, then
+ *   by its `(module, source-root)` slice so the synthetic same-package edge can be constrained
+ *   to the importer's own module and source set (see {@link jvmPathPartition}).
  * @param rootDir - Absolute project root.
- * @returns A package name → file paths map. Files in the default (unnamed) package are omitted.
+ * @returns A package name → partitions map. Files in the default (unnamed) package are omitted.
  */
 function buildPackageIndex(rootDir: string): PackageIndex {
   const index: PackageIndex = new Map();
   const ignore = new Set(DEFAULT_IGNORE_DIRS);
+
+  const add = (pkg: string, abs: string): void => {
+    const { module, rootSegment, sourceRoot } = jvmPathPartition(abs);
+    const partitions = index.get(pkg);
+    if (!partitions) {
+      index.set(pkg, [{ module, rootSegment, sourceRoot, files: [abs] }]);
+      return;
+    }
+    const slice = partitions.find(
+      (part) => part.module === module && part.rootSegment === rootSegment,
+    );
+    if (slice) slice.files.push(abs);
+    else partitions.push({ module, rootSegment, sourceRoot, files: [abs] });
+  };
 
   const walk = (dir: string, depth: number): void => {
     if (depth > MAX_SCAN_DEPTH) return;
@@ -131,15 +226,29 @@ function buildPackageIndex(rootDir: string): PackageIndex {
 
       const pkg = readPackage(abs, ext === ".scala" || ext === ".sc");
       if (!pkg) continue;
-      const bucket = index.get(pkg);
-      if (bucket) bucket.push(abs);
-      else index.set(pkg, [abs]);
+      add(pkg, abs);
     }
   };
 
   walk(rootDir, 0);
-  for (const files of index.values()) files.sort();
+  for (const partitions of index.values()) {
+    for (const part of partitions) part.files.sort();
+  }
   return index;
+}
+
+/**
+ * @description Flattens every `(module, source-root)` slice of one package into a single sorted
+ *   file list, for explicit-FQN resolution which is not slice-constrained.
+ * @param index - The package index.
+ * @param pkg - Dotted package name.
+ * @returns All files declaring `pkg`, or `undefined` when the package is unknown.
+ */
+function allFilesFor(index: PackageIndex, pkg: string): string[] | undefined {
+  const partitions = index.get(pkg);
+  if (!partitions || partitions.length === 0) return undefined;
+  if (partitions.length === 1) return partitions[0]?.files;
+  return partitions.flatMap((part) => part.files).sort();
 }
 
 /**

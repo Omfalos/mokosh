@@ -1,55 +1,79 @@
-# Issue 3 — JVM cycle detection is noise (whole packages flagged, "app depends on its own tests")
+# Issue 3 — JVM monorepo cycle noise: test files inflate the package index into false cross-package cycles
 
-Status: proposed, not started. Found dogfooding v0.5.0 against Java/Kotlin monorepos
-(2026-09-03).
+Status: fixed (2026-09-03). Found dogfooding v0.5.0 against Java/Kotlin monorepos.
+The `JvmLangResolver` package index is now partitioned into `(module, source-root)` slices
+(`jvmPathPartition` in `src/graph/lang-resolvers/jvm.ts`): the synthetic same-package
+wildcard resolves only within the importer's own module and source set, while explicit FQN
+imports still cross both boundaries. The synthetic edge carries `isSamePackage: true`
+(`src/types/node.ts`, set in `jvmPackageEdge`) and `GraphAnalyzer.findCycles` skips it, so the
+latent intra-package clique (3a) no longer surfaces as cycles while blast-radius analyses keep
+the edge. `classifyJvm` gained TestNG/AssertJ/Truth/Hamcrest/MockK import prefixes and a weak
+`*Test` / `*Spec` / `*IT` filename fallback (3d). Regression tests in
+`src/graph/lang-resolvers/jvm.test.ts`, `src/graph/analyzer.test.ts`, and
+`src/parser/lang/java.test.ts`.
 
 ## Symptom
 
-On JVM repos, `analyze`'s `cycles` output (and `findCycles` everywhere) is dominated by
-false positives:
+Scale-dependent. A **single-module** JVM project is largely fine — dogfooded against a
+33-dependency Android app, `analyze`'s `cycles` output was clean and usable.
 
-- Every multi-file package is reported as a circular dependency.
-- Production code is reported as depending on its own test code, and main↔test cycles appear.
-- In monorepos, a module is reported as depending on another module that merely shares a
-  package name.
+On a **monorepo**, `cycles` (and `findCycles` everywhere) fills with false positives, and
+the damaging ones cross package/module boundaries:
+
+- `app ↔ app`, `app → lib → app`, and similar loops where the edge that *closes* the loop is
+  a **test file**, not a real dependency — `com.example.app.Foo` (main) "depends on"
+  `com.example.app.FooTest` (test) and vice versa.
+- A module is reported as depending on another module that merely shares a package name.
+- Production code shows up as depending on its own test code in `get_affected` /
+  `get_dependents`.
+
+The common thread: test sources are indexed as ordinary members of the main package, so the
+synthetic same-package edge wires main↔test and module↔module links that don't exist.
 
 ## Root cause
 
-All three trace back to the **synthetic same-package edge** (`jvmPackageEdge`,
-`src/parser/lang/jvm-scan.ts:~95`) and how `JvmLangResolver` expands it.
-
-### 3a — the synthetic edge makes every package a clique
-
-Every JVM file gets an extra edge `import <own-package>.*` (type `side-effect`). The resolver
-(`src/graph/lang-resolvers/jvm.ts:71-73`, `toResults`) expands `<pkg>.*` to **every other
-file in the package, unconditionally** — not based on actual references. So for a package with
-files `{A, B, C}`, the graph contains `A→B, A→C, B→A, B→C, C→A, C→B`: a complete digraph.
-
-`GraphAnalyzer.findCycles` (`src/graph/analyzer.ts:59-96`) walks import edges with a
-recursion-stack back-edge check and skips only `imp.isExternal` / empty `toPath`
-(`analyzer.ts:73`). The synthetic edges are internal and resolved, so every package surfaces
-as one big cycle.
+Everything below traces to the **synthetic same-package edge** (`jvmPackageEdge`,
+`src/parser/lang/jvm-scan.ts:99`) plus a `JvmLangResolver` package index
+(`src/graph/lang-resolvers/jvm.ts:110-143`) that is keyed by package name alone — no module
+boundary, no `src/main` vs `src/test` split. 3b and 3c are what actually surfaced in
+dogfooding; 3a is a latent contributor that stays invisible until a boundary is crossed.
 
 ### 3b — `src/main` and `src/test` merge because they share a package name
 
-`buildPackageIndex` (`src/graph/lang-resolvers/jvm.ts:110-143`) groups files purely by their
-`package` declaration. Java/Kotlin test files conventionally live in
-`src/test/java/<same package>` — so `com.example.Foo` (main) and `com.example.FooTest` (test)
-land in the **same bucket**. `Foo`'s synthetic `com.example.*` edge then resolves to
-`FooTest`, and `FooTest`'s resolves back to `Foo`:
+`buildPackageIndex` groups files purely by their `package` declaration. Java/Kotlin test
+files conventionally live in `src/test/java/<same package>` — so `com.example.Foo` (main)
+and `com.example.FooTest` (test) land in the **same bucket**. `Foo`'s synthetic
+`com.example.*` edge then resolves to `FooTest`, and `FooTest`'s resolves back to `Foo`:
 
 - production "depends on" its tests (wrong direction, pollutes `get_affected` /
   `get_dependents`);
-- a main↔test 2-cycle for every tested class.
+- a main↔test 2-cycle for every tested class, and longer `app → lib → app` loops once a test
+  file pulls in another module.
 
 This happens even when `FooTest` is correctly classified `test` — `classifyJvm`
-(`src/parser/lang/jvm-scan.ts:170`) does not influence resolution.
+(`src/parser/lang/jvm-scan.ts:180`) does not influence resolution.
 
 ### 3c — cross-module package-name collision
 
 Two Gradle/sbt modules both declaring `com.example.util` also merge in the index (same
 grouping-by-package-name), so a file in module A gets synthetic edges to every
-`com.example.util` file in module B.
+`com.example.util` file in module B. In a monorepo this is common — shared `util`, `model`,
+`di` package names across modules — and it manifests as module-level cycles.
+
+### 3a — the synthetic edge makes every package a clique (latent)
+
+Every JVM file gets an extra edge `import <own-package>.*` (type `side-effect`). The resolver
+(`src/graph/lang-resolvers/jvm.ts:71-73`, `toResults`) expands `<pkg>.*` to **every other
+file in the package, unconditionally** — not based on actual references. So for a package with
+files `{A, B, C}`, the graph contains `A→B, A→C, B→A, B→C, C→A, C→B`: a complete digraph, and
+`GraphAnalyzer.findCycles` (`src/graph/analyzer.ts:59-96`, skips only `imp.isExternal` /
+empty `toPath`) reports it.
+
+In a single-module repo these are intra-package 2-cycles that stay within one directory and
+are easy to dismiss (dogfooding the 33-dep Android app did not flag them as a problem). They
+turn damaging only when a clique member is a test file (3b) or the clique spans modules (3c),
+i.e. once the loop crosses a boundary a reader cares about. Fixing 3b/3c removes the visible
+pain; 3a still deserves the `isSamePackage` flag so structural analyses can opt out.
 
 ### 3d — narrow test classification
 
@@ -60,6 +84,10 @@ TestNG/AssertJ/Truth/Hamcrest-only tests, get misclassified as `logic`, which th
 real-looking edges into the graph and worsens 3a/3b.
 
 ## Fix plan
+
+Priority order is **3b + 3c first** (partition the index) — that removes the cross-boundary
+cycles dogfooding actually hit — then 3a's `isSamePackage` flag and 3d's classification
+widening as follow-ups.
 
 ### 3a — exclude synthetic same-package edges from structural analyses
 
@@ -108,9 +136,11 @@ In `classifyJvm` (`src/parser/lang/jvm-scan.ts`):
 
 ## Expected outcome
 
-- `analyze` `cycles` on a JVM repo drops to genuine import cycles only.
+- `analyze` `cycles` on a JVM monorepo drops to genuine import cycles only — no `app ↔ app`
+  or `app → lib → app` loops closed by a test file.
 - `get_dependents` / `get_affected` no longer report production → test edges.
-- Cross-module noise from shared package names disappears.
+- Cross-module noise from shared package names (`util`, `model`, `di`) disappears.
+- Single-module behaviour is unchanged (already usable).
 
 ## Test plan
 

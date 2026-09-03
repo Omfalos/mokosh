@@ -27,7 +27,11 @@ class Repo {}
   test("emits a synthetic same-package edge from the file's own package", () => {
     const { imports } = parseJava("src/main/java/com/x/Repo.java", `package com.x;\nclass Repo {}`);
     expect(imports).toContainEqual(
-      expect.objectContaining({ rawSpecifier: "com.x.*", type: "side-effect" }),
+      expect.objectContaining({
+        rawSpecifier: "com.x.*",
+        type: "side-effect",
+        isSamePackage: true,
+      }),
     );
   });
 
@@ -112,5 +116,26 @@ describe("parseJava tags & category", { tags: ["parseJava", "java"] }, () => {
       parseJava("app/src/test/java/com/x/AppConfig.java", `@Configuration\nclass AppConfig {}`)
         .category,
     ).toBe("test");
+  });
+
+  test("a TestNG / AssertJ import categorises as test", () => {
+    expect(
+      parseJava("src/main/java/com/x/A.java", `import org.testng.annotations.Test;\nclass A {}`)
+        .category,
+    ).toBe("test");
+    expect(
+      parseJava(
+        "src/main/java/com/x/B.java",
+        `import static org.assertj.core.api.Assertions.assertThat;\nclass B {}`,
+      ).category,
+    ).toBe("test");
+  });
+
+  test("a *Test / *IT file name outside a test root is a weak test signal", () => {
+    expect(parseJava("libs/foo/com/x/PaymentIT.java", `class PaymentIT {}`).category).toBe("test");
+    expect(parseJava("libs/foo/com/x/OrderTest.java", `class OrderTest {}`).category).toBe("test");
+    expect(parseJava("libs/foo/com/x/OrderService.java", `class OrderService {}`).category).toBe(
+      "logic",
+    );
   });
 });
