@@ -104,6 +104,14 @@ export class JvmLangResolver implements LangResolver {
   private indexCache = new Map<string, PackageIndex>();
 
   /**
+   * @param extraIgnoreDirs - Directory names to skip while walking for `package` declarations,
+   *   on top of `DEFAULT_IGNORE_DIRS` and `MOKOSH_IGNORE_DIRS`. Sourced from `MokoshConfig.ignoreDirs`
+   *   so a repo can prune generated source trees (`build/generated`, protobuf output) that would
+   *   otherwise inflate the scan (see docs/known_issues/02, fix 2C).
+   */
+  constructor(private readonly extraIgnoreDirs: string[] = []) {}
+
+  /**
    * @description Resolves a JVM import specifier to all matching local source files.
    * @param currentFile - Absolute path of the importing file. Its `(module, source-root)` slice
    *   scopes the synthetic `<own-package>.*` wildcard; self-edges are dropped later by the
@@ -175,7 +183,7 @@ export class JvmLangResolver implements LangResolver {
   private getIndex(rootDir: string): PackageIndex {
     const cached = this.indexCache.get(rootDir);
     if (cached) return cached;
-    const index = buildPackageIndex(rootDir);
+    const index = buildPackageIndex(rootDir, this.extraIgnoreDirs);
     this.indexCache.set(rootDir, index);
     return index;
   }
@@ -186,11 +194,17 @@ export class JvmLangResolver implements LangResolver {
  *   by its `(module, source-root)` slice so the synthetic same-package edge can be constrained
  *   to the importer's own module and source set (see {@link jvmPathPartition}).
  * @param rootDir - Absolute project root.
+ * @param extraIgnoreDirs - Extra directory names to skip, on top of `DEFAULT_IGNORE_DIRS` and
+ *   the comma-separated `MOKOSH_IGNORE_DIRS` env var.
  * @returns A package name → partitions map. Files in the default (unnamed) package are omitted.
  */
-function buildPackageIndex(rootDir: string): PackageIndex {
+function buildPackageIndex(rootDir: string, extraIgnoreDirs: string[] = []): PackageIndex {
   const index: PackageIndex = new Map();
-  const ignore = new Set(DEFAULT_IGNORE_DIRS);
+  const envIgnore = (process.env.MOKOSH_IGNORE_DIRS ?? "")
+    .split(",")
+    .map((name) => name.trim())
+    .filter(Boolean);
+  const ignore = new Set([...DEFAULT_IGNORE_DIRS, ...envIgnore, ...extraIgnoreDirs]);
 
   const add = (pkg: string, abs: string): void => {
     const { module, rootSegment, sourceRoot } = jvmPathPartition(abs);

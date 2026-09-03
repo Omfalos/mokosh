@@ -12,6 +12,12 @@ export const DEFAULT_DUPLICATION_TOKEN_CACHE_FILE = "duplication-tokens.json";
  *  seed a session's first `analyze` call so it reuses unchanged nodes instead of parsing cold. */
 export const DEFAULT_GRAPH_CACHE_FILE = "graph.json";
 
+/** Filename for the disk-persisted *workspace* (monorepo) graph cache within `DEFAULT_CACHE_DIR`.
+ *  Written by the MCP server (`src/mcp/cache.ts`) after a `createWorkspaceGraph` build and hydrated
+ *  on the next session's first workspace query when the source-file digest still matches — so
+ *  repeat sessions against an unchanged monorepo skip the full per-package rebuild. */
+export const DEFAULT_WORKSPACE_GRAPH_CACHE_FILE = "workspace-graph.json";
+
 /** Subdirectory of `DEFAULT_CACHE_DIR` holding one JSON file per commit sha — graphs built for
  *  the "other" ref in a `compareBranches` call (`src/graph/branch-graph-cache.ts`). Keyed by sha
  *  rather than branch name so entries are immutable and never need invalidation. */

@@ -44,7 +44,7 @@ The server holds an **in-process graph cache** keyed by project root. This means
 
 `find_unused`, `detect_features`, and `query` can optionally build their own graph if `entryPoints` are supplied, bypassing the cache requirement.
 
-**Monorepo**: pass `entryPoints: []` to `analyze` to trigger workspace auto-detection. Then use `get_workspace_packages` and `get_workspace_affected` instead of the single-package tools. See [Monorepo Support](./monorepo.md).
+**Monorepo**: pass `entryPoints: []` to `analyze` to trigger workspace auto-detection. This returns the package *layout* immediately; the per-package dependency graphs are built lazily on the first `get_workspace_affected` call (pass `eager: true` to `analyze` to build them all up front). Then use `get_workspace_packages` and `get_workspace_affected` instead of the single-package tools. `get_workspace_packages` answers from the repo layout alone and needs no `analyze` at all. For very large monorepos, scope the build with `analyze({ entryPoints: [], packages: ["core", "api"] })`. See [Monorepo Support](./monorepo.md).
 
 ---
 
@@ -58,9 +58,12 @@ Build the dependency graph from one or more entry points and cache it for the se
 |---|---|---|---|
 | `root` | `string` | yes | Absolute path to the project root (or monorepo root) |
 | `entryPoints` | `string[]` | yes | Entry point files relative to `root`. Pass `[]` to trigger monorepo auto-detection. |
+| `eager` | `boolean` | no | Monorepo only: build every package graph before returning instead of the fast layout-only response. Default `false`. |
+| `packages` | `string[]` | no | Monorepo only: restrict the build to these package names or relative roots. |
 
-**Returns:** `{ nodeCount, categories, cycles, languageCoverage }` (single-graph builds only — the
-monorepo auto-detection branch doesn't include `languageCoverage` yet).
+**Returns (single-graph builds):** `{ nodeCount, categories, cycles, languageCoverage }`.
+
+**Returns (monorepo, default):** the layout — `{ monorepoType, monorepoTypes, packageCount, packages: [{ name, relativeRoot, dependsOn, nodeCount? }], dependsOnResolved, nodeCountsResolved, note }`. `nodeCount` per package and (for Gradle/sbt) exact `dependsOn` are present only once a workspace graph has been built — `nodeCountsResolved` / `dependsOnResolved` say which. Pass `eager: true` for the legacy `{ monorepoType, packageCount, packages: [{ package, relativeRoot, nodeCount }] }` shape.
 
 `languageCoverage` is one entry per language actually present in the repo, reporting what mokosh
 tracks for it: `exportsTracked` (can any tool find the file that defines a symbol?),
@@ -372,15 +375,15 @@ See the [Query Language Guide](./query.md) for the full syntax.
 
 ### `get_workspace_packages`
 
-List all workspace packages detected in a monorepo, with their node counts and inter-package dependencies.
+List all workspace packages detected in a monorepo.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `root` | `string` | yes | Absolute path to the monorepo root |
 
-**Returns:** `{ packages: Array<{ name, relativeRoot, nodeCount, dependsOn: string[] }>, count: number }`
+**Returns:** `{ monorepoType, monorepoTypes, packageCount, packages: Array<{ name, relativeRoot, dependsOn: string[], nodeCount? }>, dependsOnResolved, nodeCountsResolved, note? }`
 
-**Requires:** a prior `analyze` call with `entryPoints: []` on a monorepo root.
+Answered from the repo layout and `package.json` manifests alone — **no `analyze` required** and no graph build, so it is fast on large monorepos. `nodeCount` per package (and, for Gradle/sbt monorepos with no manifests, exact `dependsOn` edges) are filled in only when a workspace graph is already built from a prior `analyze` call; the `dependsOnResolved` / `nodeCountsResolved` flags say which.
 
 ---
 

@@ -12,7 +12,6 @@ import {
   DEFAULT_IGNORE_DIRS,
   detectAllEntryPoints,
   detectFeatures,
-  detectMonorepo,
   filterGraph,
   findComplexFunctions,
   findDuplicates,
@@ -38,7 +37,7 @@ import {
   queryTypeGraph,
   slimSerialize,
   summarizeBranchComparison,
-  summarizeWorkspacePackages,
+  summarizeWorkspaceLayout,
 } from "../index";
 import type { SessionState } from "./cache";
 import type { TextResponse } from "./utils";
@@ -48,7 +47,17 @@ import { text } from "./utils";
 // Argument types — one per tool, matching the schemas defined in tools.ts
 // ---------------------------------------------------------------------------
 
-export type AnalyzeArgs = { root: string; entryPoints: string[] };
+export type AnalyzeArgs = {
+  root: string;
+  entryPoints: string[];
+  /** Monorepo only: build every package graph before returning, instead of the fast
+   *  layout-only response. Restores the pre-progressive `{ nodeCount, categories, cycles }`
+   *  payload. Ignored for single-package roots. */
+  eager?: boolean;
+  /** Monorepo only: restrict the (eager or lazily-triggered) build to these package names
+   *  or relative roots — the escape hatch for very large monorepos. */
+  packages?: string[];
+};
 export type GetWorkspacePackagesArgs = { root: string };
 export type GetWorkspaceAffectedArgs = { root: string; file: string };
 export type GetDependenciesArgs = {
@@ -190,12 +199,23 @@ export async function handleAnalyze(cache: SessionState, args: AnalyzeArgs) {
 
   // Auto-detect monorepo when no entry points are provided
   if (entryPoints.length === 0) {
-    const layout = detectMonorepo(root);
+    const layout = cache.getLayout(root);
     if (layout.type !== "none") {
       const config = cache.getConfig(root);
-      const workspaceGraph = await cache.getOrBuildWorkspace(root, configToGraphOptions(config));
+      const buildOpts = { ...configToGraphOptions(config), packages: args.packages };
       cache.storeLastAnalyze(root, { kind: "workspace" });
       cache.startWatching(root);
+
+      // Progressive default: return the layout immediately and let the per-package graphs
+      // build lazily on the first workspace query that needs edges. Full-repo graph builds
+      // on large JVM monorepos blow the MCP request timeout, and most sessions only need
+      // the package list (see docs/known_issues/02-monorepo-empty-entrypoints-timeout.md).
+      if (!args.eager) {
+        const builtGraph = cache.hasWorkspace(root) ? cache.requireWorkspace(root) : undefined;
+        return text(summarizeWorkspaceLayout(layout, builtGraph));
+      }
+
+      const workspaceGraph = await cache.getOrBuildWorkspace(root, buildOpts);
       const perPackage = Array.from(workspaceGraph.packages.values()).map(({ graph, pkg }) => ({
         package: pkg.name,
         relativeRoot: pkg.relativeRoot,
@@ -671,19 +691,29 @@ export async function handleQuery(cache: SessionState, args: QueryArgs): Promise
 }
 
 /**
- * @description Lists all workspace packages detected in a monorepo root, including per-package
- *   node counts and cross-package dependency edges. Requires a prior `analyze` call with no entry points.
- * @param cache - Session state holding the cached WorkspaceGraph.
+ * @description Lists all workspace packages detected in a monorepo root. Answers from the
+ *   detected layout and `package.json` manifests alone — no dependency-graph build — so it
+ *   returns in well under a second even on large monorepos (see
+ *   docs/known_issues/01-monorepo-workspace-packages-timeout.md). Per-package `nodeCount` and,
+ *   for build-system monorepos without manifests, exact `dependsOn` are filled in only when a
+ *   workspace graph is already cached from a prior `analyze` call.
+ * @param cache - Session state; consulted for an already-built workspace graph, never triggers one.
  * @param args - `root` identifies the monorepo root to look up.
- * @returns TextResponse with `{ monorepoType, packageCount, packages }` where each package includes its dependsOn list.
+ * @returns TextResponse with `{ monorepoType, packageCount, packages, dependsOnResolved, nodeCountsResolved }`.
  */
 export async function handleGetWorkspacePackages(
   cache: SessionState,
   args: GetWorkspacePackagesArgs,
 ): Promise<TextResponse> {
   const { root } = args;
-  const wg = await cache.ensureFreshWorkspace(root);
-  return text(summarizeWorkspacePackages(wg));
+  const layout = cache.getLayout(root);
+  if (layout.type === "none") {
+    throw new Error(
+      `${root} is not a recognized monorepo root (no pnpm/npm/yarn/Nx/Turborepo/Gradle/sbt workspace detected).`,
+    );
+  }
+  const builtGraph = cache.hasWorkspace(root) ? cache.requireWorkspace(root) : undefined;
+  return text(summarizeWorkspaceLayout(layout, builtGraph));
 }
 
 /**

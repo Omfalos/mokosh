@@ -62,6 +62,11 @@ export function detectMonorepo(
   };
 }
 
+export {
+  summarizeWorkspaceLayout,
+  type WorkspaceLayoutPackageSummary,
+  type WorkspaceLayoutSummary,
+} from "./layout-summary";
 export type { MonorepoDetector } from "./registry";
 export { registerMonorepoDetector } from "./registry";
 export type { MonorepoLayout, WorkspacePackage } from "./types";

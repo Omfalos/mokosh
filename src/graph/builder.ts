@@ -120,6 +120,7 @@ export class GraphBuilder {
    * @param coverageMap - Pre-loaded coverage map (relative path → line %). When non-empty, populates `coveragePct` on each node after the graph is built.
    * @param parallelParsing - Controls worker-pool offloading of `parseFile`. `true`/omitted enables it once a cheap pre-scan finds at least `minFiles` (default 20) files under `rootDir`; `false` always parses in-process; an object overrides `minFiles`/`maxThreads`.
    * @param additionalIgnoreDirs - Directory names to skip during the test-file and doc-file discovery walks, on top of the built-in list (`node_modules`, `dist`, `coverage`, …) and anything in the `MOKOSH_IGNORE_DIRS` env var. Sourced from `MokoshConfig.ignoreDirs`.
+   * @param docFiles - Explicit list of absolute `.md`/`.mdx` paths to fold into the graph, replacing the built-in whole-`rootDir` doc-discovery walk. `null` (default) keeps the walk; `[]` skips docs entirely. The workspace builder passes each package its pre-assigned slice so the monorepo tree is walked once, not once per package (see docs/known_issues/01, fix 1D).
    */
   constructor(
     private rootDir: string,
@@ -130,6 +131,7 @@ export class GraphBuilder {
     private readonly coverageMap: Map<string, number> = new Map(),
     private readonly parallelParsing: ParallelParsingOption = true,
     additionalIgnoreDirs: string[] = [],
+    private readonly docFiles: string[] | null = null,
   ) {
     this.previousGraph = previousGraph;
     this.walkIgnoreDirs = new Set([
@@ -305,6 +307,13 @@ export class GraphBuilder {
    *   `processTestFiles`'s narrower common-ancestor scope.
    */
   private async processDocFiles(): Promise<void> {
+    if (this.docFiles !== null) {
+      // Workspace path: the monorepo doc tree was walked once at workspace scope and each
+      // package handed its own slice — enqueue it directly instead of re-walking.
+      for (const abs of this.docFiles) this.enqueue(abs);
+      await this.drain();
+      return;
+    }
     this.walkProject(
       this.rootDir,
       (entry) => entry.name.endsWith(".md") || entry.name.endsWith(".mdx"),
