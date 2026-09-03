@@ -79,6 +79,37 @@ function importedTypeMap(imports: ImportEdge[]): Map<string, string> {
  * @param importedTypes - Simple-name → FQN map from {@link importedTypeMap}.
  * @returns One edge per resolvable static or constructor call to a known imported type.
  */
+/**
+ * @description Reads the simple type name out of the type position of a
+ *   `new <Type>(...)` expression, unwrapping the shapes `@lezer/java` produces when type
+ *   arguments or a package qualifier are present:
+ *
+ *   - `TypeName "Foo"` → `Foo`
+ *   - `GenericType "Foo<T>" › TypeName "Foo"` → `Foo` (also `new Foo<>()`, nested args)
+ *   - `ScopedTypeName "outer.Inner"` → `Inner` (last dotted segment)
+ *   - `GenericType › ScopedTypeName "outer.Inner<T>"` → `Inner`
+ *
+ *   The simple name is what {@link importedTypeMap} keys on, so an FQN qualifier collapses to
+ *   its last segment.
+ * @param typeNode - The child node in the type position (after the `new` keyword).
+ * @param src - Full source text.
+ * @returns The simple type name, or `null` for a shape we do not recognise.
+ */
+function constructedTypeName(typeNode: SyntaxNode, src: string): string | null {
+  let node: SyntaxNode | null = typeNode;
+  if (node.name === "GenericType") node = node.firstChild; // unwrap `<…>`
+  if (!node) return null;
+  if (node.name === "TypeName") return src.slice(node.from, node.to);
+  if (node.name === "ScopedTypeName") {
+    let last: SyntaxNode | null = null;
+    for (let child = node.firstChild; child; child = child.nextSibling) {
+      if (child.name === "TypeName") last = child;
+    }
+    return last ? src.slice(last.from, last.to) : null;
+  }
+  return null;
+}
+
 function collectRawCallEdges(
   tree: Tree,
   content: string,
@@ -102,9 +133,13 @@ function collectRawCallEdges(
         }
       }
     } else if (name === "ObjectCreationExpression") {
-      const typeNode = node.getChild("TypeName");
-      if (typeNode) {
-        const toSpecifier = importedTypes.get(content.slice(typeNode.from, typeNode.to));
+      const typeNode =
+        node.getChild("TypeName") ??
+        node.getChild("GenericType") ??
+        node.getChild("ScopedTypeName");
+      const simple = typeNode && constructedTypeName(typeNode, content);
+      if (simple) {
+        const toSpecifier = importedTypes.get(simple);
         if (toSpecifier) edges.push({ from: callerName, to: "new", toSpecifier });
       }
     }
