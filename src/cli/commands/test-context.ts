@@ -31,6 +31,7 @@ export function makeContext(overrides: Partial<CommandContext> & { graph: Graph 
     slim: false,
     testsOnly: false,
     minDuplicateLines: undefined,
+    includeGenerated: false,
     maxCoveragePct: undefined,
     minChurn: undefined,
     base: undefined,

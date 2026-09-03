@@ -7,6 +7,7 @@ import {
   buildFeatureGraph,
   buildResponsibilityGraph,
   buildTypeGraph,
+  type CycleEdgeKind,
   compareBranches,
   configToGraphOptions,
   DEFAULT_IGNORE_DIRS,
@@ -57,6 +58,10 @@ export type AnalyzeArgs = {
   /** Monorepo only: restrict the (eager or lazily-triggered) build to these package names
    *  or relative roots — the escape hatch for very large monorepos. */
   packages?: string[];
+  /** Cycle edge kinds to include that are otherwise filtered from the `cycles` output:
+   *  `"docReference"` (Markdown doc cross-links), `"samePackage"` (JVM same-package siblings).
+   *  Default: none. */
+  cycleKinds?: CycleEdgeKind[];
 };
 export type GetWorkspacePackagesArgs = { root: string };
 export type GetWorkspaceAffectedArgs = { root: string; file: string };
@@ -119,6 +124,7 @@ export type FindDuplicatesArgs = {
   maxPunctuationRatio?: number;
   limit?: number;
   ignoreDirs?: string[];
+  includeGenerated?: boolean;
 };
 export type ProposeTagsArgs = {
   root: string;
@@ -242,7 +248,7 @@ export async function handleAnalyze(cache: SessionState, args: AnalyzeArgs) {
     acc[node.category] = (acc[node.category] ?? 0) + 1;
     return acc;
   }, {});
-  const cycles = graph.findCycles();
+  const cycles = graph.findCycles({ includeKinds: args.cycleKinds });
   const languageCoverage = getLanguageCoverage(graph);
   return text({ nodeCount: serialized.nodes.length, categories, cycles, languageCoverage });
 }
@@ -588,16 +594,16 @@ export async function handleFindDuplicates(
 ): Promise<TextResponse> {
   const { root, minLines = 6, ignoreLiterals = true, maxPunctuationRatio = 0.5, limit = 50 } = args;
   const graph = await cache.ensureFresh(root);
-  const ignoreDirs = args.ignoreDirs ?? [
-    ...DEFAULT_IGNORE_DIRS,
-    ...(cache.getConfig(root)?.ignoreDirs ?? []),
-  ];
+  const config = cache.getConfig(root);
+  const ignoreDirs = args.ignoreDirs ?? [...DEFAULT_IGNORE_DIRS, ...(config?.ignoreDirs ?? [])];
   const { groups } = await findDuplicates(graph, root, {
     minLines,
     ignoreLiterals,
     maxPunctuationRatio,
     limit,
     ignoreDirs,
+    includeGenerated: args.includeGenerated ?? config?.duplication?.includeGenerated ?? false,
+    ignoreGlobs: config?.duplication?.ignoreGlobs ?? [],
     tokenCache: await cache.getDuplicationTokenCache(root),
   });
   cache.flushDuplicationTokenCache(root);

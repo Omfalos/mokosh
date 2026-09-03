@@ -27,6 +27,8 @@ export interface ImportEdge {
   workspacePackage?: string | undefined;
   /** True for the synthetic JVM same-package sibling edge (`<own-package>.*`) — a file's implicit coupling to its package siblings, not a written `import`. Structural analyses (cycle detection) skip these; blast-radius analyses keep them. */
   isSamePackage?: boolean | undefined;
+  /** True for an edge minted from a Markdown doc's link or code-span file reference (ADR-009), not a written `import`. Structural analyses (cycle detection) skip these by default; doc-drift enrichment keeps them. */
+  isDocReference?: boolean | undefined;
   /** Fraction of the target's exports consumed by this import (0–1). Only present for internal non-side-effect imports where the target has at least one export. */
   exportUsageRatio?: number;
 }

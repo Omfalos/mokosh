@@ -40,7 +40,7 @@ Add a `filter` string param to `find_duplicates` (and the CLI command), parsed b
 | `minOccurrences:<N>` | repeated at least N times |
 | `crossFile:<bool>` | occurrences span ≥2 files |
 | `crossPackage:<bool>` | occurrences span ≥2 workspace packages |
-| `signal:<name>` / `signal:!<name>` | has / lacks a signal from [issue 5](05-find-duplicates-and-cycles-noise.md) (`mostly-accessors`, `contains-imports`, `generated`, …) |
+| `signal:<name>` / `signal:!<name>` | has / lacks a signal from [issue 5](05-find-duplicates-and-cycles-noise.md) (shipped: `same-file`, `generated`; issue 7 may add more) |
 | `sort:<lines\|occurrences>` `sortDir:<asc\|desc>` | ordering |
 | `limit:<N>` | cap |
 
@@ -88,6 +88,24 @@ new `src/query/dup-parser.ts` + `src/query/dup-filter.ts`, `src/query/types.ts`,
 `src/graph/duplication/index.ts`, `src/graph/queries.ts`, `src/mcp/tools.ts`,
 `src/mcp/handlers.ts`, `src/cli/commands/find-duplicates.ts`, `src/cli/args.ts`,
 `docs/mcp.md`, `docs/query.md`.
+
+## Related — overlapping-window explosion (needs a matcher fix, not just a query layer)
+
+Dogfooding on box-ui-elements, and reproduced locally on the issue-5 branch: a single
+self-similar (periodic) region — a uniform `key: value` list like `test/fixtures/theme/colors.js`
+— explodes into ~N near-identical `DuplicateGroup`s, one per phase offset of the repeating unit.
+An 80-entry list produced **37 groups**: `colors.js:2-41 / 42-81`, then `2-40 / 41-79`, then
+`2-39 / 40-77`, … each one row shorter. `dropSelfOverlaps` (`suffix-duplicates.ts`) collapses
+overlapping occurrences *within one LCP interval*, and the exact-shared-occurrence clustering
+merges pair-explosion, but neither dedupes *distinct intervals that describe the same finding at
+a different offset*.
+
+A `filter` / `slim` / `summary` layer alone doesn't fix this — `limit` would just return the
+top few of the 37, all describing one region, crowding out real hits. The matcher itself should
+collapse groups whose occurrence spans (per file-set) are near-super/subsets of another's,
+keeping the max span — or detect the periodicity and emit one group. Worth folding into 6c or
+splitting into its own issue. Mitigation available today: every one of these carries
+`signals: ["same-file"]`, so a consumer filtering `signal:!same-file` drops the whole cluster.
 
 ## Dependencies
 

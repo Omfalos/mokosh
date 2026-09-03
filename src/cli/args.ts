@@ -56,6 +56,7 @@ export interface ParsedArgs {
   limit: number | undefined;
   findDuplicates: boolean;
   minDuplicateLines: number | undefined;
+  includeGenerated: boolean;
   findRiskHotspots: boolean;
   maxCoveragePct: number | undefined;
   minChurn: number | undefined;
@@ -162,6 +163,7 @@ export const OPTIONS = {
   limit: { type: "string" },
   "find-duplicates": { type: "boolean" },
   "min-duplicate-lines": { type: "string" },
+  "include-generated": { type: "boolean" },
   "find-risk-hotspots": { type: "boolean" },
   "max-coverage-pct": { type: "string" },
   "min-churn": { type: "string" },
@@ -406,6 +408,7 @@ export function parseArgs(cliTokens: string[]): ParsedArgs {
     complexityThreshold: parseOptionalInt(values["complexity-threshold"]),
     limit: parseOptionalInt(values.limit),
     minDuplicateLines: parseOptionalInt(values["min-duplicate-lines"]),
+    includeGenerated: (values["include-generated"] as boolean) ?? false,
     maxCoveragePct: parseOptionalInt(values["max-coverage-pct"]),
     minChurn: parseOptionalInt(values["min-churn"]),
     base: values.base,

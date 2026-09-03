@@ -66,6 +66,7 @@ function edgesFromCodeText(text: string, filePath: string): ImportEdge[] {
     rawSpecifier: specifier,
     isStyle: false,
     type: "static" as const,
+    isDocReference: true,
   }));
 }
 
@@ -84,6 +85,7 @@ function walk(node: MdastNode, filePath: string, edges: ImportEdge[]): void {
       rawSpecifier: node.url,
       isStyle: false,
       type: "static",
+      isDocReference: true,
     });
   }
   if ((node.type === "code" || node.type === "inlineCode") && typeof node.value === "string") {

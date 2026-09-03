@@ -13,10 +13,12 @@ import type { CommandContext } from "./types";
  * @description Scans every file in the graph for cross-file (and within-file) duplicated code
  *   and prints the resulting blocks, largest-first. Works for every language mokosh parses —
  *   the underlying detector is token-based, not AST-based, so it doesn't depend on per-language
- *   parser support. Lock files and files under an ignored directory (project config's
- *   `ignoreDirs`, merged with the defaults) are excluded even when the graph itself contains
- *   them — `graph.nodes` isn't ignore-rule-filtered for files reached via a resolved reference
- *   rather than the initial FS walk.
+ *   parser support. Lock files, files under an ignored directory (project config's
+ *   `ignoreDirs`, merged with the defaults), and generated / vendored files (protobuf output,
+ *   `*.generated.*`, `generated/` dirs, `@generated`-marked files — pass `--include-generated`
+ *   or set `duplication.includeGenerated` to scan them) are excluded even when the graph itself
+ *   contains them — `graph.nodes` isn't ignore-rule-filtered for files reached via a resolved
+ *   reference rather than the initial FS walk.
  *
  *   Tokenized files are cached to disk alongside the graph cache (`<cache dir>/duplication-tokens.json`,
  *   next to `graph.json`) so only the *first* run against a repo tokenizes everything cold;
@@ -26,7 +28,8 @@ import type { CommandContext } from "./types";
  *   `ctx.minDuplicateLines`, `ctx.limit`, and `ctx.cachePath` tune the scan.
  */
 export async function run(ctx: CommandContext): Promise<void> {
-  const { graph, rootDir, scanOptions, minDuplicateLines, limit, cachePath } = ctx;
+  const { graph, rootDir, scanOptions, minDuplicateLines, includeGenerated, limit, cachePath } =
+    ctx;
   const minLines = minDuplicateLines ?? 6;
   const ignoreDirs = [
     ...(scanOptions.ignoreDirs ?? DEFAULT_IGNORE_DIRS),
@@ -38,6 +41,8 @@ export async function run(ctx: CommandContext): Promise<void> {
     minLines,
     limit,
     ignoreDirs,
+    includeGenerated: includeGenerated || ctx.rawConfig.duplication?.includeGenerated || false,
+    ignoreGlobs: ctx.rawConfig.duplication?.ignoreGlobs ?? [],
     tokenCache,
   });
   saveTokenCacheToDisk(tokenCache, tokenCachePath);

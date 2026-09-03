@@ -1,6 +1,6 @@
 /**
  * Language-agnostic source tokenizer for duplicate-code detection. Strips per-language
- * comment syntax, then splits what remains into a normalized token stream shared by every
+ * comment syntax and import/using statements, then splits what remains into a normalized token stream shared by every
  * language `DEFAULT_EXTENSIONS` covers — one generic tokenizer rather than a per-language
  * lexer, so `findDuplicates` works uniformly across TS/JS, Python, Go, Java, Kotlin, Scala,
  * Groovy, CoffeeScript, LiveScript, Lua, Gherkin, style files, and Markdown.
@@ -95,6 +95,74 @@ function stripComments(source: string, syntax: CommentSyntax | undefined): strin
   }
 
   return result;
+}
+
+/**
+ * Per-`FileType` patterns matching a *single* import/using line. Long shared import lists
+ * tokenize identically across unrelated files and register as "duplicates" that carry no shared
+ * logic — same rationale as stripping comments. Masked (space-filled, line breaks kept) before
+ * tokenizing. Deliberately coarse and not string-literal-aware, like `stripComments`.
+ */
+const IMPORT_LINE_PATTERNS: Partial<Record<FileType, RegExp[]>> = {
+  typescript: [/^\s*import[\s{("*]/, /^\s*export\s.*\sfrom\s/],
+  javascript: [/^\s*import[\s{("*]/, /^\s*export\s.*\sfrom\s/],
+  python: [/^\s*import\s+\S/, /^\s*from\s+\S+\s+import[\s(]/],
+  go: [/^\s*import\s+["(]/],
+  java: [/^\s*import\s+/],
+  kotlin: [/^\s*import\s+/],
+  scala: [/^\s*import\s+/],
+  groovy: [/^\s*import\s+/],
+};
+
+/**
+ * @description Masks import / `from … import` / `using` statements to spaces before tokenizing,
+ *   preserving line breaks so later line-number tracking stays accurate. Handles the two
+ *   multi-line shapes that matter in practice: a JS/TS `import { … } from "x"` whose braces span
+ *   lines, and a Go `import ( … )` block. Everything else is matched line-by-line.
+ * @param source - File source, already comment-stripped.
+ * @param fileType - Selects the import-line patterns; unrecognised types pass through unchanged.
+ * @returns The source with import statements masked to spaces.
+ */
+function stripImports(source: string, fileType: FileType): string {
+  const patterns = IMPORT_LINE_PATTERNS[fileType];
+  if (!patterns) return source;
+
+  const lines = source.split("\n");
+  const isGo = fileType === "go";
+  let inGoBlock = false;
+  let inJsBraces = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i] as string;
+    const mask = () => {
+      lines[i] = line.replace(/[^\r]/g, " ");
+    };
+
+    if (inGoBlock) {
+      mask();
+      if (line.includes(")")) inGoBlock = false;
+      continue;
+    }
+    if (inJsBraces) {
+      mask();
+      if (/}\s*from\s/.test(line) || line.includes("}")) inJsBraces = false;
+      continue;
+    }
+    if (!patterns.some((pattern) => pattern.test(line))) continue;
+
+    mask();
+    if (isGo && /^\s*import\s+\(/.test(line) && !line.includes(")")) inGoBlock = true;
+    else if (
+      (fileType === "typescript" || fileType === "javascript") &&
+      /^\s*import\b/.test(line) &&
+      line.includes("{") &&
+      !line.includes("}")
+    ) {
+      inJsBraces = true;
+    }
+  }
+
+  return lines.join("\n");
 }
 
 const MULTI_CHAR_OPERATORS = [
@@ -194,11 +262,13 @@ const KEYWORDS = new Set([
 
 /**
  * @description Tokenizes source text into a normalized stream for shingle-based duplicate
- *   matching: identifiers always collapse to a single placeholder (so renamed-variable clones
- *   still hash identically), and literals optionally collapse too (`ignoreLiterals`, default
- *   on) so only structural shape — not the specific values used — drives the match.
+ *   matching: comments and import/using statements are masked out first (shared import lists are
+ *   not shared logic), then identifiers always collapse to a single placeholder (so
+ *   renamed-variable clones still hash identically), and literals optionally collapse too
+ *   (`ignoreLiterals`, default on) so only structural shape — not the specific values used —
+ *   drives the match.
  * @param source - Raw file content.
- * @param fileType - Selects the comment-stripping rule; unrecognised types skip stripping.
+ * @param fileType - Selects the comment- and import-stripping rules; unrecognised types skip both.
  * @param ignoreLiterals - When true (default), string/number literal tokens are also
  *   normalized to a placeholder rather than compared verbatim.
  * @returns Normalized tokens in source order, each carrying its 1-based source line.
@@ -208,7 +278,7 @@ export function tokenize(
   fileType: FileType,
   ignoreLiterals = true,
 ): NormalizedToken[] {
-  const stripped = stripComments(source, COMMENT_SYNTAX[fileType]);
+  const stripped = stripImports(stripComments(source, COMMENT_SYNTAX[fileType]), fileType);
   const tokens: NormalizedToken[] = [];
 
   let line = 1;

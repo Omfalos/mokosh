@@ -154,6 +154,7 @@ function makeParsedArgs(overrides: Partial<ParsedArgs> = {}): ParsedArgs {
     limit: undefined,
     findDuplicates: false,
     minDuplicateLines: undefined,
+    includeGenerated: false,
     findRiskHotspots: false,
     maxCoveragePct: undefined,
     minChurn: undefined,

@@ -2,6 +2,20 @@
 import type { FileNode } from "../types/node";
 
 /**
+ * Edge kinds that {@link GraphAnalyzer.findCycles} treats as *not* real import cycles and skips
+ * by default: `"samePackage"` for the synthetic JVM same-package sibling clique, `"docReference"`
+ * for Markdown link / code-span file references (ADR-009). Pass one via `includeKinds` to walk it
+ * anyway (e.g. a caller that genuinely wants to see doc cross-link loops).
+ */
+export type CycleEdgeKind = "docReference" | "samePackage";
+
+/** Options for {@link GraphAnalyzer.findCycles}. */
+export interface FindCyclesOptions {
+  /** Edge kinds to include in the walk that are otherwise skipped (see {@link CycleEdgeKind}). */
+  includeKinds?: CycleEdgeKind[] | undefined;
+}
+
+/**
  * @description Utility for analyzing the dependency graph for cycles and unused files.
  *   Operates on the raw node map rather than a `Graph` instance so it can be used
  *   without the full traversal infrastructure.
@@ -54,9 +68,13 @@ export class GraphAnalyzer {
   /**
    * @description Detects all circular import chains using DFS with a recursion-stack back-edge check.
    *   Each returned array is one cycle as an ordered list of file paths ending at the entry that closes the loop.
+   *   Non-import edge kinds — the synthetic JVM same-package clique and Markdown doc references
+   *   (ADR-009) — are skipped by default; pass `includeKinds` to walk them anyway.
+   * @param {FindCyclesOptions} [opts] - `includeKinds` opts specific edge kinds back into the walk.
    * @returns {string[][]} Array of cycles; each cycle is an ordered list of file paths forming a loop.
    */
-  public findCycles(): string[][] {
+  public findCycles(opts: FindCyclesOptions = {}): string[][] {
+    const include = new Set(opts.includeKinds ?? []);
     const cycles: string[][] = [];
     const visited = new Set<string>();
     const recStack = new Set<string>();
@@ -75,7 +93,10 @@ export class GraphAnalyzer {
           // index was partitioned, main↔test); they are implicit sibling coupling, not real
           // import cycles. Blast-radius analyses still use them — only structural cycle
           // detection opts out here.
-          if (imp.isSamePackage) continue;
+          if (imp.isSamePackage && !include.has("samePackage")) continue;
+          // Markdown link / code-span file references (ADR-009) are real graph edges but not
+          // written imports — docs cross-linking each other is normal, not a circular dependency.
+          if (imp.isDocReference && !include.has("docReference")) continue;
 
           if (recStack.has(imp.toPath)) {
             // Found a cycle

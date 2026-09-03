@@ -28,6 +28,10 @@ export interface CachedFileTokens {
   mtime: number;
   size: number;
   ignoreLiterals: boolean;
+  /** Whether this file is generated / vendored (path heuristic or first-bytes marker) — cached
+   *  so a `includeGenerated: false` scan that gets a cache hit can still exclude it, and a
+   *  `includeGenerated: true` scan can still tag matches, without re-reading the file. */
+  generated: boolean;
   tokens: NormalizedToken[];
 }
 
@@ -45,6 +49,7 @@ function isCachedFileTokens(value: unknown): value is CachedFileTokens {
     typeof candidate.mtime === "number" &&
     typeof candidate.size === "number" &&
     typeof candidate.ignoreLiterals === "boolean" &&
+    typeof candidate.generated === "boolean" &&
     Array.isArray(candidate.tokens)
   );
 }

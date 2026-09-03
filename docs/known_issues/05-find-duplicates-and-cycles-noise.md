@@ -1,7 +1,38 @@
 # Issue 5 — `find_duplicates` and `cycles` produce noise that isn't actionable
 
-Status: proposed, not started. Found dogfooding v0.5.0 against mokosh itself and JVM
-monorepos (2026-09-03).
+Status: **fixed** (2026-09-03). Found dogfooding v0.5.0 against mokosh itself and JVM
+monorepos.
+
+## Resolution
+
+**5a — kind-aware cycles.** `ImportEdge.isDocReference` is set on every edge `parseMarkdown`
+emits (`src/parser/lang/markdown.ts`) and preserved through resolution. `GraphAnalyzer.findCycles`
+takes `{ includeKinds?: ("docReference" | "samePackage")[] }` and skips both kinds by default
+(the pre-existing `isSamePackage` skip was folded into the same mechanism). `analyze` gained a
+`cycleKinds` param. `analyze` on mokosh now returns `cycles: []`.
+
+**5b — generated-code + import-block filtering.** New `src/graph/duplication/generated.ts`
+(`isGeneratedPath` / `hasGeneratedMarker`); `findDuplicates` drops generated / vendored files by
+default (`includeGenerated` option, `MokoshConfig.duplication.{ignoreGlobs,includeGenerated}`,
+`--include-generated`). `tokenize()` masks import/using statements before shingling.
+`DuplicateGroup` gained `signals?: ("same-file" | "generated")[]`.
+
+**Not done, deliberately** (see [ADR-013](../adr-013-duplicate-detection-noise-reduction.md)
+Phase 5):
+
+- The "minimum distinct-identifier threshold" — it is the exact distinct-token-diversity gate
+  ADR-013 Phase 2 already tried and reverted (it discarded real matches), and is anyway
+  unimplementable as written since `tokenize()` collapses every identifier to `ID`.
+- Accessor / boilerplate suppression — deferred to [issue 7](07-per-language-analysis-semantics.md),
+  as the write-up itself suggested. `same-file`-tagged boilerplate clusters are now easy to filter.
+- `crosses-package` / `mostly-accessors` signals — no package boundary on a single `Graph`;
+  revisit with issue 6/7.
+- Enriching the `cycles` return shape with per-edge kind metadata — kept `string[][]`;
+  opt-in filtering via `cycleKinds` covers the need.
+
+---
+
+## Original write-up
 
 ## Symptom
 

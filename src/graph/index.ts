@@ -1,3 +1,4 @@
+export * from "./analyzer";
 export * from "./api-surface";
 export * from "./builder";
 export * from "./call-graph";

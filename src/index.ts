@@ -20,6 +20,7 @@ export { loadCoverageMap } from "./coverage";
 
 // Exporters
 export { type GraphExporter, MermaidExporter, toMermaid } from "./exporters";
+export { type CycleEdgeKind, type FindCyclesOptions, GraphAnalyzer } from "./graph/analyzer";
 // Graph analysis utilities
 export {
   type ApiSurface,
@@ -66,10 +67,13 @@ export {
   type DuplicateFamily,
   type DuplicateGroup,
   type DuplicateOccurrence,
+  type DuplicateSignal,
   type DuplicationTokenCache,
   type FindDuplicatesOptions,
   type FindDuplicatesResult,
   findDuplicates,
+  hasGeneratedMarker,
+  isGeneratedPath,
   loadTokenCacheFromDisk,
   saveTokenCacheToDisk,
 } from "./graph/duplication";

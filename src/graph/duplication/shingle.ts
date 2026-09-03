@@ -24,6 +24,14 @@ export interface DuplicateOccurrence {
   endLine: number;
 }
 
+/**
+ * Advisory tags on a {@link DuplicateGroup} that help a caller (and issue 6's query layer) judge
+ * whether a match is worth acting on: `"same-file"` — every occurrence is in one file (an
+ * internally repeated block); `"generated"` — at least one occurrence is in a file only scanned
+ * because `includeGenerated: true` was passed. Designed to grow (issue 7 adds more).
+ */
+export type DuplicateSignal = "same-file" | "generated";
+
 export interface DuplicateGroup {
   /** Every location sharing this duplicated block (two or more) — locations that pairwise
    *  chain-match are clustered into one group instead of being reported once per pair, so a
@@ -39,6 +47,9 @@ export interface DuplicateGroup {
    *  matches across families — see docs/adr-013-duplicate-detection-noise-reduction.md).
    *  Absent when called directly with a token stream that isn't family-scoped, e.g. in tests. */
   family?: DuplicateFamily | undefined;
+  /** Advisory tags for filtering — see {@link DuplicateSignal}. Absent (not `[]`) when no
+   *  signal applies. */
+  signals?: DuplicateSignal[] | undefined;
 }
 
 interface Location {

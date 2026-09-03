@@ -53,4 +53,48 @@ describe("tokenize", () => {
     expect(tokens).toContain("ID"); // foo
     expect(tokens).toContain("#");
   });
+
+  test("masks single-line and multi-line TS import statements", () => {
+    const source = [
+      'import { readFile } from "node:fs/promises";',
+      'import path from "node:path";',
+      "import {",
+      "  Foo,",
+      "  Bar,",
+      '} from "./stuff";',
+      "const total = compute(Foo, Bar);",
+    ].join("\n");
+    const tokens = tokenize(source, "typescript");
+    // nothing survives from the import block (lines 1-6)
+    expect(tokens.every((t) => t.line >= 7)).toBe(true);
+    expect(tokens.map((t) => t.text)).toEqual([
+      "const",
+      "ID",
+      "=",
+      "ID",
+      "(",
+      "ID",
+      ",",
+      "ID",
+      ")",
+      ";",
+    ]);
+  });
+
+  test("masks a Go import ( … ) block", () => {
+    const source = [
+      "import (",
+      '\t"fmt"',
+      '\t"os"',
+      ")",
+      "func main() { fmt.Println(os.Args) }",
+    ].join("\n");
+    const tokens = tokenize(source, "go");
+    expect(tokens.every((t) => t.line === 5)).toBe(true);
+  });
+
+  test("masks python import / from-import lines", () => {
+    const tokens = tokenize("import os\nfrom a.b import c\nresult = c(os)", "python");
+    expect(tokens.every((t) => t.line === 3)).toBe(true);
+  });
 });

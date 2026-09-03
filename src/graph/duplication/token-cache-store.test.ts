@@ -14,6 +14,7 @@ function entry(overrides: Partial<CachedFileTokens> = {}): CachedFileTokens {
     mtime: 1000,
     size: 42,
     ignoreLiterals: true,
+    generated: false,
     tokens: [{ text: "foo", line: 1 }],
     ...overrides,
   };

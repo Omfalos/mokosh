@@ -82,6 +82,19 @@ export interface MokoshConfig {
    * in-process, or pass `{ minFiles, maxThreads }` to raise the threshold instead.
    */
   parallelParsing?: ParallelParsingOption;
+  /** Duplicate-detection (`find_duplicates` / `--find-duplicates`) tuning. */
+  duplication?: {
+    /**
+     * Extra generated / vendored file patterns to exclude from duplicate scanning, merged with
+     * the built-in list (protobuf output, `*.generated.*`, `generated/` dirs, `@generated`
+     * markers). Two shapes only — `** /name/**` (any path segment equals `name`) and `*.suffix`
+     * (basename ends with `.suffix`) — not full glob syntax.
+     */
+    ignoreGlobs?: string[];
+    /** When true, scan generated / vendored files too (default false). Matches involving one are
+     *  tagged `signals: ["generated"]`. */
+    includeGenerated?: boolean;
+  };
 }
 
 const CONFIG_FILENAMES = ["mokosh.config.js", "mokosh.config.cjs", "mokosh.config.json"];

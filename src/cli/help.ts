@@ -64,11 +64,14 @@ MCP parity (mirrors the MCP server's tools for use when MCP is unavailable):
   --complexity-threshold <N>   Minimum score to include (default: 10, use with --find-complex-functions)
   --limit <N>                  Max results for --find-complex-functions/--find-duplicates
   --find-duplicates            Find duplicated code blocks (token-based, works for every parsed
-                                language), largest-first. Lock files and files under an ignored
-                                directory (--config's ignoreDirs, merged with the defaults) are
-                                always excluded
+                                language), largest-first. Lock files, files under an ignored
+                                directory (--config's ignoreDirs, merged with the defaults), and
+                                generated / vendored files are always excluded
   --min-duplicate-lines <N>    Minimum duplicated block size in lines to report (default: 6,
                                 use with --find-duplicates)
+  --include-generated          Scan generated / vendored files too (protobuf output, *.generated.*,
+                                generated/ & __snapshots__/ dirs, *.snap, @generated-marked
+                                files); use with --find-duplicates
   --find-risk-hotspots         List functions that are complex, undertested, and (if gitStats is
                                 enabled) frequently changed — requires coverageReportPath in config
   --max-coverage-pct <N>       Max file coverage % to include (default: 50, use with --find-risk-hotspots)

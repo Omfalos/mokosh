@@ -1,7 +1,7 @@
 /** Graph class wrapping the raw node map with DFS traversal, cycle detection, serialization, and reverse-edge helpers. */
 import type { SerializedGraph, TraversalOptions, TraversalVisitor } from "../types/graph";
 import type { CallEdge, FileNode } from "../types/node";
-import { GraphAnalyzer } from "./analyzer";
+import { type FindCyclesOptions, GraphAnalyzer } from "./analyzer";
 
 /**
  * @description Represents the dependency graph of the project.
@@ -209,9 +209,12 @@ export class Graph {
   /**
    * @description Detects all circular import chains in the graph using DFS
    *   with a back-edge check. Each returned array is one cycle as an ordered path.
+   *   Synthetic JVM same-package edges and Markdown doc references are skipped by default —
+   *   pass `opts.includeKinds` to walk them.
+   * @param {FindCyclesOptions} [opts] - Forwarded to {@link GraphAnalyzer.findCycles}.
    * @returns Array of cycles; each cycle is a list of file paths forming a loop.
    */
-  public findCycles(): string[][] {
-    return new GraphAnalyzer(this.nodes).findCycles();
+  public findCycles(opts?: FindCyclesOptions): string[][] {
+    return new GraphAnalyzer(this.nodes).findCycles(opts);
   }
 }
