@@ -147,3 +147,90 @@ algorithm underneath the same token-based approach, not the tokenization strateg
   but substantially more intricate algorithms; worth revisiting only if profiling on a real large
   repo shows suffix-array construction itself as the bottleneck, which is not expected at realistic
   per-family token-stream sizes.
+
+---
+
+## Addendum (2026-09-04): clone-family consolidation (`applyDominanceFilter`)
+
+**Status:** Implemented. See docs/known_issues/09-duplicate-clone-family-noise.md for the
+dogfooding report this responds to.
+
+### Problem
+
+A shared boilerplate shape doesn't produce one LCP-interval-tree node, it produces a *family* of
+them: a shorter interval with more occurrences (the prefix every copy shares) and one or more
+longer sibling intervals with fewer occurrences each (the subsets that extend that prefix
+further). Every node is individually a valid maximal repeat by this ADR's own design — that's
+working as intended — but `findExactDuplicateGroups` reported every qualifying node as its own
+`DuplicateGroup`, which dogfooding against box-ui-elements (3,480 nodes) showed compounds badly on
+real repetitive code: a repeated internal shape in one file reported dozens of times at shifted
+offsets/lengths, and a common shared import/prop-types block reported as ~35+ separate groups
+across the same ~15-25 files with slightly different member subsets each time. Raising `limit`
+surfaced more of this, not more signal.
+
+### Decision, and the correctness detour that shaped it
+
+The fix (`applyDominanceFilter` in `suffix-duplicates.ts`) restructures `findExactDuplicateGroups`
+into two passes: per-interval candidate extraction (the same gates `groupFromInterval` always
+ran — `windowSize`, `isLeftMaximal`, `dropSelfOverlaps`, punctuation, `minLines`), then a global
+pass across every surviving candidate, longest-`lcpLength`-first, that drops an occurrence when
+its `[start, start+length)` span is fully contained in an already-accepted (longer, or
+equal-and-earlier) span in that same file; a candidate left with fewer than two surviving
+occurrences is dropped.
+
+**A first version of this filter was unsound, and a randomized differential test caught it**
+before it shipped (the same `suffix-duplicates.test.ts` vs. `shingle.ts` cross-check this ADR's
+main text describes) — worth recording since the failure mode is subtle. That version is the one
+above; the bug is real: dropping an occurrence purely because its *span* is subsumed elsewhere
+ignores *which other files* the subsuming match involves. If file A shares code with file D only
+via this exact candidate, and D's occurrence in it happens to be spatially contained in an
+unrelated longer match between files B and C, trimming D out of the A↔D group silently deletes
+the only report of that pairing — a real regression in what `find_duplicates` promises, not a
+tuning knob.
+
+A provably-safe alternative was designed and implemented next: drop a candidate only in its
+entirety, and only when *every* one of its occurrences is covered by the *same single*
+already-accepted candidate (never a union of several) — since that candidate's whole occurrence
+set was itself accepted intact, every pairwise relationship the redundant candidate could report
+is already present in it. This is provably lossless. **It was also, empirically, close to a
+no-op**: `isLeftMaximal` already excludes the one case (a shorter candidate with an *identical*
+occurrence set to a longer one) this stricter filter could safely act on without risking the bug
+above, so on both a synthetic probe mirroring the reported Feed.js self-overlap pattern and by
+construction, it left the actual reported noise — near-duplicate, non-identically-positioned
+matches, and genuinely branching clone families — essentially untouched.
+
+**Decision: ship the lossy per-occurrence version anyway, deliberately, not the provably-safe
+one.** Verified against the same synthetic probe, it cut the Feed.js-shaped case from 7 groups to
+2 and correctly collapsed nested cross-file cases to their most specific match. The completeness
+gap is real and now permanently encoded rather than accidental: the differential test in
+`suffix-duplicates.test.ts` was changed from asserting `exactGroups`' file-pair coverage exactly
+equals `shingle.ts`'s ground truth to asserting only that every pair `exactGroups` reports is also
+one `shingle.ts` would report (i.e. `exactGroups` can now be a strict subset, never a superset) —
+this is the explicit, permanent contract change this addendum makes, not an incidental side
+effect.
+
+### Consequences
+
+**Positive**
+- Meaningfully fewer redundant groups on real repetitive code (same-file self-overlap chains,
+  simple ancestor/descendant nesting) without touching `windowSize`/`minLines`/
+  `maxPunctuationRatio`/`isLeftMaximal`/`dropSelfOverlaps` semantics or the suffix array / LCP
+  array / interval-tree construction itself.
+- `O(m log m)`-shaped (`m` = total surviving-occurrence count, bounded by the token stream length
+  like everything else in this pipeline) — no new complexity class, no reintroduction of the
+  `O(k²)`-per-bucket shape ADR-014/015 replaced.
+
+**Negative — accepted deliberately, not an oversight**
+- `find_duplicates` can now silently under-report: a real file-pairing can go unreported when its
+  only representative occurrence is spatially subsumed by an unrelated, larger match. No new
+  `DuplicateSignal` marks when this happened to a given result, since the pairing that would need
+  one is exactly the one that's missing.
+- Does **not** fix the harder case reported alongside the self-overlap noise: genuinely branching
+  clone families (a shared prefix that different, non-nested subsets of files extend in different
+  ways) and non-nested near-duplicates (similar but not literally overlapping-in-token-index
+  matches) pass through unchanged, since neither has the "same starting position, different
+  length" structure this filter can act on at all. Connected-component clustering — group every
+  file that shares *any* match into one cluster-level finding instead of trying to filter
+  individual groups — is the next lever if dogfooding shows this still matters after this lands;
+  deliberately deferred rather than attempted speculatively now, see
+  docs/known_issues/09-duplicate-clone-family-noise.md.
