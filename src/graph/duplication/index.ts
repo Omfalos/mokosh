@@ -1,13 +1,18 @@
 /**
- * Cross-file duplicate-code detection. Two matching strategies, picked per file by `FileType`:
+ * Cross-file duplicate-code detection. Three matching strategies, picked per file by `FileType`:
  * CSS/Less/SCSS route through `findStyleBlockDuplicates` (`style-blocks.ts`), a structural
  * comparator over PostCSS rule bodies; everything else (including Stylus, which has no shared
- * PostCSS AST here) runs the generic tokenize → suffix-array-exact-match pipeline. See
+ * PostCSS AST here) runs the generic tokenize → suffix-array-exact-match pipeline; on top of
+ * both, declaration-level matching runs independently — `findStyleVarDuplicates`
+ * (`style-vars.ts`) for CSS/SCSS/Less design tokens, `findTypeDefDuplicates` (`type-defs.ts`) for
+ * TypeScript `interface`/`type` object shapes — reported as `kind: "definition"` groups
+ * alongside the `kind: "block"` (or absent-`kind`) matches the first two strategies produce. See
  * docs/adr-012-duplicate-detection.md for why token-based detection is built in-house instead of
  * adopting jscpd, docs/adr-013-duplicate-detection-noise-reduction.md for why CSS-family matching
- * moved off it, and docs/adr-015-suffix-array-duplicate-detection.md for why matching runs on a
+ * moved off it, docs/adr-015-suffix-array-duplicate-detection.md for why matching runs on a
  * suffix array (`suffix-duplicates.ts`) rather than the original hash-shingle-bucket matcher
- * (`shingle.ts`, kept and independently tested but no longer used here).
+ * (`shingle.ts`, kept and independently tested but no longer used here), and
+ * docs/adr-018-per-language-definition-duplicates.md for the declaration-level strategy.
  *
  * `graph.nodes` is not a reliable ignore-rule-filtered file list: `DEFAULT_IGNORE_DIRS` and
  * extension filtering only gate `GraphBuilder`'s own FS-walk discovery passes, not files that
@@ -32,10 +37,12 @@ import { type DuplicateFamily, getDuplicateFamily } from "./families";
 import { hasGeneratedMarker, isGeneratedPath } from "./generated";
 import type { DuplicateGroup, DuplicateSignal, FileTokens } from "./shingle";
 import { findStyleBlockDuplicates, type StyleSourceFile } from "./style-blocks";
+import { findStyleVarDuplicates } from "./style-vars";
 import { findExactDuplicateGroups } from "./suffix-duplicates";
 import type { CachedFileTokens, DuplicationTokenCache } from "./token-cache-store";
 import type { NormalizedToken } from "./tokenizer";
 import { tokenize } from "./tokenizer";
+import { findTypeDefDuplicates, type TypeScriptSourceFile } from "./type-defs";
 
 /** Below this many candidate files, worker-pool spin-up cost outweighs the parallelism benefit —
  *  tokenize in-process instead. Mirrors `GraphBuilder`'s `DEFAULT_MIN_FILES_FOR_POOL`. */
@@ -51,6 +58,7 @@ export type { DuplicateGroup, DuplicateOccurrence, DuplicateSignal } from "./shi
 export type { StyleSourceFile } from "./style-blocks";
 export type { CachedFileTokens, DuplicationTokenCache } from "./token-cache-store";
 export { loadTokenCacheFromDisk, saveTokenCacheToDisk } from "./token-cache-store";
+export type { TypeScriptSourceFile } from "./type-defs";
 
 /** CSS-family types with a shared PostCSS AST available — routed through the structural rule-body
  *  comparator instead of the generic token-shingle pipeline. Stylus has no such AST here, so it
@@ -132,13 +140,14 @@ function isUnderIgnoredDir(relPath: string, ignoreDirs: readonly string[]): bool
 /**
  * @description Attaches advisory {@link DuplicateSignal}s to a group: `"same-file"` when every
  *   occurrence is in one file, `"generated"` when any occurrence is in a file scanned only
- *   because `includeGenerated: true`.
+ *   because `includeGenerated: true`. Merged with any signal the group's own extractor already
+ *   set (e.g. `style-vars.ts`'s `"value-drift"`) rather than replacing it.
  * @param group - A finalized duplicate group.
  * @param generatedPaths - Project-relative paths of generated files kept in this scan.
  * @returns The same group with `signals` set when at least one applies, otherwise unchanged.
  */
 function withSignals(group: DuplicateGroup, generatedPaths: ReadonlySet<string>): DuplicateGroup {
-  const signals: DuplicateSignal[] = [];
+  const signals: DuplicateSignal[] = [...(group.signals ?? [])];
   if (new Set(group.occurrences.map((occ) => occ.file)).size === 1) signals.push("same-file");
   if (group.occurrences.some((occ) => generatedPaths.has(occ.file))) signals.push("generated");
   return signals.length > 0 ? { ...group, signals } : group;
@@ -201,6 +210,7 @@ export async function findDuplicates(
   const pool = createTokenizingPool(parallelTokenizing, nodes.length);
   try {
     const structuralStyleFiles: StyleSourceFile[] = [];
+    const typeScriptFiles: TypeScriptSourceFile[] = [];
     const filesByFamily = new Map<DuplicateFamily, FileTokens[]>();
     await Promise.all(
       nodes.map(async (node) => {
@@ -231,6 +241,11 @@ export async function findDuplicates(
 
         let tokens: NormalizedToken[];
         let generated: boolean;
+        // Only populated on the non-cache-hit path below; on a cache hit and `node.type ===
+        // "typescript"`, type-def extraction (unlike tokenizing) still needs the source, so it's
+        // read again separately just below — an accepted extra read on the minority (repeated
+        // same-session call) path, since type-def results aren't cached the way tokens are.
+        let sourceForTypeDefs: string | undefined;
         if (cacheHit) {
           tokens = cached.tokens;
           generated = cached.generated;
@@ -254,10 +269,24 @@ export async function findDuplicates(
             generated,
             tokens,
           });
+          sourceForTypeDefs = source;
         }
 
         if (generated && !includeGenerated) return;
         if (generated) generatedPaths.add(node.path);
+
+        if (node.type === "typescript") {
+          if (sourceForTypeDefs === undefined) {
+            try {
+              sourceForTypeDefs = await readFile(path.join(rootDir, node.path), "utf8");
+            } catch {
+              sourceForTypeDefs = undefined;
+            }
+          }
+          if (sourceForTypeDefs !== undefined) {
+            typeScriptFiles.push({ file: node.path, source: sourceForTypeDefs });
+          }
+        }
 
         const family = getDuplicateFamily(node.type);
         const fileTokens: FileTokens = { file: node.path, tokens };
@@ -292,6 +321,15 @@ export async function findDuplicates(
       )) {
         groups.push(withSignals({ ...group, family }, generatedPaths));
       }
+    }
+
+    // Declaration-level matching, independent of the block strategies above — see
+    // docs/adr-018-per-language-definition-duplicates.md.
+    for (const group of findStyleVarDuplicates(structuralStyleFiles)) {
+      groups.push(withSignals({ ...group, family: "style" }, generatedPaths));
+    }
+    for (const group of findTypeDefDuplicates(typeScriptFiles)) {
+      groups.push(withSignals({ ...group, family: "code" }, generatedPaths));
     }
 
     return { groups: groups.sort((a, b) => b.lines - a.lines).slice(0, limit) };

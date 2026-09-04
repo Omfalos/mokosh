@@ -333,7 +333,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "find_duplicates",
     description:
-      "Find duplicated code blocks across the project, largest-first. CSS/SCSS/Less are matched structurally by rule body; every other parsed language is tokenized and matched via suffix array. Lock files and ignored directories are always excluded. Requires a prior analyze() call. See docs/mcp.md for matching-strategy, normalization, and caching details.",
+      'Find duplicated code blocks across the project, largest-first. CSS/SCSS/Less are matched structurally by rule body; every other parsed language is tokenized and matched via suffix array. Also reports kind: "definition" groups — CSS/SCSS/Less variable duplicates and identical TS interface/type shapes. Lock files and ignored directories are always excluded. Requires a prior analyze() call. See docs/mcp.md for details.',
     inputSchema: {
       type: "object",
       properties: {

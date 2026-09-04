@@ -227,6 +227,46 @@ describe("findDuplicates", () => {
     expect(groups[0]?.family).toBe("style");
   });
 
+  test("reports kind: definition groups for duplicated CSS vars and TS interfaces alongside block matches", async () => {
+    root = setup({
+      "a.css": [":root {", "  --brand: #3b82f6;", "}"].join("\n"),
+      "b.css": [":root {", "  --primary: #3b82f6;", "}"].join("\n"),
+      "a.ts": ["export interface UserDto {", "  id: string;", "  name: string;", "}"].join("\n"),
+      "b.ts": ["export interface PersonDto {", "  id: string;", "  name: string;", "}"].join("\n"),
+    });
+    const graph = graphFor([
+      ["a.css", "css"],
+      ["b.css", "css"],
+      ["a.ts", "typescript"],
+      ["b.ts", "typescript"],
+    ]);
+
+    const { groups } = await findDuplicates(graph, root, { minLines: 2 });
+
+    const cssVarGroup = groups.find((g) => g.defKind === "cssVar");
+    expect(cssVarGroup?.kind).toBe("definition");
+    expect(cssVarGroup?.occurrences.map((o) => o.name).sort()).toEqual(["--brand", "--primary"]);
+
+    const typeGroup = groups.find((g) => g.defKind === "interface");
+    expect(typeGroup?.kind).toBe("definition");
+    expect(typeGroup?.occurrences.map((o) => o.name).sort()).toEqual(["PersonDto", "UserDto"]);
+
+    // Existing block-kind matching is unaffected — no group from this fixture has kind: "block"
+    // since nothing else duplicates, but every group present has a `kind` set at all.
+    expect(groups.every((g) => g.kind === "definition")).toBe(true);
+  });
+
+  test("a same-file repeated CSS var declaration group carries the same-file signal", async () => {
+    root = setup({
+      "a.css": [":root {", "  --brand: #3b82f6;", "  --primary: #3b82f6;", "}"].join("\n"),
+    });
+    const graph = graphFor([["a.css", "css"]]);
+
+    const { groups } = await findDuplicates(graph, root, { minLines: 1 });
+    const cssVarGroup = groups.find((g) => g.defKind === "cssVar");
+    expect(cssVarGroup?.signals).toContain("same-file");
+  });
+
   test("never matches across the style/code family boundary, even with identical shape", async () => {
     // CSS is matched structurally now (by literal declaration content, via
     // findStyleBlockDuplicates), so this exercises that a genuine CSS duplicate and a genuine
