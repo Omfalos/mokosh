@@ -22,15 +22,23 @@ export interface DuplicateOccurrence {
   file: string;
   startLine: number;
   endLine: number;
+  /** The variable/type name declared at this location. Set only on `kind: "definition"` groups
+   *  (`style-vars.ts`, `type-defs.ts`) — block matches have no single declared name. */
+  name?: string | undefined;
+  /** This occurrence's own normalized value. Set only on `defKind: "cssVar"` groups tagged
+   *  `signals: ["value-drift"]`, where occurrences disagree and the value itself is the point. */
+  value?: string | undefined;
 }
 
 /**
  * Advisory tags on a {@link DuplicateGroup} that help a caller (and issue 6's query layer) judge
  * whether a match is worth acting on: `"same-file"` — every occurrence is in one file (an
  * internally repeated block); `"generated"` — at least one occurrence is in a file only scanned
- * because `includeGenerated: true` was passed. Designed to grow (issue 7 adds more).
+ * because `includeGenerated: true` was passed; `"value-drift"` — a `defKind: "cssVar"` group
+ * where the same variable *name* holds different values across files (as opposed to the default
+ * consolidation case: different names, same value). Designed to grow (issue 7 adds more).
  */
-export type DuplicateSignal = "same-file" | "generated";
+export type DuplicateSignal = "same-file" | "generated" | "value-drift";
 
 export interface DuplicateGroup {
   /** Every location sharing this duplicated block (two or more) — locations that pairwise
@@ -39,9 +47,11 @@ export interface DuplicateGroup {
   occurrences: DuplicateOccurrence[];
   /** Line span of the largest single pairwise match clustered into this group (each pair's own
    *  span is the shorter of its two occurrences) — the best-verified size for this block, not an
-   *  average or a value shrunk by a more weakly-matching cluster member. */
+   *  average or a value shrunk by a more weakly-matching cluster member. For `kind: "definition"`
+   *  groups this is the declaration's own line span instead (1 for a single-line `cssVar` decl). */
   lines: number;
-  /** Token-window length backing this block, after chain-merging adjacent windows. */
+  /** Token-window length backing this block, after chain-merging adjacent windows. For
+   *  `kind: "definition"` groups this is the member/field count instead (1 for `cssVar`). */
   tokens: number;
   /** Which language family both occurrences belong to (set by `findDuplicates`, which never
    *  matches across families — see docs/adr-013-duplicate-detection-noise-reduction.md).
@@ -50,6 +60,12 @@ export interface DuplicateGroup {
   /** Advisory tags for filtering — see {@link DuplicateSignal}. Absent (not `[]`) when no
    *  signal applies. */
   signals?: DuplicateSignal[] | undefined;
+  /** `"block"` (the default, and absent on every group predating this field) is a token/structural
+   *  match over a span of code; `"definition"` is a declaration-level match — see `defKind`. */
+  kind?: "block" | "definition" | undefined;
+  /** What kind of declaration a `kind: "definition"` group matched on. Absent for `kind: "block"`
+   *  (or absent-`kind`) groups. */
+  defKind?: "cssVar" | "interface" | "type" | undefined;
 }
 
 interface Location {

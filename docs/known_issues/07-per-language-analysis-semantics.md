@@ -1,6 +1,10 @@
 # Issue 7 — Analyses treat every language like JS/TS; each needs its own semantics
 
-Status: proposed, not started. Found dogfooding v0.5.0 (2026-09-03).
+Status: **phase 1 done** (2026-09-04) — CSS/SCSS/Less variable duplicates (drift +
+consolidation) and TypeScript `interface`/`type` structural duplicates, both as `find_duplicates`
+`kind: "definition"` groups. See [ADR-018](../adr-018-per-language-definition-duplicates.md) for
+the design and `docs/known_issues/README.md` for what's still outstanding (JVM, Go, Python, the
+7c idiom-exclusion registry, the 7d config surface). Found dogfooding v0.5.0 (2026-09-03).
 
 ## Symptom
 
@@ -45,7 +49,13 @@ More broadly, several analyses assume the TS/JS model:
 
 ## Fix plan
 
-### 7a — a per-language "definition duplicate" extractor interface
+### 7a — a per-language "definition duplicate" extractor interface: **done, in a lighter form**
+
+`style-vars.ts` and `type-defs.ts` land as two self-contained modules with the same external
+shape (`(files) => DuplicateGroup[]`) rather than a formal `DefinitionExtractor` interface/registry
+— with only two implementations, that abstraction would have been speculative. Worth introducing
+once a third language extractor lands and the actual common surface is known. See
+[ADR-018](../adr-018-per-language-definition-duplicates.md).
 
 Add `DefinitionExtractor` alongside the parser registry: given a parsed AST/tree, emit
 normalized *definitions* with a canonical structural hash:
@@ -66,15 +76,18 @@ shape — a `kind: "definition"` group).
 
 ### 7b — per-language implementations
 
-- **CSS/SCSS/Less** (`src/parser/style/*` already build PostCSS ASTs): extract every custom
-  property (`--x`), SCSS/Less variable (`$x` / `@x`), and their resolved values. Report:
-  (1) the same variable name declared with different values across files (token drift),
-  (2) different names holding the same value (consolidation candidate). New
-  `src/graph/duplication/style-vars.ts`.
-- **TypeScript** (`src/parser/lang/typescript.ts` uses the TS compiler API): canonicalize
-  `interface` / `type` literal members — sort by name, normalize optionality, resolve type
-  references, **ignore** declarations that reduce to a single primitive/`unknown`/`any`.
-  Hash the canonical form. Reuses `src/graph/type-graph.ts` machinery.
+- **CSS/SCSS/Less**: **done.** `src/graph/duplication/style-vars.ts` extracts every custom
+  property (`--x`), SCSS variable (`$x`), and Less variable (`@x`) via PostCSS ASTs
+  (`parseStyleAst`, shared with `style-blocks.ts`). Reports (1) the same variable name declared
+  with different values across files (`signals: ["value-drift"]`), (2) different names holding
+  the same value (consolidation candidate, unsignaled).
+- **TypeScript**: **done.** `src/graph/duplication/type-defs.ts` canonicalizes `interface` /
+  object-shaped `type` literal members via its own `ts.createSourceFile`/printer (not
+  `src/graph/type-graph.ts`, which only tracks export names/signatures, not member lists) — sort
+  by name, normalize optionality, **ignore** declarations that reduce to a single
+  primitive/`unknown`/`any`. Canonical member-list string is the grouping key directly (no
+  separate hash step needed). Type-reference resolution (following an aliased member type to its
+  own shape) was **not** done — member types are compared as printed text only.
 - **JVM**: from the Lezer trees (`java.ts`) and hand-rolled scanners (`kotlin.ts`,
   `scala.ts`), extract record/`data class`/POJO field lists and enum constant sets; canonical
   hash on `(fieldName, fieldType)` sorted. Exclude pure-accessor classes.
@@ -97,33 +110,40 @@ behavior.
 ## Expected outcome
 
 - `find_duplicates` on a CSS codebase reports design-token drift and consolidation
-  candidates.
+  candidates. **Done.**
 - On a TS codebase, reports 1:1-identical `interface`/`type` pairs as definition duplicates.
+  **Done.**
 - On JVM/Go/Python, reports identical data-shape declarations; stops flagging idiomatic
-  boilerplate.
+  boilerplate. **Not done — remaining scope.**
 
 ## Test plan
 
-- Unit per extractor (`src/graph/duplication/style-vars.test.ts`, `.../type-defs.test.ts`,
-  `.../jvm-defs.test.ts`, …): fixtures with known identical/near-identical/base-type-only
-  declarations → correct grouping; primitive-only type alias not reported.
+- Unit per extractor (`src/graph/duplication/style-vars.test.ts`, `.../type-defs.test.ts` —
+  **done**; `.../jvm-defs.test.ts`, Go/Python equivalents — not done): fixtures with known
+  identical/near-identical/base-type-only declarations → correct grouping; primitive-only type
+  alias not reported.
 - Unit: CSS `--brand` = `$brand` value match reported; `--brand` with two different values
-  reported as drift.
-- Unit: Java class with only getters/setters never reported (7c).
+  reported as drift. **Done.**
+- Unit: Java class with only getters/setters never reported (7c). **Not done — no JVM extractor
+  yet.**
 - Integration: `find_duplicates` result contains both `kind: "block"` and
-  `kind: "definition"` groups; [issue 6](06-duplicates-query-language.md) `filter` can select
-  `kind:definition`.
+  `kind: "definition"` groups. **Done** (`index.test.ts`). [Issue 6](06-duplicates-query-language.md)
+  `filter` selecting `kind:definition` is issue 6's own scope, not started.
 - Regression: existing block-duplication behavior unchanged when definition strategy finds
-  nothing.
+  nothing. **Done** — full existing `src/graph/duplication` suite still passes unchanged.
 
 ## Files touched
 
-new `src/graph/duplication/definitions.ts` (strategy + registry),
-`src/graph/duplication/style-vars.ts`, `src/graph/duplication/type-defs.ts`,
-`src/graph/duplication/jvm-defs.ts`, `src/graph/duplication/index.ts`,
-`src/graph/duplication/suffix-duplicates.ts` (result shape), `src/parser/registry.ts`,
-`src/graph/type-graph.ts`, `src/config.ts`, `src/mcp/tools.ts`, `docs/mcp.md`,
-new `docs/adr-019-per-language-duplication.md`.
+Phase 1 (done): `src/graph/duplication/style-vars.ts`, `src/graph/duplication/type-defs.ts` (new,
+no separate `definitions.ts` registry — see 7a above), `src/graph/duplication/shingle.ts` (`kind`/
+`defKind`/occurrence `name`/`value`/`"value-drift"` signal), `src/graph/duplication/style-blocks.ts`
+(exports `parseStyleAst`/`normalizeValue`), `src/graph/duplication/index.ts`, `src/mcp/tools.ts`,
+`docs/mcp.md`, `docs/adr-018-per-language-definition-duplicates.md`.
+
+Remaining (JVM/Go/Python + 7c/7d): `src/graph/duplication/jvm-defs.ts`, Go/Python equivalents,
+an idiom-exclusion registry, `src/parser/registry.ts`, `src/config.ts`
+(`MokoshConfig.languages.<lang>`), `src/graph/duplication/suffix-duplicates.ts` if a shared
+extractor registry is introduced.
 
 ## Dependencies
 

@@ -36,22 +36,23 @@ interface RuleBlock {
 /**
  * @description Collapses a declaration value to a comparable form without touching its literal
  *   content — only incidental whitespace differences (copy-pasted code reformatted by a linter,
- *   say) are normalized away.
+ *   say) are normalized away. Shared with `style-vars.ts`.
  * @param value - A declaration's raw PostCSS `value`.
  * @returns The value trimmed and with internal whitespace runs collapsed to one space.
  */
-function normalizeValue(value: string): string {
+export function normalizeValue(value: string): string {
   return value.trim().replace(/\s+/g, " ");
 }
 
 /**
  * @description Parses one style file into a PostCSS AST using the same dialect-specific parser
  *   `src/parser/style/index.ts` dispatches to, so block extraction sees exactly what the graph
- *   builder saw. Returns `undefined` for Stylus (no shared AST) or on a parse failure.
+ *   builder saw. Returns `undefined` for Stylus (no shared AST) or on a parse failure. Shared
+ *   with `style-vars.ts`.
  * @param file - The file to parse; `fileType` selects the CSS/Less/SCSS dialect.
  * @returns The parsed PostCSS root, or `undefined` when structural parsing isn't available.
  */
-function rootFor(file: StyleSourceFile): postcss.Root | undefined {
+export function parseStyleAst(file: StyleSourceFile): postcss.Root | undefined {
   try {
     if (file.fileType === "scss") return parseScssContent(file.source, file.file).root;
     if (file.fileType === "less") return parseLessContent(file.source, file.file).root;
@@ -72,7 +73,7 @@ function rootFor(file: StyleSourceFile): postcss.Root | undefined {
  * @returns One `RuleBlock` per rule that has at least one declaration.
  */
 function collectRuleBlocks(file: StyleSourceFile): RuleBlock[] {
-  const root = rootFor(file);
+  const root = parseStyleAst(file);
   if (!root) return [];
   const blocks: RuleBlock[] = [];
 
