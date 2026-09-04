@@ -3,6 +3,7 @@ import {
   applyConfig,
   configToGraphOptions,
   createWorkspaceGraph,
+  detectMonorepo,
   Graph,
   type MokoshConfig,
 } from "../index";
@@ -123,6 +124,55 @@ async function runWorkspaceMode(
     runWorkspaceAffected(workspaceGraph, parsed.file);
   }
   return true;
+}
+
+/**
+ * @description Resolves which package's `Graph` a command should run against when `rootDir` is a
+ *   monorepo and no explicit entry points were given (mirrors the MCP server's `resolveGraphForFile`/
+ *   `resolveGraphs`, but narrower: this CLI is a one-shot process whose commands `console.log`
+ *   their own output directly, so — unlike the MCP tools — there's no natural place to fan out
+ *   across every package and merge results when neither `--package` nor `--file` is given; that
+ *   case is a hard error here instead, asking the caller to pick one explicitly.
+ * @param {ParsedArgs} parsed - The fully parsed CLI arguments; `--package` wins over `--file`.
+ * @param {ResolvedConfig} config - Resolved config, used for graph-build options.
+ * @param {string} rootDir - Absolute monorepo root.
+ * @returns {Promise<Graph>} The resolved package's `Graph`.
+ */
+async function resolveMonorepoPackageGraph(
+  parsed: ParsedArgs,
+  config: ResolvedConfig,
+  rootDir: string,
+): Promise<Graph> {
+  const workspaceGraph = await createWorkspaceGraph(
+    rootDir,
+    configToGraphOptions(config.rawConfig),
+  );
+
+  if (parsed.packageName) {
+    const entry = workspaceGraph.packages.get(parsed.packageName);
+    if (!entry) {
+      console.error(
+        `Error: unknown package "${parsed.packageName}". Run --workspace-packages to list packages.`,
+      );
+      process.exit(1);
+    }
+    return entry.graph;
+  }
+
+  if (parsed.file) {
+    const pkg = workspaceGraph.getPackageForFile(parsed.file);
+    const entry = pkg && workspaceGraph.packages.get(pkg.name);
+    if (!entry) {
+      console.error(`Error: no workspace package owns "${parsed.file}".`);
+      process.exit(1);
+    }
+    return entry.graph;
+  }
+
+  console.error(
+    "Error: this is a monorepo; pass --package <name> (see --workspace-packages for the list) or --file <path>.",
+  );
+  process.exit(1);
 }
 
 /**
@@ -271,27 +321,41 @@ export async function run(): Promise<void> {
   if (await runWorkspaceMode(parsed, config, rootDir)) return;
 
   const autoScan = computeAutoScan(parsed);
+  const isMonorepoAutoDetect =
+    resolvedEntryPoints.length === 0 && detectMonorepo(rootDir).type !== "none";
 
-  let graph: Graph = loadGraphFromCache(resolvedCachePath) ?? new Graph(new Map());
+  let graph: Graph;
 
-  if (resolvedEntryPoints.length > 0 || !autoScan) {
-    if (
-      resolvedEntryPoints.length === 0 &&
-      !autoScan &&
-      !parsed.findUnused &&
-      !parsed.detectFeatures &&
-      !parsed.checkCycles &&
-      !parsed.checkDocDrift
-    ) {
-      console.error("Error: No entry points provided");
+  if (isMonorepoAutoDetect) {
+    if (parsed.watch) {
+      console.error(
+        "Error: --watch is not supported on a monorepo root (use --package/--file with a single package instead)",
+      );
       process.exit(1);
     }
-    graph = await buildGraph(rootDir, resolvedEntryPoints, graph, {
-      silent: parsed.silent,
-      ...configToGraphOptions(config.rawConfig),
-    });
+    graph = await resolveMonorepoPackageGraph(parsed, config, rootDir);
+  } else {
+    graph = loadGraphFromCache(resolvedCachePath) ?? new Graph(new Map());
 
-    saveGraphToCache(graph, resolvedCachePath);
+    if (resolvedEntryPoints.length > 0 || !autoScan) {
+      if (
+        resolvedEntryPoints.length === 0 &&
+        !autoScan &&
+        !parsed.findUnused &&
+        !parsed.detectFeatures &&
+        !parsed.checkCycles &&
+        !parsed.checkDocDrift
+      ) {
+        console.error("Error: No entry points provided");
+        process.exit(1);
+      }
+      graph = await buildGraph(rootDir, resolvedEntryPoints, graph, {
+        silent: parsed.silent,
+        ...configToGraphOptions(config.rawConfig),
+      });
+
+      saveGraphToCache(graph, resolvedCachePath);
+    }
   }
 
   const ctx: CommandContext = {

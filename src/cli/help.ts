@@ -23,6 +23,9 @@ Options:
                                by count descending (use with --plain for a bare name list)
   --callers                   List files whose exported functions call into --file
   --file <path>               Target file for --callers/--dependencies/--dependents/--affected/--workspace-affected
+  --package <name>            On a monorepo root (with no entry points given): which package to
+                                query. Required unless --file already implies one (see
+                                --workspace-packages for the list of names)
   --check-cycles              Check for circular dependencies; exits non-zero if found (CI gate)
   --check-doc-drift           Flag markdown docs whose referenced files changed more recently
                                than the doc itself; exits non-zero if found (CI gate; requires
@@ -102,8 +105,13 @@ Notes:
     pass/fail exit code, is useful to an AI assistant deciding which docs to fix.
   --config files may be .js/.cjs and are executed for CLI convenience (allowJs: true); the MCP
     server only loads JSON config (allowJs: false) for security. This is intentional.
-  --workspace-packages/--workspace-affected require explicit opt-in (unlike MCP's analyze tool,
-    which auto-detects a monorepo when entryPoints is empty); other commands remain single-package.
+  --workspace-packages/--workspace-affected require explicit opt-in and build a WorkspaceGraph
+    directly. Every other command, given no entry points on a detected monorepo root, resolves
+    against one package's Graph via --package or --file (whichever implies the package) instead
+    of erroring or scanning the whole repo as one graph; pass --entry explicitly to opt back into
+    the old whole-repo-from-these-entry-points behavior. Unlike the MCP server's equivalent tools,
+    this CLI cannot fan out and merge across every package when neither is given — it's a one-shot
+    process whose commands print their own output directly — so that case is a hard error here.
 `;
 
 /** Reference for all supported --query filter keys, shown with --query-help. */

@@ -27,15 +27,29 @@ overrides are not honoured (see `docs/adr-017-jvm-languages.md`).
 
 ## CLI
 
-Pass no entry points — the CLI detects the workspace automatically:
+Pass no entry points — the CLI detects the workspace automatically. `--workspace-packages` and
+`--workspace-affected` build and query a full `WorkspaceGraph` directly:
 
 ```bash
-# Analyse full monorepo
-mokosh
-
-# Limit to specific packages
-mokosh --packages @myorg/api,@myorg/shared
+mokosh --root /path/to/monorepo --workspace-packages
+mokosh --root /path/to/monorepo --workspace-affected --file packages/shared/src/utils.ts
 ```
+
+Every other command, given no entry points on a detected monorepo root, resolves against one
+package's own `Graph` instead — via `--package <name>`, or via `--file <path>` when the file
+already implies which package (`--dependencies`, `--dependents`, `--affected`, `--callers` all
+do this automatically):
+
+```bash
+mokosh --root /path/to/monorepo --dependencies --file packages/api/src/handlers/auth.ts
+mokosh --root /path/to/monorepo --find-duplicates --package @myorg/api
+```
+
+Neither given is an error — unlike the MCP server's equivalent tools, this one-shot CLI process
+(each command `console.log`s its own output directly) has no natural place to fan out and merge
+across every package, so it asks you to pick one instead of guessing. Pass `--entry` explicitly
+to opt back into the old whole-repo-from-these-entry-points behavior, ignoring package boundaries
+entirely.
 
 ## MCP
 
@@ -59,6 +73,12 @@ rebuild (the rest are reused incrementally).
 `analyze({ entryPoints: [], packages: ["core", "api"] })`. Prune generated source trees from the
 JVM package-index scan with `ignoreDirs` in `mokosh.config.json` (or the `MOKOSH_IGNORE_DIRS`
 env var). Tune parallelism with `MOKOSH_WORKSPACE_CONCURRENCY` (default: CPU count; `1` = sequential).
+
+`get_workspace_packages` and `get_workspace_affected` are workspace-specific — every other MCP
+tool works on a monorepo root too, resolving against the right package's own graph (file-scoped
+tools auto-route from their `file` argument; whole-graph tools take an optional `package`
+argument, fanning out across every package when it's omitted). See [MCP reference](./mcp.md) for
+the full breakdown.
 
 Then use the workspace-specific tools:
 

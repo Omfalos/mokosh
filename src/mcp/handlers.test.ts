@@ -105,7 +105,11 @@ function makeCache(): SessionState {
     getLayout: vi.fn((r: string) => detectMonorepo(r)),
     storeLastAnalyze: vi.fn(),
     startWatching: vi.fn(),
+    isWorkspaceRoot: vi.fn().mockReturnValue(false),
+    resolveGraphForFile: vi.fn().mockResolvedValue(graph),
+    resolveGraphs: vi.fn().mockResolvedValue([{ package: "", graph }]),
     getOrBuildChangeImpact: vi.fn().mockReturnValue({ impact: new Map(), graphHash: "" }),
+    getOrBuildChangeImpactForFile: vi.fn().mockResolvedValue({ impact: new Map(), graphHash: "" }),
   } as unknown as SessionState;
 }
 
@@ -360,7 +364,7 @@ describe("handleGetAffected", {
 
   test("withMeta=true works with cached=true branch", async () => {
     const cache = makeCache();
-    vi.mocked(cache.getOrBuildChangeImpact).mockReturnValue({
+    vi.mocked(cache.getOrBuildChangeImpactForFile).mockResolvedValue({
       impact: new Map([["src/a.ts", ["src/b.ts", "src/a.test.ts"]]]),
       graphHash: "",
     });
@@ -503,6 +507,7 @@ describe("handleFindComplexFunctions", {
     });
     return {
       ensureFresh: vi.fn().mockResolvedValue(graph),
+      resolveGraphs: vi.fn().mockResolvedValue([{ package: "", graph }]),
     } as unknown as SessionState;
   }
 
@@ -593,6 +598,7 @@ describe("handleFindRiskHotspots", {
     });
     return {
       ensureFresh: vi.fn().mockResolvedValue(graph),
+      resolveGraphs: vi.fn().mockResolvedValue([{ package: "", graph }]),
     } as unknown as SessionState;
   }
 
@@ -614,6 +620,7 @@ describe("handleFindRiskHotspots", {
     });
     return {
       ensureFresh: vi.fn().mockResolvedValue(graph),
+      resolveGraphs: vi.fn().mockResolvedValue([{ package: "", graph }]),
     } as unknown as SessionState;
   }
 
@@ -675,6 +682,7 @@ describe("handleFindDuplicates", {
   function makeDuplicatesCache(graph: Graph, config?: { ignoreDirs?: string[] }): SessionState {
     return {
       ensureFresh: vi.fn().mockResolvedValue(graph),
+      resolveGraphs: vi.fn().mockResolvedValue([{ package: "", graph }]),
       getConfig: vi.fn().mockReturnValue(config),
       getDuplicationTokenCache: vi.fn().mockResolvedValue(new Map()),
       flushDuplicationTokenCache: vi.fn(),
@@ -1014,22 +1022,23 @@ describe("handleListTags", {
 
   test("returns an empty list for a graph with no tags", async () => {
     const cache = makeCache();
-    (cache.ensureFresh as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
-      Graph.deserialize({
-        nodes: [
-          {
-            path: "src/untagged.ts",
-            type: "typescript",
-            category: "logic",
-            tags: [],
-            imports: [],
-            exports: [],
-            mtime: 0,
-            size: 0,
-          },
-        ],
-      }),
-    );
+    const untaggedGraph = Graph.deserialize({
+      nodes: [
+        {
+          path: "src/untagged.ts",
+          type: "typescript",
+          category: "logic",
+          tags: [],
+          imports: [],
+          exports: [],
+          mtime: 0,
+          size: 0,
+        },
+      ],
+    });
+    (cache.resolveGraphs as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+      { package: "", graph: untaggedGraph },
+    ]);
 
     const data = parse(await handleListTags(cache, { root: ROOT })) as {
       tags: unknown[];

@@ -25,6 +25,7 @@ function makeParsedArgs(overrides: Partial<ParsedArgs> = {}): ParsedArgs {
     listTags: false,
     callers: false,
     file: undefined,
+    packageName: undefined,
     silent: false,
     query: undefined,
     queryHelp: false,

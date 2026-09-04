@@ -22,6 +22,7 @@ import {
   type SerializedWorkspaceGraph,
   saveTokenCacheToDisk,
   WorkspaceGraph,
+  type WorkspacePackage,
 } from "../index";
 import { IGNORE_WATCH } from "../watch-ignore";
 
@@ -107,6 +108,27 @@ function loadDiskGraphSeed(cachePath: string): Graph | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * @description Builds a `Graph` containing only the nodes that fall under `pkg`'s own
+ *   `relativeRoot`. Each package's `Graph` (built independently by `createWorkspaceGraph`) also
+ *   contains a node for every cross-package file it imports — needed so traversal from within
+ *   that package reaches them — but a whole-graph tool fanning out across every package must not
+ *   list those borrowed nodes as if they belonged here too, or a file imported by two packages
+ *   would be double-reported. Used by `resolveGraphs`; not by `resolveGraphForFile`, whose
+ *   traversal-based tools (get_dependencies et al.) need those borrowed nodes reachable.
+ * @param graph - A workspace package's own `Graph`.
+ * @param pkg - That package's metadata, for its `relativeRoot` prefix.
+ * @returns A new `Graph` restricted to nodes under `pkg.relativeRoot`.
+ */
+function restrictToOwnFiles(graph: Graph, pkg: WorkspacePackage): Graph {
+  const owned = new Map(
+    [...graph.nodes].filter(
+      ([path]) => path === pkg.relativeRoot || path.startsWith(`${pkg.relativeRoot}/`),
+    ),
+  );
+  return new Graph(owned);
 }
 
 type LastAnalyzeArgs =
@@ -297,12 +319,152 @@ export class SessionState {
    * @returns The `ChangeImpactCache` for this root.
    */
   getOrBuildChangeImpact(root: string): ChangeImpactCache {
-    const existing = this.changeImpactCaches.get(root);
+    return this.getOrBuildChangeImpactFor(root, () => this.require(root));
+  }
+
+  /**
+   * @description Returns the change impact cache keyed by `cacheKey`, building it lazily via
+   *   `buildGraph` on first access. `getOrBuildChangeImpact` is the `root`-keyed convenience
+   *   wrapper around this; workspace-scoped callers (`resolveGraphForFile` consumers) key by
+   *   `${root}::${packageName}` instead, so each package gets its own impact cache rather than
+   *   one built over a merged graph.
+   * @param cacheKey - Cache key — `root` for a single-package graph, `${root}::${packageName}` for a workspace package.
+   * @param buildGraph - Lazily supplies the `Graph` to build the cache from, only called on a miss.
+   * @returns The `ChangeImpactCache` for this key.
+   */
+  private getOrBuildChangeImpactFor(cacheKey: string, buildGraph: () => Graph): ChangeImpactCache {
+    const existing = this.changeImpactCaches.get(cacheKey);
     if (existing) return existing;
-    const graph = this.require(root);
-    const cache = buildChangeImpactCache(graph);
-    this.changeImpactCaches.set(root, cache);
+    const cache = buildChangeImpactCache(buildGraph());
+    this.changeImpactCaches.set(cacheKey, cache);
     return cache;
+  }
+
+  /**
+   * @description Change-impact-cache variant of `getOrBuildChangeImpact` for a specific workspace
+   *   package, keyed by `${root}::${packageName}` so each package's cache is independent.
+   * @param root - Absolute monorepo root path.
+   * @param packageName - The owning package's name, from `WorkspaceGraph.getPackageForFile`.
+   * @param graph - That package's `Graph`, already resolved by the caller.
+   * @returns The `ChangeImpactCache` for this package.
+   */
+  getOrBuildChangeImpactForPackage(
+    root: string,
+    packageName: string,
+    graph: Graph,
+  ): ChangeImpactCache {
+    return this.getOrBuildChangeImpactFor(`${root}::${packageName}`, () => graph);
+  }
+
+  /**
+   * @description `getAffected`'s `cached: true` entry point: resolves the right change-impact
+   *   cache for `file` — root-keyed on a plain root, `${root}::${packageName}`-keyed on a
+   *   workspace root (so each package's cache stays independent, never a merged one).
+   * @param root - Absolute project root path.
+   * @param file - Root-relative path the impact cache is queried for; used only to resolve the
+   *   owning package on a workspace root.
+   * @param graph - The already-resolved `Graph` for `file` (from `resolveGraphForFile`), reused
+   *   here instead of re-resolving.
+   * @returns The `ChangeImpactCache` to query.
+   */
+  async getOrBuildChangeImpactForFile(
+    root: string,
+    file: string,
+    graph: Graph,
+  ): Promise<ChangeImpactCache> {
+    if (!this.isWorkspaceRoot(root)) return this.getOrBuildChangeImpactFor(root, () => graph);
+    const wg = await this.ensureFreshWorkspace(root);
+    const pkg = wg.getPackageForFile(file);
+    if (!pkg) {
+      throw new Error(
+        `No workspace package owns "${file}". Call get_workspace_packages to list packages.`,
+      );
+    }
+    return this.getOrBuildChangeImpactFor(`${root}::${pkg.name}`, () => graph);
+  }
+
+  /**
+   * @description Drops every change-impact cache entry for `root` — the root-keyed entry (single-
+   *   package graphs) and every `${root}::${packageName}` entry (workspace packages).
+   * @param root - Absolute project root path.
+   */
+  private clearChangeImpactCachesFor(root: string): void {
+    this.changeImpactCaches.delete(root);
+    const prefix = `${root}::`;
+    for (const key of this.changeImpactCaches.keys()) {
+      if (key.startsWith(prefix)) this.changeImpactCaches.delete(key);
+    }
+  }
+
+  /**
+   * @description Returns `true` if the last `analyze` call for `root` auto-detected a monorepo
+   *   and built a workspace graph, rather than a single-package graph from explicit entry points.
+   * @param root - Absolute project root path.
+   * @returns {boolean} `true` if `root` should be queried through its per-package `WorkspaceGraph`.
+   */
+  isWorkspaceRoot(root: string): boolean {
+    return this.lastAnalyze.get(root)?.kind === "workspace";
+  }
+
+  /**
+   * @description Resolves the `Graph` a file-scoped query (one `file` argument) should run
+   *   against. On a plain (non-monorepo) root this is exactly `ensureFresh`. On a workspace root
+   *   it resolves the package that owns `file` via `WorkspaceGraph.getPackageForFile` and returns
+   *   that package's own `Graph` — never a merged whole-repo graph.
+   * @param root - Absolute project root path.
+   * @param file - Root-relative path of the file the query is about.
+   * @returns The `Graph` to query.
+   * @throws {Error} if `analyze` was never called for `root`, or (on a workspace root) no
+   *   package owns `file`.
+   */
+  async resolveGraphForFile(root: string, file: string): Promise<Graph> {
+    if (!this.isWorkspaceRoot(root)) return this.ensureFresh(root);
+    const wg = await this.ensureFreshWorkspace(root);
+    const pkg = wg.getPackageForFile(file);
+    if (!pkg) {
+      throw new Error(
+        `No workspace package owns "${file}". Call get_workspace_packages to list packages.`,
+      );
+    }
+    const entry = wg.packages.get(pkg.name);
+    if (!entry) throw new Error(`Workspace package "${pkg.name}" has no graph built.`);
+    return entry.graph;
+  }
+
+  /**
+   * @description Resolves the `Graph`(s) a whole-graph query should run against, one entry per
+   *   package. On a plain (non-monorepo) root, returns a single entry (`package: ""`) — exactly
+   *   `ensureFresh`'s graph, so single-package behavior and output shape are unchanged. On a
+   *   workspace root: with `pkg` given, returns just that package's `Graph`; omitted, returns
+   *   every package's `Graph` so the caller can fan out and concatenate its own per-package
+   *   results — no graph is ever merged here.
+   * @param root - Absolute project root path.
+   * @param pkg - Optional workspace package name to restrict to.
+   * @returns The graph(s) to query, each paired with its owning package name (`""` when not a workspace).
+   * @throws {Error} if `analyze` was never called for `root`, or `pkg` names an unknown package.
+   */
+  async resolveGraphs(
+    root: string,
+    pkg?: string,
+  ): Promise<Array<{ package: string; graph: Graph }>> {
+    if (!this.isWorkspaceRoot(root)) {
+      const graph = await this.ensureFresh(root);
+      return [{ package: "", graph }];
+    }
+    const wg = await this.ensureFreshWorkspace(root);
+    if (pkg) {
+      const entry = wg.packages.get(pkg);
+      if (!entry) {
+        throw new Error(
+          `Unknown workspace package "${pkg}". Call get_workspace_packages to list packages.`,
+        );
+      }
+      return [{ package: pkg, graph: restrictToOwnFiles(entry.graph, entry.pkg) }];
+    }
+    return Array.from(wg.packages.entries()).map(([name, { graph, pkg: pkgMeta }]) => ({
+      package: name,
+      graph: restrictToOwnFiles(graph, pkgMeta),
+    }));
   }
 
   /**
@@ -361,7 +523,7 @@ export class SessionState {
   async ensureFresh(root: string): Promise<Graph> {
     if (!this.dirtyRoots.has(root)) return this.require(root);
     this.dirtyRoots.delete(root);
-    this.changeImpactCaches.delete(root);
+    this.clearChangeImpactCachesFor(root);
     const args = this.lastAnalyze.get(root);
     if (args?.kind === "single") {
       return this.getOrBuild(root, args.entryPoints, args.coverageMap);
@@ -385,7 +547,7 @@ export class SessionState {
       return this.getOrBuildWorkspace(root, configToGraphOptions(this.configs.get(root)));
     }
     this.dirtyRoots.delete(root);
-    this.changeImpactCaches.delete(root);
+    this.clearChangeImpactCachesFor(root);
     const previousWorkspace = this.workspaceGraphs.get(root);
     this.workspaceGraphs.delete(root);
     const config = this.configs.get(root);
@@ -457,7 +619,7 @@ export class SessionState {
     this.workspaceGraphs.delete(root);
     this.workspaceBuilds.delete(root);
     this.layouts.delete(root);
-    this.changeImpactCaches.delete(root);
+    this.clearChangeImpactCachesFor(root);
     this.dirtyRoots.delete(root);
     this.duplicationTokenCaches.delete(root);
     this.configs.delete(root);

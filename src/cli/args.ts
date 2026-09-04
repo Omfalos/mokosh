@@ -21,6 +21,7 @@ export interface ParsedArgs {
   listTags: boolean;
   callers: boolean;
   file: string | undefined;
+  packageName: string | undefined;
   silent: boolean;
   query: string | undefined;
   queryHelp: boolean;
@@ -117,6 +118,7 @@ export const OPTIONS = {
   config: { type: "string" },
   query: { type: "string" },
   file: { type: "string" },
+  package: { type: "string" },
   type: { type: "string" },
   paths: { type: "string" },
   function: { type: "string" },
@@ -391,6 +393,7 @@ export function parseArgs(cliTokens: string[]): ParsedArgs {
     configPath: configValue ? path.resolve(rootDir, configValue) : undefined,
     query: values.query,
     file: values.file,
+    packageName: values.package,
     typeFilter: values.type,
     functionName: values.function,
     filterPaths: parseCsv(values.paths),

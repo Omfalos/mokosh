@@ -36,6 +36,7 @@ import {
   queryCallGraph,
   queryChangeImpact,
   queryTypeGraph,
+  type SerializedGraph,
   slimSerialize,
   summarizeBranchComparison,
   summarizeWorkspaceLayout,
@@ -98,16 +99,17 @@ export type GetCallersArgs = {
   depth?: number;
   withEdgeDetail?: boolean;
 };
-export type FindSymbolArgs = { root: string; name: string };
-export type FindUnusedArgs = { root: string; entryPoints?: string[] };
-export type FindUncoveredArgs = { root: string; coverageThreshold?: number };
-export type ListTagsArgs = { root: string };
-export type CheckDocDriftArgs = { root: string };
+export type FindSymbolArgs = { root: string; name: string; package?: string };
+export type FindUnusedArgs = { root: string; entryPoints?: string[]; package?: string };
+export type FindUncoveredArgs = { root: string; coverageThreshold?: number; package?: string };
+export type ListTagsArgs = { root: string; package?: string };
+export type CheckDocDriftArgs = { root: string; package?: string };
 export type FindComplexFunctionsArgs = {
   root: string;
   metric?: "cognitiveComplexity" | "complexity";
   threshold?: number;
   limit?: number;
+  package?: string;
 };
 export type FindRiskHotspotsArgs = {
   root: string;
@@ -116,6 +118,7 @@ export type FindRiskHotspotsArgs = {
   maxCoveragePct?: number;
   minChurn?: number;
   limit?: number;
+  package?: string;
 };
 export type FindDuplicatesArgs = {
   root: string;
@@ -125,6 +128,7 @@ export type FindDuplicatesArgs = {
   limit?: number;
   ignoreDirs?: string[];
   includeGenerated?: boolean;
+  package?: string;
 };
 export type ProposeTagsArgs = {
   root: string;
@@ -140,6 +144,7 @@ export type DetectFeaturesArgs = {
   root: string;
   entryPoints?: string[];
   featureThreshold?: number;
+  package?: string;
 };
 export type QueryArgs = {
   root: string;
@@ -147,15 +152,21 @@ export type QueryArgs = {
   filter: string;
   mermaid?: boolean;
   slim?: boolean;
+  package?: string;
 };
 
 export type ClearCacheArgs = { root: string };
-export type GetTypeGraphArgs = { root: string; type?: string };
-export type GetModuleResponsibilityArgs = { root: string; paths?: string[]; minOutDegree?: number };
-export type GetFeatureGraphArgs = { root: string; minOutDegree?: number };
-export type GetCallGraphArgs = { root: string; function: string };
-export type GetApiSurfaceArgs = { root: string; entryPoints?: string[] };
-export type ApplyTagsArgs = { root: string; dryRun?: boolean };
+export type GetTypeGraphArgs = { root: string; type?: string; package?: string };
+export type GetModuleResponsibilityArgs = {
+  root: string;
+  paths?: string[];
+  minOutDegree?: number;
+  package?: string;
+};
+export type GetFeatureGraphArgs = { root: string; minOutDegree?: number; package?: string };
+export type GetCallGraphArgs = { root: string; function: string; package?: string };
+export type GetApiSurfaceArgs = { root: string; entryPoints?: string[]; package?: string };
+export type ApplyTagsArgs = { root: string; dryRun?: boolean; package?: string };
 
 export type ToolArgs =
   | AnalyzeArgs
@@ -182,6 +193,43 @@ export type ToolArgs =
   | GetCallGraphArgs
   | GetApiSurfaceArgs
   | ApplyTagsArgs;
+
+// ---------------------------------------------------------------------------
+// Workspace fan-out helpers
+//
+// Whole-graph tools resolve one Graph per package via `cache.resolveGraphs` (a single entry,
+// `package: ""`, on a non-monorepo root) and run their existing per-graph logic once per entry.
+// These helpers merge the per-package results back into one response — concatenation only,
+// never a merged Graph.
+// ---------------------------------------------------------------------------
+
+/** Tags each item in a list-shaped result with its owning package, but only when more than one
+ *  package graph was actually queried — a single/non-monorepo result stays untouched. */
+function tagPackage<T extends object>(
+  items: T[],
+  pkg: string,
+  multi: boolean,
+): Array<T & { package?: string }> {
+  return multi && pkg ? items.map((item) => ({ ...item, package: pkg })) : items;
+}
+
+/** Throws a clear error when a graph-shaped (non-list) tool is run across more than one
+ *  workspace package without `package` narrowing it to one — asks the caller to disambiguate
+ *  rather than silently picking one or merging graphs. */
+function requireSinglePackage<T>(
+  graphs: Array<{ package: string; graph: T }>,
+  toolName: string,
+): { package: string; graph: T } {
+  if (graphs.length > 1) {
+    throw new Error(
+      `${toolName} returns a single graph and this is a monorepo with ${graphs.length} packages. ` +
+        `Pass package to pick one (see get_workspace_packages for the list).`,
+    );
+  }
+  const only = graphs[0];
+  if (!only) throw new Error(`${toolName}: no graph resolved for this root.`);
+  return only;
+}
 
 // ---------------------------------------------------------------------------
 // Handlers
@@ -266,7 +314,7 @@ export async function handleGetDependencies(
   args: GetDependenciesArgs,
 ): Promise<TextResponse> {
   const { root, file, depth = 1, withMeta = false } = args;
-  const graph = await cache.ensureFresh(root);
+  const graph = await cache.resolveGraphForFile(root, file);
   const deps = getDependencies(graph, file, depth);
   const dependencies = withMeta
     ? deps.map((dep) => ({ ...dep, ...getNodeMeta(graph, dep.path) }))
@@ -287,7 +335,7 @@ export async function handleGetDependents(
   args: GetDependentsArgs,
 ): Promise<TextResponse> {
   const { root, file, withMeta = false } = args;
-  const graph = await cache.ensureFresh(root);
+  const graph = await cache.resolveGraphForFile(root, file);
   const deps = getDependents(graph, file);
   const dependents = withMeta
     ? deps.map((dep) => ({ ...dep, ...getNodeMeta(graph, dep.path) }))
@@ -310,12 +358,12 @@ export async function handleGetAffected(
   args: GetAffectedArgs,
 ): Promise<TextResponse> {
   const { root, file, testsOnly = false, cached = false, changedSymbols, withMeta = false } = args;
-  const graph = await cache.ensureFresh(root);
+  const graph = await cache.resolveGraphForFile(root, file);
   const annotate = (paths: string[]) =>
     withMeta ? paths.map((p) => ({ path: p, ...getNodeMeta(graph, p) })) : paths;
 
   if (cached) {
-    const impactCache = cache.getOrBuildChangeImpact(root);
+    const impactCache = await cache.getOrBuildChangeImpactForFile(root, file, graph);
     const allAffected = queryChangeImpact(impactCache, file);
     const affected = testsOnly
       ? allAffected.filter((filePath) => graph.nodes.get(filePath)?.category === "test")
@@ -379,7 +427,7 @@ export async function handleGetCallers(
   args: GetCallersArgs,
 ): Promise<TextResponse> {
   const { root, file, depth = 1, withEdgeDetail = false } = args;
-  const graph = await cache.ensureFresh(root);
+  const graph = await cache.resolveGraphForFile(root, file);
   const callers = getCallers(graph, file, { depth, withEdgeDetail });
   return text({ file, callers, count: callers.length });
 }
@@ -395,18 +443,41 @@ export async function handleGetCallers(
  * @returns TextResponse with `{ unusedFiles, count }` listing files unreachable from any entry point.
  */
 export async function handleFindUnused(cache: SessionState, args: FindUnusedArgs) {
-  const { root, entryPoints } = args;
+  const { root, entryPoints, package: pkg } = args;
+  const config = cache.getConfig(root);
+  const allFiles = getAllProjectFiles(root, {
+    additionalIgnoreDirs: config?.ignoreDirs ?? [],
+    additionalExtensions: config?.extensions ?? [],
+  });
+
+  if (!entryPoints && cache.isWorkspaceRoot(root)) {
+    // Each package's unused-file scan must only consider files under that package's own root —
+    // checking every repo file against one package's (small) graph would flag every other
+    // package's files as "unused".
+    const wg = await cache.ensureFreshWorkspace(root);
+    const targets = pkg
+      ? [wg.packages.get(pkg)].filter((entry): entry is NonNullable<typeof entry> => !!entry)
+      : Array.from(wg.packages.values());
+    if (pkg && targets.length === 0) {
+      throw new Error(
+        `Unknown workspace package "${pkg}". Call get_workspace_packages to list packages.`,
+      );
+    }
+    const unusedFiles = targets.flatMap(({ graph, pkg: pkgMeta }) => {
+      const ownFiles = allFiles.filter(
+        (f) => f === pkgMeta.relativeRoot || f.startsWith(`${pkgMeta.relativeRoot}/`),
+      );
+      return graph.findUnusedFiles(ownFiles);
+    });
+    return text({ unusedFiles, count: unusedFiles.length });
+  }
+
   const graph = entryPoints
     ? await cache.getOrBuild(
         root,
         entryPoints.map((ep) => path.resolve(root, ep)),
       )
     : await cache.ensureFresh(root);
-  const config = cache.getConfig(root);
-  const allFiles = getAllProjectFiles(root, {
-    additionalIgnoreDirs: config?.ignoreDirs ?? [],
-    additionalExtensions: config?.extensions ?? [],
-  });
   const unusedFiles = graph.findUnusedFiles(allFiles);
   return text({ unusedFiles, count: unusedFiles.length });
 }
@@ -421,12 +492,14 @@ export async function handleFindUnused(cache: SessionState, args: FindUnusedArgs
  * @returns TextResponse with `{ tags, count }` where `tags` is `{ name, count }[]` sorted by count descending.
  */
 export async function handleListTags(cache: SessionState, args: ListTagsArgs) {
-  const { root } = args;
-  const graph = await cache.ensureFresh(root);
+  const { root, package: pkg } = args;
+  const graphs = await cache.resolveGraphs(root, pkg);
   const counts = new Map<string, number>();
-  for (const node of graph.nodes.values()) {
-    for (const tag of node.tags) {
-      counts.set(tag.name, (counts.get(tag.name) ?? 0) + 1);
+  for (const { graph } of graphs) {
+    for (const node of graph.nodes.values()) {
+      for (const tag of node.tags) {
+        counts.set(tag.name, (counts.get(tag.name) ?? 0) + 1);
+      }
     }
   }
   const tags = [...counts.entries()]
@@ -448,22 +521,29 @@ export async function handleFindUncovered(
   cache: SessionState,
   args: FindUncoveredArgs,
 ): Promise<TextResponse> {
-  const { root, coverageThreshold } = args;
-  const graph = await cache.ensureFresh(root);
+  const { root, coverageThreshold, package: pkg } = args;
+  const graphs = await cache.resolveGraphs(root, pkg);
   const config = cache.getConfig(root);
   const threshold = coverageThreshold ?? config?.coverageThreshold ?? 80;
+  const multi = graphs.length > 1;
 
-  if (!hasCoverageData(graph)) {
+  if (!graphs.some(({ graph }) => hasCoverageData(graph))) {
     return text({
       error:
         "No coverage data available. Set coverageReportPath in mokosh.config and call analyze again.",
     });
   }
 
-  const uncovered = [...graph.nodes.values()]
-    .filter((node) => node.category !== "test" && node.category !== "config")
-    .filter((node) => node.coveragePct !== undefined && node.coveragePct < threshold)
-    .map((node) => ({ file: node.path, coveragePct: node.coveragePct as number }));
+  const uncovered = graphs.flatMap(({ graph, package: pkgName }) =>
+    tagPackage(
+      [...graph.nodes.values()]
+        .filter((node) => node.category !== "test" && node.category !== "config")
+        .filter((node) => node.coveragePct !== undefined && node.coveragePct < threshold)
+        .map((node) => ({ file: node.path, coveragePct: node.coveragePct as number })),
+      pkgName,
+      multi,
+    ),
+  );
   return text({ threshold, uncovered, count: uncovered.length });
 }
 
@@ -480,12 +560,19 @@ export async function handleCheckDocDrift(
   cache: SessionState,
   args: CheckDocDriftArgs,
 ): Promise<TextResponse> {
-  const { root } = args;
-  const graph = await cache.ensureFresh(root);
+  const { root, package: pkg } = args;
+  const graphs = await cache.resolveGraphs(root, pkg);
+  const multi = graphs.length > 1;
 
-  const staleDocs = [...graph.nodes.values()]
-    .filter((node) => node.type === "markdown" && node.staleFor && node.staleFor.length > 0)
-    .map((node) => ({ doc: node.path, staleFor: node.staleFor as string[] }));
+  const staleDocs = graphs.flatMap(({ graph, package: pkgName }) =>
+    tagPackage(
+      [...graph.nodes.values()]
+        .filter((node) => node.type === "markdown" && node.staleFor && node.staleFor.length > 0)
+        .map((node) => ({ doc: node.path, staleFor: node.staleFor as string[] })),
+      pkgName,
+      multi,
+    ),
+  );
 
   return text({ staleDocs, count: staleDocs.length });
 }
@@ -504,9 +591,21 @@ export async function handleFindComplexFunctions(
   cache: SessionState,
   args: FindComplexFunctionsArgs,
 ): Promise<TextResponse> {
-  const { root, metric = "cognitiveComplexity", threshold = 10, limit = 20 } = args;
-  const graph = await cache.ensureFresh(root);
-  const functions = findComplexFunctions(graph, { metric, threshold, limit });
+  const { root, metric = "cognitiveComplexity", threshold = 10, limit = 20, package: pkg } = args;
+  const graphs = await cache.resolveGraphs(root, pkg);
+  const multi = graphs.length > 1;
+  // Each package call takes every match (no limit) so a global sort+limit below reflects the
+  // worst functions across the whole workspace, not just each package's own top N.
+  const functions = graphs
+    .flatMap(({ graph, package: pkgName }) =>
+      tagPackage(
+        findComplexFunctions(graph, { metric, threshold, limit: multi ? Infinity : limit }),
+        pkgName,
+        multi,
+      ),
+    )
+    .sort((a, b) => b[metric] - a[metric])
+    .slice(0, limit);
   return text({ metric, threshold, functions, count: functions.length });
 }
 
@@ -536,23 +635,34 @@ export async function handleFindRiskHotspots(
     maxCoveragePct = 50,
     minChurn = 0,
     limit = 20,
+    package: pkg,
   } = args;
-  const graph = await cache.ensureFresh(root);
+  const graphs = await cache.resolveGraphs(root, pkg);
+  const multi = graphs.length > 1;
 
-  if (!hasCoverageData(graph)) {
+  if (!graphs.some(({ graph }) => hasCoverageData(graph))) {
     return text({
       error:
         "No coverage data available. Set coverageReportPath in mokosh.config and call analyze again.",
     });
   }
 
-  const { hotspots, count, churnDataAvailable } = findRiskHotspots(graph, {
-    metric,
-    minComplexity,
-    maxCoveragePct,
-    minChurn,
-    limit,
-  });
+  const perPackage = graphs.map(({ graph, package: pkgName }) => ({
+    pkgName,
+    // Same reasoning as find_complex_functions: take every match per package, then sort+limit once globally.
+    ...findRiskHotspots(graph, {
+      metric,
+      minComplexity,
+      maxCoveragePct,
+      minChurn,
+      limit: multi ? Infinity : limit,
+    }),
+  }));
+  const hotspots = perPackage
+    .flatMap(({ hotspots: pkgHotspots, pkgName }) => tagPackage(pkgHotspots, pkgName, multi))
+    .sort((a, b) => b[metric] - a[metric])
+    .slice(0, limit);
+  const churnDataAvailable = perPackage.some((p) => p.churnDataAvailable);
   return text({
     metric,
     minComplexity,
@@ -560,7 +670,7 @@ export async function handleFindRiskHotspots(
     minChurn,
     churnDataAvailable,
     hotspots,
-    count,
+    count: hotspots.length,
   });
 }
 
@@ -592,21 +702,41 @@ export async function handleFindDuplicates(
   cache: SessionState,
   args: FindDuplicatesArgs,
 ): Promise<TextResponse> {
-  const { root, minLines = 6, ignoreLiterals = true, maxPunctuationRatio = 0.5, limit = 50 } = args;
-  const graph = await cache.ensureFresh(root);
+  const {
+    root,
+    minLines = 6,
+    ignoreLiterals = true,
+    maxPunctuationRatio = 0.5,
+    limit = 50,
+    package: pkg,
+  } = args;
+  const graphs = await cache.resolveGraphs(root, pkg);
+  const multi = graphs.length > 1;
   const config = cache.getConfig(root);
   const ignoreDirs = args.ignoreDirs ?? [...DEFAULT_IGNORE_DIRS, ...(config?.ignoreDirs ?? [])];
-  const { groups } = await findDuplicates(graph, root, {
-    minLines,
-    ignoreLiterals,
-    maxPunctuationRatio,
-    limit,
-    ignoreDirs,
-    includeGenerated: args.includeGenerated ?? config?.duplication?.includeGenerated ?? false,
-    ignoreGlobs: config?.duplication?.ignoreGlobs ?? [],
-    tokenCache: await cache.getDuplicationTokenCache(root),
-  });
+  const tokenCache = await cache.getDuplicationTokenCache(root);
+  // Duplicate detection never crosses a package boundary (each package graph is scanned
+  // independently), so — same reasoning as find_complex_functions — take every match per
+  // package and sort+limit once globally rather than truncating each package to `limit` first.
+  const perPackage = await Promise.all(
+    graphs.map(({ graph, package: pkgName }) =>
+      findDuplicates(graph, root, {
+        minLines,
+        ignoreLiterals,
+        maxPunctuationRatio,
+        limit: multi ? Infinity : limit,
+        ignoreDirs,
+        includeGenerated: args.includeGenerated ?? config?.duplication?.includeGenerated ?? false,
+        ignoreGlobs: config?.duplication?.ignoreGlobs ?? [],
+        tokenCache,
+      }).then(({ groups }) => tagPackage(groups, pkgName, multi)),
+    ),
+  );
   cache.flushDuplicationTokenCache(root);
+  const groups = perPackage
+    .flat()
+    .sort((a, b) => b.lines - a.lines)
+    .slice(0, limit);
   return text({ minLines, groups, count: groups.length });
 }
 
@@ -625,7 +755,6 @@ export async function handleProposeTags(
   args: ProposeTagsArgs,
 ): Promise<TextResponse> {
   const { root, changedFiles, base, featureThreshold, format = "tags" } = args;
-  const graph = await cache.ensureFresh(root);
   const files =
     changedFiles ??
     new DefaultGitProvider()
@@ -635,12 +764,60 @@ export async function handleProposeTags(
     featureThreshold !== undefined
       ? { featureDetection: { minOutDegree: featureThreshold } }
       : undefined;
+
+  // Changed files can span multiple workspace packages in one PR — each file's blast radius
+  // only makes sense traversed within its own package's graph, so group by owning package
+  // rather than exposing a `package` arg the caller would have to pre-partition themselves.
+  const fileGroups = cache.isWorkspaceRoot(root)
+    ? await groupFilesByPackage(cache, root, files)
+    : [{ graph: await cache.ensureFresh(root), files }];
+
   if (format === "paths") {
-    const affectedTests = proposeAffectedTests(graph, files, opts);
+    const affectedTests = [
+      ...new Set(
+        fileGroups.flatMap(({ graph, files: groupFiles }) =>
+          proposeAffectedTests(graph, groupFiles, opts),
+        ),
+      ),
+    ];
     return text({ changedFiles: files, affectedTests, count: affectedTests.length });
   }
-  const tags = proposeTags(graph, files, opts);
+  const tags = [
+    ...new Set(
+      fileGroups.flatMap(({ graph, files: groupFiles }) => proposeTags(graph, groupFiles, opts)),
+    ),
+  ];
   return text({ changedFiles: files, proposedTags: tags });
+}
+
+/**
+ * @description Partitions `files` by the workspace package that owns each one, pairing each
+ *   group with that package's `Graph` — so `propose_tags`/`propose_affected_tests` traverse each
+ *   changed file within its own package rather than a merged graph. Files that don't fall under
+ *   any known package are dropped (silently — an untracked/deleted path is common in a diff and
+ *   isn't an error here).
+ * @param cache - Session state holding the workspace graph for `root`.
+ * @param root - Absolute monorepo root path.
+ * @param files - Root-relative changed-file paths.
+ * @returns One `{ graph, files }` group per package that owns at least one of `files`.
+ */
+async function groupFilesByPackage(
+  cache: SessionState,
+  root: string,
+  files: string[],
+): Promise<Array<{ graph: Graph; files: string[] }>> {
+  const wg = await cache.ensureFreshWorkspace(root);
+  const byPackage = new Map<string, string[]>();
+  for (const file of files) {
+    const pkg = wg.getPackageForFile(file);
+    if (!pkg) continue;
+    const group = byPackage.get(pkg.name);
+    if (group) group.push(file);
+    else byPackage.set(pkg.name, [file]);
+  }
+  return Array.from(byPackage.entries())
+    .map(([pkgName, pkgFiles]) => ({ graph: wg.packages.get(pkgName)?.graph, files: pkgFiles }))
+    .filter((group): group is { graph: Graph; files: string[] } => !!group.graph);
 }
 
 /**
@@ -654,20 +831,26 @@ export async function handleDetectFeatures(
   cache: SessionState,
   args: DetectFeaturesArgs,
 ): Promise<TextResponse> {
-  const { root, entryPoints, featureThreshold } = args;
-  const graph = entryPoints
-    ? await cache.getOrBuild(
-        root,
-        entryPoints.map((ep) => path.resolve(root, ep)),
-      )
-    : await cache.ensureFresh(root);
-  const featureMap = detectFeatures(
-    graph.nodes,
-    featureThreshold !== undefined ? { minOutDegree: featureThreshold } : undefined,
-  );
-  const features = Array.from(featureMap.values()).sort(
-    (featureA, featureB) => featureB.outDegree - featureA.outDegree,
-  );
+  const { root, entryPoints, featureThreshold, package: pkg } = args;
+  const opts = featureThreshold !== undefined ? { minOutDegree: featureThreshold } : undefined;
+
+  if (entryPoints) {
+    const graph = await cache.getOrBuild(
+      root,
+      entryPoints.map((ep) => path.resolve(root, ep)),
+    );
+    const featureMap = detectFeatures(graph.nodes, opts);
+    const features = Array.from(featureMap.values()).sort((a, b) => b.outDegree - a.outDegree);
+    return text({ features, count: features.length });
+  }
+
+  const graphs = await cache.resolveGraphs(root, pkg);
+  const multi = graphs.length > 1;
+  const features = graphs
+    .flatMap(({ graph, package: pkgName }) =>
+      tagPackage(Array.from(detectFeatures(graph.nodes, opts).values()), pkgName, multi),
+    )
+    .sort((a, b) => b.outDegree - a.outDegree);
   return text({ features, count: features.length });
 }
 
@@ -679,21 +862,53 @@ export async function handleDetectFeatures(
  * @returns TextResponse containing either a Mermaid diagram string or a JSON node list with cycle info.
  */
 export async function handleQuery(cache: SessionState, args: QueryArgs): Promise<TextResponse> {
-  const { root, entryPoints, filter, mermaid = false, slim = true } = args;
-  const graph = entryPoints
-    ? await cache.getOrBuild(
-        root,
-        entryPoints.map((ep) => path.resolve(root, ep)),
-      )
-    : await cache.ensureFresh(root);
+  const { root, entryPoints, filter, mermaid = false, slim = true, package: pkg } = args;
+
+  if (entryPoints) {
+    const graph = await cache.getOrBuild(
+      root,
+      entryPoints.map((ep) => path.resolve(root, ep)),
+    );
+    return textQueryResult(graph, filter, mermaid, slim);
+  }
+
+  const graphs = await cache.resolveGraphs(root, pkg);
+  if (mermaid) {
+    // A Mermaid diagram is one connected picture — merging separate packages' diagrams into one
+    // isn't the goal here (get_workspace_affected covers cross-package blast radius).
+    const { graph } = requireSinglePackage(graphs, "query with mermaid: true");
+    return textQueryResult(graph, filter, mermaid, slim);
+  }
+
+  const multi = graphs.length > 1;
+  const query = parseQuery(filter);
+  const merged = graphs.reduce<SerializedGraph>(
+    (acc, { graph, package: pkgName }) => {
+      const filtered = filterGraph(graph.serialize(), query);
+      const nodes = tagPackage(filtered.nodes, pkgName, multi);
+      return {
+        nodes: [...acc.nodes, ...nodes],
+        cycles: [...(acc.cycles ?? []), ...(filtered.cycles ?? [])],
+      };
+    },
+    { nodes: [], cycles: [] },
+  );
+  return text(slim ? slimSerialize(merged) : merged);
+}
+
+/** Formats a single-graph query result — the shared tail of `handleQuery`'s entryPoints and
+ *  single-package-mermaid branches. */
+function textQueryResult(
+  graph: Graph,
+  filter: string,
+  mermaid: boolean,
+  slim: boolean,
+): TextResponse {
   const filtered = filterGraph(graph.serialize(), parseQuery(filter));
   if (mermaid) {
     return text(MermaidExporter.serialize(Graph.deserialize(filtered)));
   }
-  if (slim) {
-    return text(slimSerialize(filtered));
-  }
-  return text(filtered);
+  return text(slim ? slimSerialize(filtered) : filtered);
 }
 
 /**
@@ -770,8 +985,9 @@ export async function handleGetTypeGraph(
   cache: SessionState,
   args: GetTypeGraphArgs,
 ): Promise<TextResponse> {
-  const { root, type } = args;
-  const graph = await cache.ensureFresh(root);
+  const { root, type, package: pkg } = args;
+  const graphs = await cache.resolveGraphs(root, pkg);
+  const { graph } = requireSinglePackage(graphs, "get_type_graph");
   const typeGraph = buildTypeGraph(graph);
   if (type) {
     return text(queryTypeGraph(typeGraph, type));
@@ -792,17 +1008,19 @@ export async function handleGetModuleResponsibility(
   cache: SessionState,
   args: GetModuleResponsibilityArgs,
 ): Promise<TextResponse> {
-  const { root, paths, minOutDegree } = args;
-  const graph = await cache.ensureFresh(root);
-  const respGraph = buildResponsibilityGraph(
-    graph,
-    minOutDegree !== undefined ? { minOutDegree } : undefined,
-  );
-  if (paths?.length) {
-    const modules = paths.map((modulePath) => respGraph.get(modulePath)).filter(Boolean);
-    return text({ count: modules.length, modules });
-  }
-  const modules = Array.from(respGraph.values());
+  const { root, paths, minOutDegree, package: pkg } = args;
+  const graphs = await cache.resolveGraphs(root, pkg);
+  const multi = graphs.length > 1;
+  const opts = minOutDegree !== undefined ? { minOutDegree } : undefined;
+  const modules = graphs.flatMap(({ graph, package: pkgName }) => {
+    const respGraph = buildResponsibilityGraph(graph, opts);
+    const found = paths?.length
+      ? paths
+          .map((modulePath) => respGraph.get(modulePath))
+          .filter((module): module is NonNullable<typeof module> => !!module)
+      : Array.from(respGraph.values());
+    return tagPackage(found, pkgName, multi);
+  });
   return text({ count: modules.length, modules });
 }
 
@@ -820,8 +1038,9 @@ export async function handleGetFeatureGraph(
   cache: SessionState,
   args: GetFeatureGraphArgs,
 ): Promise<TextResponse> {
-  const { root, minOutDegree } = args;
-  const graph = await cache.ensureFresh(root);
+  const { root, minOutDegree, package: pkg } = args;
+  const graphs = await cache.resolveGraphs(root, pkg);
+  const { graph } = requireSinglePackage(graphs, "get_feature_graph");
   const featureGraph = buildFeatureGraph(
     graph,
     minOutDegree !== undefined ? { minOutDegree } : undefined,
@@ -842,8 +1061,9 @@ export async function handleGetCallGraph(
   cache: SessionState,
   args: GetCallGraphArgs,
 ): Promise<TextResponse> {
-  const { root, function: functionName } = args;
-  const graph = await cache.ensureFresh(root);
+  const { root, function: functionName, package: pkg } = args;
+  const graphs = await cache.resolveGraphs(root, pkg);
+  const { graph } = requireSinglePackage(graphs, "get_call_graph");
   return text(queryCallGraph(graph, functionName));
 }
 
@@ -859,9 +1079,12 @@ export async function handleFindSymbol(
   cache: SessionState,
   args: FindSymbolArgs,
 ): Promise<TextResponse> {
-  const { root, name } = args;
-  const graph = await cache.ensureFresh(root);
-  const matches = findSymbol(graph, name);
+  const { root, name, package: pkg } = args;
+  const graphs = await cache.resolveGraphs(root, pkg);
+  const multi = graphs.length > 1;
+  const matches = graphs.flatMap(({ graph, package: pkgName }) =>
+    tagPackage(findSymbol(graph, name), pkgName, multi),
+  );
   return text({ name, matches, count: matches.length });
 }
 
@@ -878,15 +1101,41 @@ export async function handleGetApiSurface(
   cache: SessionState,
   args: GetApiSurfaceArgs,
 ): Promise<TextResponse> {
-  const { root, entryPoints } = args;
-  const graph = await cache.ensureFresh(root);
-  const eps = entryPoints?.length ? entryPoints : detectAllEntryPoints(graph, root);
-  if (eps.length === 0) {
-    throw new Error(
-      "No entry points found. Pass entryPoints explicitly or ensure package.json has a main/exports field.",
-    );
+  const { root, entryPoints, package: pkg } = args;
+  const graphs = await cache.resolveGraphs(root, pkg);
+  const multi = graphs.length > 1;
+  const buildSurface = (graph: Graph, pkgName: string) => {
+    const eps = entryPoints?.length ? entryPoints : detectAllEntryPoints(graph, root);
+    if (eps.length === 0) {
+      throw new Error(
+        `No entry points found${multi ? ` for package "${pkgName}"` : ""}. Pass entryPoints explicitly or ensure package.json has a main/exports field.`,
+      );
+    }
+    return buildApiSurface(graph, eps);
+  };
+
+  if (!multi) {
+    const only = graphs[0];
+    if (!only) throw new Error("get_api_surface: no graph resolved for this root.");
+    return text(buildSurface(only.graph, only.package));
   }
-  return text(buildApiSurface(graph, eps));
+  const surfaces = graphs.map(({ graph, package: pkgName }) => ({
+    pkgName,
+    surface: buildSurface(graph, pkgName),
+  }));
+
+  // internalFiles/unreachableFromEntry/testFiles/entryPoints are bare (already-unambiguous
+  // root-relative) path lists — only publicExports is object-shaped and worth tagging.
+  const merged = {
+    entryPoints: surfaces.flatMap(({ surface }) => surface.entryPoints),
+    publicExports: surfaces.flatMap(({ pkgName, surface }) =>
+      tagPackage(surface.publicExports, pkgName, true),
+    ),
+    internalFiles: surfaces.flatMap(({ surface }) => surface.internalFiles),
+    unreachableFromEntry: surfaces.flatMap(({ surface }) => surface.unreachableFromEntry),
+    testFiles: surfaces.flatMap(({ surface }) => surface.testFiles),
+  };
+  return text(merged);
 }
 
 /**
@@ -903,7 +1152,15 @@ export async function handleApplyTags(
   cache: SessionState,
   args: ApplyTagsArgs,
 ): Promise<TextResponse> {
-  const graph = await cache.ensureFresh(args.root);
-  const result = await applyTags(graph, args.root, { dryRun: args.dryRun ?? false });
+  const graphs = await cache.resolveGraphs(args.root, args.package);
+  const perPackage = await Promise.all(
+    graphs.map(({ graph }) => applyTags(graph, args.root, { dryRun: args.dryRun ?? false })),
+  );
+  const result = perPackage.reduce((acc, r) => ({
+    updated: acc.updated + r.updated,
+    unchanged: acc.unchanged + r.unchanged,
+    errors: acc.errors + r.errors,
+    files: [...acc.files, ...r.files],
+  }));
   return text(result);
 }

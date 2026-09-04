@@ -44,7 +44,13 @@ The server holds an **in-process graph cache** keyed by project root. This means
 
 `find_unused`, `detect_features`, and `query` can optionally build their own graph if `entryPoints` are supplied, bypassing the cache requirement.
 
-**Monorepo**: pass `entryPoints: []` to `analyze` to trigger workspace auto-detection. This returns the package *layout* immediately; the per-package dependency graphs are built lazily on the first `get_workspace_affected` call (pass `eager: true` to `analyze` to build them all up front). Then use `get_workspace_packages` and `get_workspace_affected` instead of the single-package tools. `get_workspace_packages` answers from the repo layout alone and needs no `analyze` at all. For very large monorepos, scope the build with `analyze({ entryPoints: [], packages: ["core", "api"] })`. See [Monorepo Support](./monorepo.md).
+**Monorepo**: pass `entryPoints: []` to `analyze` to trigger workspace auto-detection. This returns the package *layout* immediately; the per-package dependency graphs are built lazily on the first workspace-aware tool call that needs edges (pass `eager: true` to `analyze` to build them all up front). `get_workspace_packages` answers from the repo layout alone and needs no `analyze` at all; `get_workspace_affected` is cross-package blast-radius analysis. Every other tool works on a workspace root too, resolving against the right package's own graph rather than one merged whole-repo graph:
+- File-scoped tools (`get_dependencies`, `get_dependents`, `get_affected`, `get_callers`) resolve the owning package automatically from the `file` argument — no extra param needed.
+- Whole-graph tools (`query`, `find_unused`, `find_duplicates`, `find_complex_functions`, `find_risk_hotspots`, `list_tags`, `find_uncovered`, `check_doc_drift`, `find_symbol`, `get_api_surface`, `apply_tags`, `detect_features`) take an optional `package` argument — pass it to scope to one package, or omit it to run across every package and concatenate the results (each item tagged with its `package` when more than one was queried). Note: cross-package import edges are dropped from a fanned-out `query`'s `importsFiles` output, since each package's node set only includes its own files — use `get_workspace_affected` to see cross-package relationships.
+- Single-graph tools (`get_type_graph`, `get_call_graph`, `get_feature_graph`) return one graph-shaped result and can't merge across packages, so `package` is required once there's more than one.
+- `propose_tags`/`propose_affected_tests` group `changedFiles` by owning package internally (no `package` param) since one changeset commonly spans packages.
+
+For very large monorepos, scope the build with `analyze({ entryPoints: [], packages: ["core", "api"] })`. See [Monorepo Support](./monorepo.md).
 
 ---
 
