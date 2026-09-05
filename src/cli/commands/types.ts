@@ -36,6 +36,9 @@ export interface CommandContext {
   testsOnly: boolean;
   minDuplicateLines: number | undefined;
   includeGenerated: boolean;
+  includeSameFile: boolean;
+  includeSvgMarkup: boolean;
+  duplicateScope: "src" | "tests" | "all" | undefined;
   maxCoveragePct: number | undefined;
   minChurn: number | undefined;
   base: string | undefined;

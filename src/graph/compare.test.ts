@@ -250,7 +250,7 @@ describe("duplicateGroupSignature", { tags: ["compare", "duplicateGroupSignature
       ],
       lines: 5,
       tokens: 20,
-      family: "code" as const,
+      family: "js" as const,
     };
     const b = {
       ...a,

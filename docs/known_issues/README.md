@@ -10,6 +10,7 @@ dependencies.
 | 6 | [`06-duplicates-query-language.md`](06-duplicates-query-language.md) | `find_duplicates` output is too large for an LLM to consume; needs a `key:value` query/slim/summary layer |
 | 7 | [`07-per-language-analysis-semantics.md`](07-per-language-analysis-semantics.md) | Analyses treat every language like JS/TS; JVM data shapes, idiom exclusion, and the per-language config surface still go undetected/unbuilt (CSS vars + TS types shipped in phase 1) |
 | 8 | [`08-cross-language-reliability.md`](08-cross-language-reliability.md) | Umbrella: uneven, undocumented feature parity across the 12 supported languages |
+| 9 | [`09-duplicate-clone-family-noise.md`](09-duplicate-clone-family-noise.md) | `find_duplicates` reports one row per LCP-tree node instead of per clone family; connected-component clustering for the remaining non-nested cases still open (dominance filter shipped) |
 
 ## Fixed
 
@@ -27,6 +28,13 @@ dependencies.
   duplicates (`type-defs.ts`) — see [ADR-018](../adr-018-per-language-definition-duplicates.md).
   JVM/Go/Python extractors, the idiom-exclusion registry (7c), and the per-language config surface
   (7d) were **not** done — issue 7 stays open for that remaining scope.
+- **Issue 9, partially** — `applyDominanceFilter` consolidates same-position nested/redundant
+  matches in `findExactDuplicateGroups`, cutting a Feed.js-shaped self-overlap case from 7 groups
+  to 2 in testing — see [ADR-015's addendum](../adr-015-suffix-array-duplicate-detection.md) and
+  the file for the correctness detour behind the design (a provably-safe version was built first
+  and found to be close to a no-op; the shipped version is a documented, deliberate completeness
+  trade-off instead). Genuinely branching / non-nested clone families are **not** collapsed —
+  connected-component clustering, deferred, is the next lever if that turns out to still matter.
 
 ## Shared root causes
 
@@ -41,6 +49,10 @@ dependencies.
 
 1. ~~**Issue 7** — per-language definition extractors; lands `kind: "definition"` groups.~~
    **Phase 1 done** (CSS vars + TS types); JVM/Go/Python + 7c/7d remain.
-2. **Issue 6** — the duplicate-results query DSL, on top of issue 5's `signals` and 7's `kind`.
-3. **Issue 8** — parity matrix + conformance snapshots to lock all of the above in, then the
+2. ~~**Issue 9** — dominance filter for block-matcher clone-family noise.~~ **Dominance filter
+   shipped**; connected-component clustering remains if non-nested cross-file noise still matters
+   after a follow-up dogfood pass.
+3. **Issue 6** — the duplicate-results query DSL, on top of issue 5's `signals`, 7's `kind`, and
+   9's (now leaner) group counts.
+4. **Issue 8** — parity matrix + conformance snapshots to lock all of the above in, then the
    remaining language gaps (Kotlin call edges, Groovy, Lua) and issue 7's remaining languages.

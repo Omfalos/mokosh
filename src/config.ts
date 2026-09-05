@@ -94,6 +94,22 @@ export interface MokoshConfig {
     /** When true, scan generated / vendored files too (default false). Matches involving one are
      *  tagged `signals: ["generated"]`. */
     includeGenerated?: boolean;
+    /** When true, include matches where every occurrence is in a single file (default false) —
+     *  a file's own naturally repetitive structure is usually not actionable copy-paste. Matches
+     *  are always tagged `signals: ["same-file"]` regardless of this setting. */
+    includeSameFile?: boolean;
+    /** When true, include matches whose occurrences are all inline SVG / SVG-shaped JSX markup
+     *  (default false) — two different icons sharing a literal-normalized skeleton (block matcher)
+     *  or a byte-identical `<defs>`/`<filter>` block (`defKind: "jsxElement"`), neither of which is
+     *  usually an authored clone. Matches are always tagged `signals: ["svg-markup"]` regardless
+     *  of this setting. */
+    includeSvgMarkup?: boolean;
+    /** Which duplicates to surface, by test-file involvement (default `"src"`). `"src"` drops
+     *  every cluster with a test-file occurrence; `"tests"` returns only substantive test
+     *  clusters (shared setup/mocks/assertions, not render/snapshot skeletons); `"all"` returns
+     *  everything. The `--scope` CLI flag overrides this. Matches are always tagged
+     *  `signals: ["test"]` regardless of this setting. */
+    scope?: "src" | "tests" | "all";
   };
 }
 

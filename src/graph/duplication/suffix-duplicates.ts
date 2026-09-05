@@ -11,6 +11,15 @@
  * O(n), with the interval count itself bounded by the stream length regardless of how repetitive
  * it is. No bucket-size cap is needed (there is nothing resembling a hash bucket to blow up), and
  * every reported match length is exact — no chain-extension lookahead, no truncation.
+ *
+ * A shared boilerplate shape produces a *family* of tree nodes, not one: a shorter interval with
+ * more occurrences (the shared prefix every copy has), and one or more longer sibling intervals
+ * with fewer occurrences each (the subsets that extend that prefix further). Every node is
+ * individually a valid maximal repeat, but reporting the whole family as separate groups is
+ * exactly the "same shape, one row per variant" noise dogfooding surfaced (see
+ * docs/known_issues/09-duplicate-clone-family-noise.md). `applyDominanceFilter` below
+ * consolidates that family into its most-specific members — see its doc comment for the
+ * containment argument.
  */
 
 import { buildLcpIntervals, type LcpInterval } from "./lcp-intervals";
@@ -50,7 +59,8 @@ interface SourcePosition {
  *   Set to 1 to disable.
  * @returns Duplicate blocks, each with two or more occurrences (same-file self-overlapping
  *   occurrences collapsed via a greedy non-overlap scan, exactly as `shingle.ts` excludes
- *   same-file self-overlap), sorted largest-first.
+ *   same-file self-overlap; occurrences subsumed by a longer match elsewhere are dropped too, see
+ *   {@link applyDominanceFilter}), sorted largest-first.
  */
 export function findExactDuplicateGroups(
   files: FileTokens[],
@@ -85,9 +95,9 @@ export function findExactDuplicateGroups(
   const lcp = buildLcpArray(tokenTexts, sa);
   const intervals = buildLcpIntervals(lcp);
 
-  const groups: DuplicateGroup[] = [];
+  const candidates: Candidate[] = [];
   for (const interval of intervals) {
-    const group = groupFromInterval(
+    const candidate = candidateFromInterval(
       interval,
       sa,
       positions,
@@ -96,30 +106,43 @@ export function findExactDuplicateGroups(
       minLines,
       maxPunctuationRatio,
     );
-    if (group) groups.push(group);
+    if (candidate) candidates.push(candidate);
   }
 
+  const groups = applyDominanceFilter(candidates, tokensByFile);
   return groups.sort((groupA, groupB) => groupB.lines - groupA.lines);
 }
 
+/** One interval that survived every per-interval gate and is eligible to become a
+ *  `DuplicateGroup` — pending the cross-interval dominance filter (see
+ *  {@link applyDominanceFilter}), which may still drop some or all of its occurrences. */
+interface Candidate {
+  occurrences: SourcePosition[];
+  lcpLength: number;
+}
+
 /**
- * @description Converts one LCP interval into a `DuplicateGroup`, or `undefined` if it fails any
- *   of the checks that disqualify a candidate: below `windowSize`, fewer than two real
+ * @description Converts one LCP interval into a {@link Candidate}, or `undefined` if it fails any
+ *   of the checks that disqualify it outright: below `windowSize`, fewer than two real
  *   occurrences, not left-maximal (see {@link isLeftMaximal}), fewer than two occurrences left
  *   after same-file self-overlap exclusion, too punctuation-dense, or shorter than `minLines`.
- *   Factored out of {@link findExactDuplicateGroups}'s main loop specifically to keep each check
- *   an early return in its own stack frame rather than an accumulating `continue` chain — same
- *   logic, lower nesting.
+ *   Stops short of building the final `DuplicateGroup` — {@link applyDominanceFilter} does that,
+ *   after possibly dropping some of this candidate's occurrences as redundant with a longer
+ *   match. Factored out of {@link findExactDuplicateGroups}'s main loop specifically to keep each
+ *   check an early return in its own stack frame rather than an accumulating `continue` chain —
+ *   same logic, lower nesting.
  * @param interval - One candidate from {@link buildLcpIntervals}.
  * @param sa - The suffix array `interval.low`/`interval.high` index into.
  * @param positions - Source position for every entry in `sa`.
  * @param tokensByFile - Token streams, for reading lines and punctuation density.
  * @param windowSize - Minimum shared token-run length to report.
- * @param minLines - Minimum merged block size (in source lines) to report.
+ * @param minLines - Minimum merged block size (in source lines) to report, checked against this
+ *   candidate's full (pre-dominance-filter) occurrence set — removing occurrences later can only
+ *   raise the surviving minimum, never lower it below this threshold, so it's never re-checked.
  * @param maxPunctuationRatio - Maximum structural-punctuation fraction to allow.
- * @returns The `DuplicateGroup` for this interval, or `undefined` if disqualified.
+ * @returns The {@link Candidate} for this interval, or `undefined` if disqualified.
  */
-function groupFromInterval(
+function candidateFromInterval(
   interval: LcpInterval,
   sa: readonly number[],
   positions: readonly SourcePosition[],
@@ -127,7 +150,7 @@ function groupFromInterval(
   windowSize: number,
   minLines: number,
   maxPunctuationRatio: number,
-): DuplicateGroup | undefined {
+): Candidate | undefined {
   if (interval.lcpLength < windowSize) return undefined;
 
   const rawOccurrences: SourcePosition[] = [];
@@ -150,21 +173,98 @@ function groupFromInterval(
     return undefined;
   }
 
-  const occurrences: DuplicateOccurrence[] = kept.map(({ file, localIndex }) => {
-    const tokens = tokensByFile.get(file) as NormalizedToken[];
-    return {
-      file,
-      startLine: (tokens[localIndex] as NormalizedToken).line,
-      endLine: (tokens[localIndex + interval.lcpLength - 1] as NormalizedToken).line,
-    };
-  });
-
   const lines = Math.min(
-    ...occurrences.map((occurrence) => occurrence.endLine - occurrence.startLine + 1),
+    ...kept.map(({ file, localIndex }) => {
+      const tokens = tokensByFile.get(file) as NormalizedToken[];
+      const startLine = (tokens[localIndex] as NormalizedToken).line;
+      const endLine = (tokens[localIndex + interval.lcpLength - 1] as NormalizedToken).line;
+      return endLine - startLine + 1;
+    }),
   );
   if (lines < minLines) return undefined;
 
-  return { occurrences, lines, tokens: interval.lcpLength };
+  return { occurrences: kept, lcpLength: interval.lcpLength };
+}
+
+/** A file-local `[start, end)` token-index span already claimed by an accepted (longer, or
+ *  equal-and-earlier-processed) match — see {@link applyDominanceFilter}. */
+interface AcceptedSpan {
+  start: number;
+  end: number;
+}
+
+/**
+ * @description Consolidates a "clone family" — the group of {@link Candidate}s the LCP-interval
+ *   tree produces for one shared boilerplate shape, since every node of that tree (a shorter
+ *   interval with more occurrences, several longer sibling intervals each covering a subset that
+ *   extends the shared prefix further) is individually a valid maximal repeat — into its most
+ *   specific members, instead of reporting the whole family as separate groups (see this module's
+ *   top-of-file doc comment and docs/known_issues/09-duplicate-clone-family-noise.md).
+ *
+ *   Processes candidates longest-`lcpLength`-first, maintaining a per-file list of accepted
+ *   `[start, start+length)` spans. Drops any occurrence whose span is fully contained in an
+ *   already-accepted span in that same file (safe direction: only ever shrinks a candidate, never
+ *   grows one), then keeps the survivors' spans as newly-accepted for the next, shorter
+ *   candidates. A candidate left with fewer than two surviving occurrences is dropped entirely.
+ *
+ *   **This is a deliberately lossy heuristic, not a provably-complete one — chosen over the
+ *   alternative on purpose.** A stricter version exists (drop a candidate only when *every* one of
+ *   its occurrences is covered by the *same single* already-accepted candidate, never a union of
+ *   several) that never loses a genuine file-pairing — but analysis and a synthetic probe showed
+ *   it barely fires in practice: `isLeftMaximal` already excludes the one case (a shorter
+ *   candidate with an *identical* occurrence set to a longer one) that filter could safely act on,
+ *   so it left the actual reported noise (near-duplicate, non-identically-positioned matches, and
+ *   genuinely branching clone families) untouched. This looser version trims per-occurrence and
+ *   can, in a narrow case, silently drop the only report of a real pairing: if file A shares code
+ *   with file D *only* via this exact candidate, and D's occurrence in it happens to be spatially
+ *   contained in an unrelated longer match (say between files B and C), D gets trimmed out of the
+ *   A↔D group here even though that longer match says nothing about A. Accepted trade for
+ *   meaningfully less noise — see docs/known_issues/09-duplicate-clone-family-noise.md for the
+ *   full reasoning and the deferred connected-component-clustering follow-up that would close this
+ *   gap without the completeness loss.
+ * @param candidates - Every interval that survived {@link candidateFromInterval}'s gates.
+ * @param tokensByFile - Token streams, for reading each surviving occurrence's line span.
+ * @returns One `DuplicateGroup` per candidate with ≥2 surviving occurrences.
+ */
+function applyDominanceFilter(
+  candidates: readonly Candidate[],
+  tokensByFile: ReadonlyMap<string, NormalizedToken[]>,
+): DuplicateGroup[] {
+  const sorted = [...candidates].sort((a, b) => b.lcpLength - a.lcpLength);
+  const acceptedSpansByFile = new Map<string, AcceptedSpan[]>();
+  const groups: DuplicateGroup[] = [];
+
+  for (const candidate of sorted) {
+    const survivors = candidate.occurrences.filter(({ file, localIndex }) => {
+      const end = localIndex + candidate.lcpLength;
+      const spans = acceptedSpansByFile.get(file);
+      return !spans?.some((span) => span.start <= localIndex && end <= span.end);
+    });
+    if (survivors.length < 2) continue;
+
+    for (const { file, localIndex } of survivors) {
+      const span: AcceptedSpan = { start: localIndex, end: localIndex + candidate.lcpLength };
+      const spans = acceptedSpansByFile.get(file);
+      if (spans) spans.push(span);
+      else acceptedSpansByFile.set(file, [span]);
+    }
+
+    const occurrences: DuplicateOccurrence[] = survivors.map(({ file, localIndex }) => {
+      const tokens = tokensByFile.get(file) as NormalizedToken[];
+      return {
+        file,
+        startLine: (tokens[localIndex] as NormalizedToken).line,
+        endLine: (tokens[localIndex + candidate.lcpLength - 1] as NormalizedToken).line,
+      };
+    });
+    const lines = Math.min(
+      ...occurrences.map((occurrence) => occurrence.endLine - occurrence.startLine + 1),
+    );
+
+    groups.push({ occurrences, lines, tokens: candidate.lcpLength });
+  }
+
+  return groups;
 }
 
 /**

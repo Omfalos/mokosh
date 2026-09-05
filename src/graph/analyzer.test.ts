@@ -105,3 +105,58 @@ describe("GraphAnalyzer.findCycles — isDocReference edges", { tags: ["analyzer
     expect(cycles[0]).toEqual(expect.arrayContaining(["src/a.ts", "src/b.ts"]));
   });
 });
+
+describe("GraphAnalyzer.findCycles — same-component collapse", { tags: ["analyzer"] }, () => {
+  /** A hub file cyclically bound to `siblingCount` peers, each importing a type back from it. */
+  function hubGraph(siblingCount: number): Map<string, FileNode> {
+    const siblings = Array.from({ length: siblingCount }, (_, i) => `src/cell-${i}.tsx`);
+    const nodes = new Map<string, FileNode>([
+      [
+        "src/hub.tsx",
+        node(
+          "src/hub.tsx",
+          siblings.map((toPath) => ({ toPath })),
+        ),
+      ],
+    ]);
+    for (const sibling of siblings) {
+      nodes.set(sibling, node(sibling, [{ toPath: "src/hub.tsx" }]));
+    }
+    return nodes;
+  }
+
+  test("N cycles through one hub collapse to a single representative", () => {
+    const cycles = new GraphAnalyzer(hubGraph(4)).findCycles();
+    expect(cycles).toHaveLength(1);
+    // Representative is the shortest cycle: hub → one sibling → hub.
+    expect(cycles[0]).toHaveLength(3);
+    expect(cycles[0]).toEqual(["src/hub.tsx", "src/cell-0.tsx", "src/hub.tsx"]);
+  });
+
+  test("expandComponents: true returns every raw elementary cycle", () => {
+    const cycles = new GraphAnalyzer(hubGraph(4)).findCycles({ expandComponents: true });
+    expect(cycles).toHaveLength(4);
+  });
+
+  test("two unrelated cycles in different components are both kept", () => {
+    const nodes = new Map<string, FileNode>([
+      ["src/a.ts", node("src/a.ts", [{ toPath: "src/b.ts" }])],
+      ["src/b.ts", node("src/b.ts", [{ toPath: "src/a.ts" }])],
+      ["src/x.ts", node("src/x.ts", [{ toPath: "src/y.ts" }])],
+      ["src/y.ts", node("src/y.ts", [{ toPath: "src/x.ts" }])],
+    ]);
+    expect(new GraphAnalyzer(nodes).findCycles()).toHaveLength(2);
+  });
+
+  test("a component with two genuinely distinct loops still collapses to one representative", () => {
+    // A↔B and A↔B↔C both live in SCC {A, B, C}; only the shorter A↔B is reported.
+    const nodes = new Map<string, FileNode>([
+      ["A.ts", node("A.ts", [{ toPath: "B.ts" }])],
+      ["B.ts", node("B.ts", [{ toPath: "A.ts" }, { toPath: "C.ts" }])],
+      ["C.ts", node("C.ts", [{ toPath: "A.ts" }])],
+    ]);
+    const cycles = new GraphAnalyzer(nodes).findCycles();
+    expect(cycles).toHaveLength(1);
+    expect(cycles[0]).toHaveLength(3);
+  });
+});

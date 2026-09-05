@@ -127,7 +127,7 @@ describe("findDuplicates", () => {
       ["missing.ts", "typescript"],
     ]);
 
-    await expect(findDuplicates(graph, root)).resolves.toEqual({ groups: [] });
+    await expect(findDuplicates(graph, root)).resolves.toEqual({ groups: [], clusters: [] });
   });
 
   test("always excludes lock files, even though their repeated structure would otherwise match", async () => {
@@ -146,7 +146,10 @@ describe("findDuplicates", () => {
       ["pnpm-lock.yaml", "unknown"],
     ]);
 
-    await expect(findDuplicates(graph, root, { minLines: 3 })).resolves.toEqual({ groups: [] });
+    await expect(findDuplicates(graph, root, { minLines: 3 })).resolves.toEqual({
+      groups: [],
+      clusters: [],
+    });
   });
 
   test("excludes files under a default-ignored directory (e.g. dist)", async () => {
@@ -168,7 +171,10 @@ describe("findDuplicates", () => {
       ["src/bundle.js", "javascript"],
     ]);
 
-    await expect(findDuplicates(graph, root, { minLines: 3 })).resolves.toEqual({ groups: [] });
+    await expect(findDuplicates(graph, root, { minLines: 3 })).resolves.toEqual({
+      groups: [],
+      clusters: [],
+    });
   });
 
   test("respects a custom ignoreDirs list", async () => {
@@ -209,7 +215,10 @@ describe("findDuplicates", () => {
       ["b.css", "css"],
     ]);
 
-    await expect(findDuplicates(graph, root, { minLines: 2 })).resolves.toEqual({ groups: [] });
+    await expect(findDuplicates(graph, root, { minLines: 2 })).resolves.toEqual({
+      groups: [],
+      clusters: [],
+    });
   });
 
   test("matches CSS rules with different selectors but an identical declaration body", async () => {
@@ -262,9 +271,27 @@ describe("findDuplicates", () => {
     });
     const graph = graphFor([["a.css", "css"]]);
 
-    const { groups } = await findDuplicates(graph, root, { minLines: 1 });
+    // Same-file matches are excluded by default (see includeSameFile) — opt back in to verify
+    // the signal is still correctly attached to what's computed underneath.
+    const { groups } = await findDuplicates(graph, root, { minLines: 1, includeSameFile: true });
     const cssVarGroup = groups.find((g) => g.defKind === "cssVar");
     expect(cssVarGroup?.signals).toContain("same-file");
+  });
+
+  test("a same-file match is excluded by default but returned with includeSameFile: true", async () => {
+    root = setup({
+      "a.css": [":root {", "  --brand: #3b82f6;", "  --primary: #3b82f6;", "}"].join("\n"),
+    });
+    const graph = graphFor([["a.css", "css"]]);
+
+    const { groups: defaultGroups } = await findDuplicates(graph, root, { minLines: 1 });
+    expect(defaultGroups.some((g) => g.defKind === "cssVar")).toBe(false);
+
+    const { groups: withSameFile } = await findDuplicates(graph, root, {
+      minLines: 1,
+      includeSameFile: true,
+    });
+    expect(withSameFile.some((g) => g.defKind === "cssVar")).toBe(true);
   });
 
   test("never matches across the style/code family boundary, even with identical shape", async () => {
@@ -304,7 +331,7 @@ describe("findDuplicates", () => {
     const cssGroup = groups.find((g) => g.occurrences.every((o) => o.file.endsWith(".css")));
     const tsGroup = groups.find((g) => g.occurrences.every((o) => o.file.endsWith(".ts")));
     expect(cssGroup?.family).toBe("style");
-    expect(tsGroup?.family).toBe("code");
+    expect(tsGroup?.family).toBe("js");
 
     // ...but no group ever pairs a style file with a code file.
     expect(
@@ -377,8 +404,23 @@ describe("findDuplicates", () => {
     ]);
 
     const { groups } = await findDuplicates(graph, root, { minLines: 4, windowSize: 8 });
-    expect(groups.some((g) => g.occurrences.some((o) => o.file.startsWith("schema-")))).toBe(false);
-    expect(groups.some((g) => g.occurrences.some((o) => o.file.startsWith("logic-")))).toBe(true);
+    // The token-shingle block matcher never reports the schema files — the punctuation gate this
+    // test is named for is unaffected by the object-literal definition detector below.
+    const blockMatches = groups.filter((g) => g.kind !== "definition");
+    expect(blockMatches.some((g) => g.occurrences.some((o) => o.file.startsWith("schema-")))).toBe(
+      false,
+    );
+    expect(blockMatches.some((g) => g.occurrences.some((o) => o.file.startsWith("logic-")))).toBe(
+      true,
+    );
+    // The schema objects are byte-identical `const` declarations, not merely same-shaped — a
+    // genuinely different, additive detector (findObjectLiteralDuplicates) correctly reports that
+    // as a consolidation candidate, independent of the block matcher's punctuation gate.
+    const definitionMatch = groups.find((g) => g.defKind === "objectLiteral");
+    expect(definitionMatch?.occurrences.map((o) => o.file).sort()).toEqual([
+      "schema-a.ts",
+      "schema-b.ts",
+    ]);
   });
 
   describe("noise reduction (issue 5b)", () => {
@@ -471,10 +513,18 @@ describe("findDuplicates", () => {
       expect(groups[0]?.occurrences.every((o) => o.startLine >= 3)).toBe(true);
     });
 
-    test("a within-file repeated block carries the same-file signal", async () => {
+    test("a within-file repeated block is excluded by default but carries the same-file signal with includeSameFile", async () => {
       root = setup({ "a.ts": `${realBlock}\n\n${realBlock}` });
       const graph = graphFor([["a.ts", "typescript"]]);
-      const { groups } = await findDuplicates(graph, root, { minLines: 4, windowSize: 8 });
+
+      const excluded = await findDuplicates(graph, root, { minLines: 4, windowSize: 8 });
+      expect(excluded.groups).toHaveLength(0);
+
+      const { groups } = await findDuplicates(graph, root, {
+        minLines: 4,
+        windowSize: 8,
+        includeSameFile: true,
+      });
       expect(groups).toHaveLength(1);
       expect(groups[0]?.signals).toEqual(["same-file"]);
     });
@@ -491,6 +541,123 @@ describe("findDuplicates", () => {
       ]);
       const { groups } = await findDuplicates(graph, root, { minLines: 3, windowSize: 6 });
       expect(groups).toHaveLength(0);
+    });
+  });
+
+  describe("SVG noise", () => {
+    test("raw .svg asset files pulled into the graph are never scanned (type: unknown)", async () => {
+      const icon = (d: string) =>
+        [
+          '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">',
+          `  <path fill="currentColor" d="${d}" />`,
+          `  <path fill="currentColor" d="${d}" opacity="0.4" />`,
+          "</svg>",
+          "",
+        ].join("\n");
+      root = setup({
+        "icons/a.svg": icon("M4 4h16v16H4z"),
+        "icons/b.svg": icon("M2 2h20v20H2z"),
+      });
+      const graph = graphFor([
+        ["icons/a.svg", "unknown"],
+        ["icons/b.svg", "unknown"],
+      ]);
+
+      await expect(findDuplicates(graph, root, { minLines: 2, windowSize: 6 })).resolves.toEqual({
+        groups: [],
+        clusters: [],
+      });
+    });
+
+    const iconComponent = (name: string, d1: string, d2: string) =>
+      [
+        `export const ${name} = (props) => (`,
+        '  <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" {...props}>',
+        `    <path strokeLinecap="round" strokeLinejoin="round" d="${d1}" />`,
+        `    <path strokeLinecap="round" strokeLinejoin="round" d="${d2}" />`,
+        `    <path strokeLinecap="round" strokeLinejoin="round" d="${d1}" opacity="0.5" />`,
+        `    <path strokeLinecap="round" strokeLinejoin="round" d="${d2}" opacity="0.5" />`,
+        "  </svg>",
+        ");",
+        "",
+      ].join("\n");
+
+    test("two different icon components token-match but are tagged svg-markup and excluded by default", async () => {
+      root = setup({
+        "Arrow.tsx": iconComponent("IconArrow", "M5 12h14", "M13 5l7 7-7 7"),
+        "Close.tsx": iconComponent("IconClose", "M6 6l12 12", "M6 18L18 6"),
+      });
+      const graph = graphFor([
+        ["Arrow.tsx", "typescript"],
+        ["Close.tsx", "typescript"],
+      ]);
+
+      const { groups } = await findDuplicates(graph, root, { minLines: 4, windowSize: 8 });
+      expect(groups.some((g) => g.kind !== "definition")).toBe(false);
+
+      const { groups: withSvg } = await findDuplicates(graph, root, {
+        minLines: 4,
+        windowSize: 8,
+        includeSvgMarkup: true,
+      });
+      const blockGroup = withSvg.find((g) => g.kind !== "definition");
+      expect(blockGroup?.occurrences.map((o) => o.file).sort()).toEqual(["Arrow.tsx", "Close.tsx"]);
+      expect(blockGroup?.signals).toContain("svg-markup");
+    });
+
+    test("a byte-identical shared <svg> subtree is a jsxElement group, tagged svg-markup and excluded by default", async () => {
+      const body = iconComponent("IconArrow", "M5 12h14", "M13 5l7 7-7 7");
+      root = setup({
+        "Arrow.tsx": body,
+        "ArrowCopy.tsx": body.replace("IconArrow", "IconArrowCopy"),
+      });
+      const graph = graphFor([
+        ["Arrow.tsx", "typescript"],
+        ["ArrowCopy.tsx", "typescript"],
+      ]);
+
+      // The jsxElement detector still finds it — it's just filtered out of the default view,
+      // recoverable the same way a same-file match is.
+      const { groups: shown } = await findDuplicates(graph, root, { minLines: 4, windowSize: 8 });
+      expect(shown.some((g) => g.defKind === "jsxElement")).toBe(false);
+
+      const { groups } = await findDuplicates(graph, root, {
+        minLines: 4,
+        windowSize: 8,
+        includeSvgMarkup: true,
+      });
+      const jsxGroup = groups.find((g) => g.defKind === "jsxElement");
+      expect(jsxGroup?.occurrences.map((o) => o.file).sort()).toEqual([
+        "Arrow.tsx",
+        "ArrowCopy.tsx",
+      ]);
+      expect(jsxGroup?.signals).toContain("svg-markup");
+    });
+
+    test("a non-SVG jsxElement duplicate is NOT tagged svg-markup (still shown by default)", async () => {
+      const card = (name: string) =>
+        [
+          `export const ${name} = () => (`,
+          '  <Card className="tile">',
+          '    <CardHeader title="Summary" />',
+          "    <CardBody>",
+          "      <Stat label={LABEL} value={VALUE} />",
+          "      <Stat label={LABEL2} value={VALUE2} />",
+          "    </CardBody>",
+          "  </Card>",
+          ");",
+          "",
+        ].join("\n");
+      root = setup({ "A.tsx": card("PanelA"), "B.tsx": card("PanelB") });
+      const graph = graphFor([
+        ["A.tsx", "typescript"],
+        ["B.tsx", "typescript"],
+      ]);
+
+      const { groups } = await findDuplicates(graph, root, { minLines: 4, windowSize: 8 });
+      const jsxGroup = groups.find((g) => g.defKind === "jsxElement");
+      expect(jsxGroup?.occurrences.map((o) => o.file).sort()).toEqual(["A.tsx", "B.tsx"]);
+      expect(jsxGroup?.signals ?? []).not.toContain("svg-markup");
     });
   });
 
@@ -632,6 +799,142 @@ describe("findDuplicates", () => {
         tokenCache: rehydrated,
       });
       expect(result.groups.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe("scope (test-file involvement)", () => {
+    // A block that lives only in src files — structurally distinct from every test block below.
+    const srcBlock = [
+      "export function paginate(rows, page, size) {",
+      "  const offset = page * size;",
+      "  return rows.slice(offset, offset + size);",
+      "}",
+    ].join("\n");
+
+    // Three structurally different shared-test blocks — store setup, mock wiring, async teardown.
+    const setupBlock = [
+      "const store = configureStore({ reducer: rootReducer });",
+      "store.dispatch(fetchUser());",
+      "store.dispatch(fetchSettings());",
+      "store.dispatch(fetchFlags());",
+    ].join("\n");
+    const mockBlock = [
+      "mockApi.get = jest.fn().mockResolvedValue({ data: [] });",
+      "mockApi.post = jest.fn().mockResolvedValue({ ok: true });",
+      "mockApi.del = jest.fn().mockResolvedValue({ ok: true });",
+    ].join("\n");
+    const teardownBlock = [
+      "await flushPromises();",
+      "await cleanupDom();",
+      "await unmountAll();",
+      "jest.clearAllTimers();",
+      "jest.clearAllMocks();",
+      "window.localStorage.clear();",
+    ].join("\n");
+
+    // File-specific filler between the shared blocks — structurally different per file, so the
+    // three shared blocks stay three distinct matches instead of merging into one run.
+    const sharedTestBody = (fence: string) =>
+      [setupBlock, fence, mockBlock, `${fence}\n${fence}`, teardownBlock].join("\n");
+
+    // One small shared block repeated across many test files — the render/snapshot skeleton.
+    const skeleton = [
+      'it("renders without crashing", () => {',
+      "  const { container } = render(<Widget />);",
+      "  expect(container).toMatchSnapshot();",
+      "});",
+    ].join("\n");
+
+    test("scope defaults to 'src': test-file duplicates are dropped, src duplicates kept", async () => {
+      root = setup({
+        "src/a.ts": srcBlock,
+        "src/b.ts": srcBlock,
+        "src/__tests__/a.test.ts": sharedTestBody("expect(a).toBe(1);"),
+        "src/__tests__/b.test.ts": sharedTestBody("expect(b).toEqual({ x: 2, y: 3 });"),
+      });
+      const graph = graphFor([
+        ["src/a.ts", "typescript"],
+        ["src/b.ts", "typescript"],
+        ["src/__tests__/a.test.ts", "typescript"],
+        ["src/__tests__/b.test.ts", "typescript"],
+      ]);
+
+      const { groups, clusters } = await findDuplicates(graph, root, {
+        minLines: 2,
+        windowSize: 5,
+      });
+
+      const files = clusters.flatMap((c) => c.files);
+      expect(files).toContain("src/a.ts");
+      expect(files.some((f) => f.includes(".test.ts"))).toBe(false);
+      expect(groups.every((g) => !g.occurrences.some((o) => o.file.includes(".test.ts")))).toBe(
+        true,
+      );
+    });
+
+    test("scope 'all' keeps test duplicates and tags them signals:['test']", async () => {
+      root = setup({
+        "src/__tests__/a.test.ts": sharedTestBody("expect(a).toBe(1);"),
+        "src/__tests__/b.test.ts": sharedTestBody("expect(b).toEqual({ x: 2, y: 3 });"),
+      });
+      const graph = graphFor([
+        ["src/__tests__/a.test.ts", "typescript"],
+        ["src/__tests__/b.test.ts", "typescript"],
+      ]);
+
+      const { groups } = await findDuplicates(graph, root, {
+        minLines: 2,
+        windowSize: 5,
+        scope: "all",
+      });
+
+      expect(groups.length).toBeGreaterThan(0);
+      expect(groups.every((g) => g.signals?.includes("test"))).toBe(true);
+    });
+
+    test("scope 'tests' surfaces a substantive shared-test-logic cluster", async () => {
+      root = setup({
+        "src/a.ts": srcBlock,
+        "src/b.ts": srcBlock,
+        "src/__tests__/a.test.ts": sharedTestBody("expect(a).toBe(1);"),
+        "src/__tests__/b.test.ts": sharedTestBody("expect(b).toEqual({ x: 2, y: 3 });"),
+      });
+      const graph = graphFor([
+        ["src/a.ts", "typescript"],
+        ["src/b.ts", "typescript"],
+        ["src/__tests__/a.test.ts", "typescript"],
+        ["src/__tests__/b.test.ts", "typescript"],
+      ]);
+
+      const { clusters } = await findDuplicates(graph, root, {
+        minLines: 2,
+        windowSize: 5,
+        scope: "tests",
+      });
+
+      expect(clusters).toHaveLength(1);
+      expect(clusters[0]?.files).toEqual(["src/__tests__/a.test.ts", "src/__tests__/b.test.ts"]);
+      expect(clusters[0]?.groups.length).toBeGreaterThanOrEqual(3);
+    });
+
+    test("scope 'tests' still drops a one-block skeleton shared across many test files", async () => {
+      const files: Record<string, string> = {};
+      const nodes: Array<[string, FileType]> = [];
+      for (let i = 0; i < 10; i++) {
+        const p = `src/icons/__tests__/Icon${i}.test.tsx`;
+        files[p] = skeleton;
+        nodes.push([p, "typescript"]);
+      }
+      root = setup(files);
+      const graph = graphFor(nodes);
+
+      const { clusters } = await findDuplicates(graph, root, {
+        minLines: 2,
+        windowSize: 5,
+        scope: "tests",
+      });
+
+      expect(clusters).toHaveLength(0);
     });
   });
 });
