@@ -59,6 +59,7 @@ export interface ParsedArgs {
   minDuplicateLines: number | undefined;
   includeGenerated: boolean;
   includeSameFile: boolean;
+  includeSvgMarkup: boolean;
   findRiskHotspots: boolean;
   maxCoveragePct: number | undefined;
   minChurn: number | undefined;
@@ -168,6 +169,7 @@ export const OPTIONS = {
   "min-duplicate-lines": { type: "string" },
   "include-generated": { type: "boolean" },
   "include-same-file": { type: "boolean" },
+  "include-svg-markup": { type: "boolean" },
   "find-risk-hotspots": { type: "boolean" },
   "max-coverage-pct": { type: "string" },
   "min-churn": { type: "string" },
@@ -415,6 +417,7 @@ export function parseArgs(cliTokens: string[]): ParsedArgs {
     minDuplicateLines: parseOptionalInt(values["min-duplicate-lines"]),
     includeGenerated: (values["include-generated"] as boolean) ?? false,
     includeSameFile: (values["include-same-file"] as boolean) ?? false,
+    includeSvgMarkup: (values["include-svg-markup"] as boolean) ?? false,
     maxCoveragePct: parseOptionalInt(values["max-coverage-pct"]),
     minChurn: parseOptionalInt(values["min-churn"]),
     base: values.base,

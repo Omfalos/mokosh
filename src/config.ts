@@ -98,6 +98,12 @@ export interface MokoshConfig {
      *  a file's own naturally repetitive structure is usually not actionable copy-paste. Matches
      *  are always tagged `signals: ["same-file"]` regardless of this setting. */
     includeSameFile?: boolean;
+    /** When true, include matches whose occurrences are all inline SVG / SVG-shaped JSX markup
+     *  (default false) — two different icons sharing a literal-normalized skeleton (block matcher)
+     *  or a byte-identical `<defs>`/`<filter>` block (`defKind: "jsxElement"`), neither of which is
+     *  usually an authored clone. Matches are always tagged `signals: ["svg-markup"]` regardless
+     *  of this setting. */
+    includeSvgMarkup?: boolean;
   };
 }
 

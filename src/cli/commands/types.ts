@@ -37,6 +37,7 @@ export interface CommandContext {
   minDuplicateLines: number | undefined;
   includeGenerated: boolean;
   includeSameFile: boolean;
+  includeSvgMarkup: boolean;
   maxCoveragePct: number | undefined;
   minChurn: number | undefined;
   base: string | undefined;

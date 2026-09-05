@@ -129,6 +129,7 @@ export type FindDuplicatesArgs = {
   ignoreDirs?: string[];
   includeGenerated?: boolean;
   includeSameFile?: boolean;
+  includeSvgMarkup?: boolean;
   package?: string;
 };
 export type ProposeTagsArgs = {
@@ -695,7 +696,10 @@ export async function handleFindRiskHotspots(
  *   `ignoreDirs` overrides which directory names are excluded (default: `DEFAULT_IGNORE_DIRS`
  *   merged with this root's configured `ignoreDirs`, if any); `includeSameFile` includes matches
  *   where every occurrence is in one file (default false — mostly a file's own repetitive shape,
- *   not actionable copy-paste, so excluded by default the same way `includeGenerated` is); `limit`
+ *   not actionable copy-paste, so excluded by default the same way `includeGenerated` is);
+ *   `includeSvgMarkup` includes matches whose occurrences are all inline SVG / SVG-shaped JSX
+ *   markup (default false — a block match between two different icons sharing a literal-normalized
+ *   skeleton, or a `defKind: "jsxElement"` match on a shared `<defs>`/`<filter>` block); `limit`
  *   caps the number of results returned (default 50). Reuses `cache`'s per-root token cache (see
  *   `SessionState.getDuplicationTokenCache`) so files unchanged (by mtime/size) since a prior call
  *   in this session skip re-tokenizing entirely.
@@ -734,6 +738,7 @@ export async function handleFindDuplicates(
         ignoreDirs,
         includeGenerated: args.includeGenerated ?? config?.duplication?.includeGenerated ?? false,
         includeSameFile: args.includeSameFile ?? config?.duplication?.includeSameFile ?? false,
+        includeSvgMarkup: args.includeSvgMarkup ?? config?.duplication?.includeSvgMarkup ?? false,
         ignoreGlobs: config?.duplication?.ignoreGlobs ?? [],
         tokenCache,
       }).then(({ groups, clusters }) => ({

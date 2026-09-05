@@ -372,6 +372,11 @@ export const TOOL_DEFINITIONS = [
           description:
             "Include matches where every occurrence is in one file (default: false) — usually its own repetitive shape. Tagged signals:['same-file'].",
         },
+        includeSvgMarkup: {
+          type: "boolean",
+          description:
+            "Include matches that are all inline SVG / JSX markup (default: false) — different icons sharing a normalized skeleton, or an identical <defs>/<filter> block. Tagged signals:['svg-markup'].",
+        },
         package: FAN_OUT_PACKAGE_PROPERTY,
       },
       required: ["root"],

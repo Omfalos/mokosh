@@ -78,6 +78,9 @@ MCP parity (mirrors the MCP server's tools for use when MCP is unavailable):
   --include-same-file          Include matches where every occurrence is in one file (default:
                                 excluded — usually a file's own repetitive shape, not copy-paste);
                                 use with --find-duplicates
+  --include-svg-markup         Include matches whose occurrences are all inline SVG / SVG-shaped
+                                JSX markup (default: excluded — two different icons share a
+                                literal-normalized skeleton); use with --find-duplicates
   --find-risk-hotspots         List functions that are complex, undertested, and (if gitStats is
                                 enabled) frequently changed — requires coverageReportPath in config
   --max-coverage-pct <N>       Max file coverage % to include (default: 50, use with --find-risk-hotspots)

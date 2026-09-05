@@ -544,6 +544,123 @@ describe("findDuplicates", () => {
     });
   });
 
+  describe("SVG noise", () => {
+    test("raw .svg asset files pulled into the graph are never scanned (type: unknown)", async () => {
+      const icon = (d: string) =>
+        [
+          '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">',
+          `  <path fill="currentColor" d="${d}" />`,
+          `  <path fill="currentColor" d="${d}" opacity="0.4" />`,
+          "</svg>",
+          "",
+        ].join("\n");
+      root = setup({
+        "icons/a.svg": icon("M4 4h16v16H4z"),
+        "icons/b.svg": icon("M2 2h20v20H2z"),
+      });
+      const graph = graphFor([
+        ["icons/a.svg", "unknown"],
+        ["icons/b.svg", "unknown"],
+      ]);
+
+      await expect(findDuplicates(graph, root, { minLines: 2, windowSize: 6 })).resolves.toEqual({
+        groups: [],
+        clusters: [],
+      });
+    });
+
+    const iconComponent = (name: string, d1: string, d2: string) =>
+      [
+        `export const ${name} = (props) => (`,
+        '  <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" {...props}>',
+        `    <path strokeLinecap="round" strokeLinejoin="round" d="${d1}" />`,
+        `    <path strokeLinecap="round" strokeLinejoin="round" d="${d2}" />`,
+        `    <path strokeLinecap="round" strokeLinejoin="round" d="${d1}" opacity="0.5" />`,
+        `    <path strokeLinecap="round" strokeLinejoin="round" d="${d2}" opacity="0.5" />`,
+        "  </svg>",
+        ");",
+        "",
+      ].join("\n");
+
+    test("two different icon components token-match but are tagged svg-markup and excluded by default", async () => {
+      root = setup({
+        "Arrow.tsx": iconComponent("IconArrow", "M5 12h14", "M13 5l7 7-7 7"),
+        "Close.tsx": iconComponent("IconClose", "M6 6l12 12", "M6 18L18 6"),
+      });
+      const graph = graphFor([
+        ["Arrow.tsx", "typescript"],
+        ["Close.tsx", "typescript"],
+      ]);
+
+      const { groups } = await findDuplicates(graph, root, { minLines: 4, windowSize: 8 });
+      expect(groups.some((g) => g.kind !== "definition")).toBe(false);
+
+      const { groups: withSvg } = await findDuplicates(graph, root, {
+        minLines: 4,
+        windowSize: 8,
+        includeSvgMarkup: true,
+      });
+      const blockGroup = withSvg.find((g) => g.kind !== "definition");
+      expect(blockGroup?.occurrences.map((o) => o.file).sort()).toEqual(["Arrow.tsx", "Close.tsx"]);
+      expect(blockGroup?.signals).toContain("svg-markup");
+    });
+
+    test("a byte-identical shared <svg> subtree is a jsxElement group, tagged svg-markup and excluded by default", async () => {
+      const body = iconComponent("IconArrow", "M5 12h14", "M13 5l7 7-7 7");
+      root = setup({
+        "Arrow.tsx": body,
+        "ArrowCopy.tsx": body.replace("IconArrow", "IconArrowCopy"),
+      });
+      const graph = graphFor([
+        ["Arrow.tsx", "typescript"],
+        ["ArrowCopy.tsx", "typescript"],
+      ]);
+
+      // The jsxElement detector still finds it — it's just filtered out of the default view,
+      // recoverable the same way a same-file match is.
+      const { groups: shown } = await findDuplicates(graph, root, { minLines: 4, windowSize: 8 });
+      expect(shown.some((g) => g.defKind === "jsxElement")).toBe(false);
+
+      const { groups } = await findDuplicates(graph, root, {
+        minLines: 4,
+        windowSize: 8,
+        includeSvgMarkup: true,
+      });
+      const jsxGroup = groups.find((g) => g.defKind === "jsxElement");
+      expect(jsxGroup?.occurrences.map((o) => o.file).sort()).toEqual([
+        "Arrow.tsx",
+        "ArrowCopy.tsx",
+      ]);
+      expect(jsxGroup?.signals).toContain("svg-markup");
+    });
+
+    test("a non-SVG jsxElement duplicate is NOT tagged svg-markup (still shown by default)", async () => {
+      const card = (name: string) =>
+        [
+          `export const ${name} = () => (`,
+          '  <Card className="tile">',
+          '    <CardHeader title="Summary" />',
+          "    <CardBody>",
+          "      <Stat label={LABEL} value={VALUE} />",
+          "      <Stat label={LABEL2} value={VALUE2} />",
+          "    </CardBody>",
+          "  </Card>",
+          ");",
+          "",
+        ].join("\n");
+      root = setup({ "A.tsx": card("PanelA"), "B.tsx": card("PanelB") });
+      const graph = graphFor([
+        ["A.tsx", "typescript"],
+        ["B.tsx", "typescript"],
+      ]);
+
+      const { groups } = await findDuplicates(graph, root, { minLines: 4, windowSize: 8 });
+      const jsxGroup = groups.find((g) => g.defKind === "jsxElement");
+      expect(jsxGroup?.occurrences.map((o) => o.file).sort()).toEqual(["A.tsx", "B.tsx"]);
+      expect(jsxGroup?.signals ?? []).not.toContain("svg-markup");
+    });
+  });
+
   describe("tokenCache", () => {
     const block = [
       "function computeTotal(items) {",

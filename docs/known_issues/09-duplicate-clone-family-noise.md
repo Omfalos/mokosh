@@ -1,7 +1,8 @@
 # Issue 9 — `find_duplicates` reports one row per LCP-tree node instead of per clone family
 
-Status: **fixed** (2026-09-04 dominance filter; 2026-09-05 connected-component clustering closes
-the remaining gap). Reported by a peer session dogfooding `find_duplicates`
+Status: **fixed** (2026-09-04 dominance filter; 2026-09-05 exact-file-set clustering; 2026-09-05
+SVG noise — see the "SVG noise" section below). Reported by a peer session dogfooding
+`find_duplicates`
 against box-ui-elements (3,480 nodes) with the filters that worked well in an earlier dogfood pass
 (`ignoreLiterals:false`, snapshot/test dirs excluded, `minLines:10`).
 
@@ -126,6 +127,48 @@ chaining scenario above).
 **Not pursued:** the peer session's suggested `"self-overlap"` `DuplicateSignal` — `"same-file"`
 (issue 5) already lets a caller filter out every group whose occurrences are all in one file,
 which is what that tag would have covered; the actual gap was group *count*, not filterability.
+
+## SVG noise (2026-09-05)
+
+A dogfood pass reported that `groups` was still dominated by SVG, in two distinct mechanisms —
+both fixed here:
+
+**1. Raw `.svg` (and other non-code asset) files scanned as source.** `import Icon from
+"./x.svg"` resolves to a real `FileNode`: `resolveLocalPath` (`src/graph/resolver.ts`) tries the
+bare specifier before appending any extension, so the literal `./x.svg` on disk matches with
+`isExternal: false` and gets a node with `type: "unknown"`. `findDuplicates` filtered lock files,
+ignored dirs and generated files but not `"unknown"` types, and `tokenize()` has no
+comment/import rules for `"unknown"` — it just raw-splits the XML — so an icon set (dozens of
+near-identical `<svg><path/></svg>` files) flooded the `"code"` family's suffix array, matching
+each other *and* real `.tsx`. **Fix:** `findDuplicates` now drops every `type: "unknown"` node up
+front, unconditionally (covers `.svg`, `.json`, images, and `.c`/`.cpp` until a real parser
+exists). One-line filter change in `src/graph/duplication/index.ts`.
+
+**2. Inline SVG icon components (`.tsx`/`.jsx`).** Under the default `ignoreLiterals: true`, the
+one thing that distinguishes two icons — the `d=` path string, gradient stops, `<feColorMatrix>`
+constants — collapses to a `STR`/`NUM` placeholder *before* matching, so two different icon
+components share an identical token skeleton (`< ID ID = STR > < ID ID = STR /> …`) that clears
+`windowSize`, `minLines`, and `maxPunctuationRatio` (which counts `{ } : , [ ]`, not JSX's
+`< > / =`). `jsx-elements.ts` already handles *genuine* byte-identical SVG copy-paste as a
+`defKind: "jsxElement"` group, but the block matcher runs over the same files independently and
+still fires. **Fix:** a new `signals: ["svg-markup"]` tag + `includeSvgMarkup` opt-in, mirroring
+`includeSameFile` exactly. `isSvgMarkupSpan` (`src/graph/duplication/svg-markup.ts`) checks a
+group's occurrence spans against the *source text*: if every occurrence is predominantly markup
+lines and at least one carries an SVG-specific tag/attribute, the group is tagged and excluded
+from `groups`/`clusters` by default. Applies to `defKind: "jsxElement"` definition groups too, not
+just block matches — a dogfood follow-up found ~65% of the icon noise was `jsxElement` groups on
+`<defs>`/`<filter>` blocks shared byte-identically across icons (boilerplate, not an authored
+clone). The `jsxElement` detector still produces those groups; `svg-markup` just filters them from
+the default view like `same-file` does, recoverable via `includeSvgMarkup`. A non-SVG `jsxElement`
+duplicate (`<Card><CardHeader/>…`) is never tagged — the check requires an actual SVG tag/attr.
+Per-file-type `ignoreLiterals` was considered and rejected: it breaks the single shared
+suffix-array stream and the token cache's one-bool key.
+
+**Files touched:** `src/graph/duplication/svg-markup.ts` (new) + `svg-markup.test.ts` (new),
+`src/graph/duplication/index.ts` (`"unknown"` filter, `includeSvgMarkup`, `svg-markup` tagging),
+`src/graph/duplication/shingle.ts` (`DuplicateSignal`), `src/graph/duplication/index.test.ts`,
+`src/config.ts`, `src/cli/args.ts` + `runner.ts` + `help.ts` + `commands/{types,find-duplicates}.ts`
+(+ test fixtures), `src/mcp/{handlers,tools}.ts`, `docs/mcp.md`.
 
 ## Files touched
 

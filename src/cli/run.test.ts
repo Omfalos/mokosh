@@ -157,6 +157,7 @@ function makeParsedArgs(overrides: Partial<ParsedArgs> = {}): ParsedArgs {
     minDuplicateLines: undefined,
     includeGenerated: false,
     includeSameFile: false,
+    includeSvgMarkup: false,
     findRiskHotspots: false,
     maxCoveragePct: undefined,
     minChurn: undefined,

@@ -33,6 +33,7 @@ export function makeContext(overrides: Partial<CommandContext> & { graph: Graph 
     minDuplicateLines: undefined,
     includeGenerated: false,
     includeSameFile: false,
+    includeSvgMarkup: false,
     maxCoveragePct: undefined,
     minChurn: undefined,
     base: undefined,

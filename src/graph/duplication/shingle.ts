@@ -36,9 +36,14 @@ export interface DuplicateOccurrence {
  * internally repeated block); `"generated"` — at least one occurrence is in a file only scanned
  * because `includeGenerated: true` was passed; `"value-drift"` — a `defKind: "cssVar"` group
  * where the same variable *name* holds different values across files (as opposed to the default
- * consolidation case: different names, same value). Designed to grow (issue 7 adds more).
+ * consolidation case: different names, same value); `"svg-markup"` — every occurrence's source
+ * span is predominantly inline SVG / SVG-shaped JSX markup (a block match where two *different*
+ * icons share a literal-normalized skeleton, or a `defKind: "jsxElement"` match on an identical
+ * `<defs>`/`<filter>` block — see `svg-markup.ts`). `"same-file"` and `"svg-markup"` groups are
+ * excluded from `findDuplicates`' results by default (opt back in with `includeSameFile` /
+ * `includeSvgMarkup`); the tag is always attached regardless. Designed to grow (issue 7 adds more).
  */
-export type DuplicateSignal = "same-file" | "generated" | "value-drift";
+export type DuplicateSignal = "same-file" | "generated" | "value-drift" | "svg-markup";
 
 export interface DuplicateGroup {
   /** Every location sharing this duplicated block (two or more) — locations that pairwise

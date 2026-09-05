@@ -24,6 +24,14 @@
  * pull that build artifact into the graph as a real node, ignore-dir or extension notwithstanding.
  * So this module applies its own filtering rather than trusting the graph's membership.
  *
+ * That same reference-driven discovery also pulls non-code *assets* into the graph: an explicit
+ * `import Icon from "./x.svg"` resolves (the resolver tries the bare path before any extension —
+ * see `resolveLocalPath`) to a real `FileNode` with `type: "unknown"`, and an icon set is dozens
+ * of near-identical `<svg><path/></svg>` files. `tokenize()` has no comment/import rules for
+ * `"unknown"` — it just splits the raw markup — so those files (and any other `"unknown"` type:
+ * `.json`, images, `.c`/`.cpp` until a real parser exists) would flood `groups` with matches that
+ * aren't source duplication at all. They're dropped up front here, unconditionally.
+ *
  * On large repos, tokenizing thousands of files in-process can itself take long enough to blow
  * past an MCP client's response timeout, so tokenizing is optionally offloaded to a `piscina`
  * worker pool — same pattern and same threshold rationale as `GraphBuilder`'s `parseFile` pool,
@@ -45,6 +53,7 @@ import type { DuplicateGroup, DuplicateSignal, FileTokens } from "./shingle";
 import { findStyleBlockDuplicates, type StyleSourceFile } from "./style-blocks";
 import { findStyleVarDuplicates } from "./style-vars";
 import { findExactDuplicateGroups } from "./suffix-duplicates";
+import { isSvgMarkupSpan } from "./svg-markup";
 import type { CachedFileTokens, DuplicationTokenCache } from "./token-cache-store";
 import type { NormalizedToken } from "./tokenizer";
 import { tokenize } from "./tokenizer";
@@ -107,6 +116,16 @@ export interface FindDuplicatesOptions {
    *  tag to filter manually is unaffected either way. Mirrors `includeGenerated`'s
    *  default-off/opt-in-back-in shape. */
   includeSameFile?: boolean | undefined;
+  /** When false (default), skip matches where every occurrence's source span is predominantly
+   *  inline SVG / SVG-shaped JSX markup. Two mechanisms produce these: the token-shingle block
+   *  matcher (under the default `ignoreLiterals: true` the `d=` path string and filter constants
+   *  that actually tell two icons apart normalize to a placeholder, so *different* icons
+   *  token-match on their shared skeleton), and the `defKind: "jsxElement"` detector (two icons
+   *  sharing a byte-identical `<defs>`/`<filter>` block — boilerplate, not an authored clone).
+   *  Both are excluded here. Set true to see them anyway; they're always tagged
+   *  `signals: ["svg-markup"]` regardless. Mirrors `includeSameFile`'s default-off/opt-in shape.
+   *  See `svg-markup.ts`. */
+  includeSvgMarkup?: boolean | undefined;
   /** Extra generated-file patterns merged with the built-in list (from
    *  `MokoshConfig.duplication.ignoreGlobs`). Two shapes only — `**​/name/**` (path segment) and
    *  `*.suffix` (basename) — not full glob syntax. */
@@ -172,16 +191,39 @@ function isUnderIgnoredDir(relPath: string, ignoreDirs: readonly string[]): bool
 /**
  * @description Attaches advisory {@link DuplicateSignal}s to a group: `"same-file"` when every
  *   occurrence is in one file, `"generated"` when any occurrence is in a file scanned only
- *   because `includeGenerated: true`. Merged with any signal the group's own extractor already
- *   set (e.g. `style-vars.ts`'s `"value-drift"`) rather than replacing it.
+ *   because `includeGenerated: true`, `"svg-markup"` when every occurrence's source span reads as
+ *   inline SVG / SVG-shaped JSX markup (see {@link isSvgMarkupSpan}). Merged with any signal the
+ *   group's own extractor already set (e.g. `style-vars.ts`'s `"value-drift"`) rather than
+ *   replacing it.
+ *
+ *   `"svg-markup"` is applied to `kind: "definition"` groups (a `defKind: "jsxElement"` match on
+ *   an icon's shared `<defs>`/`<filter>` block) as well as block matches: both are noise the user
+ *   asked to have out of the default view. It stays recoverable via `includeSvgMarkup` — the
+ *   `jsxElement` detector still produces the group, it's just filtered by default like `same-file`.
  * @param group - A finalized duplicate group.
  * @param generatedPaths - Project-relative paths of generated files kept in this scan.
+ * @param sourceByFile - Retained source text per file (JS/TS files only — the ones inline SVG
+ *   lives in), used for the `"svg-markup"` check; a group with an occurrence whose source isn't
+ *   available is simply never tagged `"svg-markup"`.
  * @returns The same group with `signals` set when at least one applies, otherwise unchanged.
  */
-function withSignals(group: DuplicateGroup, generatedPaths: ReadonlySet<string>): DuplicateGroup {
+function withSignals(
+  group: DuplicateGroup,
+  generatedPaths: ReadonlySet<string>,
+  sourceByFile: ReadonlyMap<string, string>,
+): DuplicateGroup {
   const signals: DuplicateSignal[] = [...(group.signals ?? [])];
   if (new Set(group.occurrences.map((occ) => occ.file)).size === 1) signals.push("same-file");
   if (group.occurrences.some((occ) => generatedPaths.has(occ.file))) signals.push("generated");
+  if (
+    group.occurrences.length > 0 &&
+    group.occurrences.every((occ) => {
+      const source = sourceByFile.get(occ.file);
+      return source !== undefined && isSvgMarkupSpan(source, occ.startLine, occ.endLine);
+    })
+  ) {
+    signals.push("svg-markup");
+  }
   return signals.length > 0 ? { ...group, signals } : group;
 }
 
@@ -207,13 +249,17 @@ function withSignals(group: DuplicateGroup, generatedPaths: ReadonlySet<string>)
  *   structural punctuation (e.g. schema/object-literal boilerplate) rather than substantive
  *   shared logic; `ignoreDirs` excludes files under matching directory names; `includeSameFile`
  *   controls whether same-file-only matches are returned (excluded by default — see its doc
- *   comment); `limit` caps results; `parallelTokenizing` offloads per-file tokenizing to a worker
- *   pool once the candidate file count is large enough to be worth it. Lock files are always
- *   excluded, independent of `ignoreDirs`.
+ *   comment); `includeSvgMarkup` likewise controls whether inline-SVG-markup matches are returned
+ *   (excluded by default — two different icons share a literal-normalized skeleton); `limit` caps
+ *   results; `parallelTokenizing` offloads per-file tokenizing to a worker
+ *   pool once the candidate file count is large enough to be worth it. Lock files and
+ *   `type: "unknown"` nodes (non-code assets like `.svg`/`.json` pulled in via an explicit
+ *   `import`) are always excluded, independent of `ignoreDirs`.
  * @returns `groups` — duplicate blocks (each tagged with its `family`), two or more occurrences
  *   per block, every block that pairwise chain-matches another clustered into one group instead
- *   of one per pair, sorted largest-first across all families (same-file-only matches excluded
- *   unless `includeSameFile`). `clusters` — the same groups bucketed by exact file set, with
+ *   of one per pair, sorted largest-first across all families (same-file-only and svg-markup
+ *   matches excluded unless `includeSameFile` / `includeSvgMarkup`). `clusters` — the same groups
+ *   bucketed by exact file set, with
  *   per-file duplication coverage, see {@link FindDuplicatesResult.clusters}.
  */
 export async function findDuplicates(
@@ -230,13 +276,17 @@ export async function findDuplicates(
     ignoreDirs = DEFAULT_IGNORE_DIRS,
     includeGenerated = false,
     includeSameFile = false,
+    includeSvgMarkup = false,
     ignoreGlobs = [],
     parallelTokenizing = true,
     tokenCache,
   } = options;
 
   const nodes = [...graph.nodes.values()].filter(
-    (node) => !isLockFile(node.path) && !isUnderIgnoredDir(node.path, ignoreDirs),
+    (node) =>
+      node.type !== "unknown" &&
+      !isLockFile(node.path) &&
+      !isUnderIgnoredDir(node.path, ignoreDirs),
   );
 
   // Paths kept in the scan only because `includeGenerated: true` — used to tag matches
@@ -362,8 +412,14 @@ export async function findDuplicates(
       }
     }
 
+    // Source text kept only for JS/TS files — the ones inline SVG markup can appear in — so
+    // `withSignals` can tag `"svg-markup"` groups off the real source. `jsLikeFiles` is already
+    // populated for every JS/TS file this scan saw (even on a token-cache hit, see above), so
+    // this needs no extra reads.
+    const sourceByFile = new Map(jsLikeFiles.map((file) => [file.file, file.source]));
+
     const groups: DuplicateGroup[] = findStyleBlockDuplicates(structuralStyleFiles, minLines).map(
-      (group) => withSignals(group, generatedPaths),
+      (group) => withSignals(group, generatedPaths, sourceByFile),
     );
 
     // Matching never crosses a family boundary (see families.ts) — each family's token stream is
@@ -376,31 +432,34 @@ export async function findDuplicates(
         minLines,
         maxPunctuationRatio,
       )) {
-        groups.push(withSignals({ ...group, family }, generatedPaths));
+        groups.push(withSignals({ ...group, family }, generatedPaths, sourceByFile));
       }
     }
 
     // Declaration-level matching, independent of the block strategies above — see
     // docs/adr-018-per-language-definition-duplicates.md.
     for (const group of findStyleVarDuplicates(structuralStyleFiles)) {
-      groups.push(withSignals({ ...group, family: "style" }, generatedPaths));
+      groups.push(withSignals({ ...group, family: "style" }, generatedPaths, sourceByFile));
     }
     for (const group of findTypeDefDuplicates(jsLikeFiles)) {
-      groups.push(withSignals({ ...group, family: "code" }, generatedPaths));
+      groups.push(withSignals({ ...group, family: "code" }, generatedPaths, sourceByFile));
     }
     for (const group of findObjectLiteralDuplicates(jsLikeFiles)) {
-      groups.push(withSignals({ ...group, family: "code" }, generatedPaths));
+      groups.push(withSignals({ ...group, family: "code" }, generatedPaths, sourceByFile));
     }
     for (const group of findJsxElementDuplicates(jsLikeFiles)) {
-      groups.push(withSignals({ ...group, family: "code" }, generatedPaths));
+      groups.push(withSignals({ ...group, family: "code" }, generatedPaths, sourceByFile));
     }
 
-    // Same-file matches are always computed and tagged above — excluded here, by default, the
-    // same way generated files are: mostly a file's own naturally repetitive shape, not
-    // actionable copy-paste, recoverable via includeSameFile. See its doc comment.
-    const visibleGroups = includeSameFile
-      ? groups
-      : groups.filter((group) => !group.signals?.includes("same-file"));
+    // Same-file and svg-markup matches are always computed and tagged above — excluded here, by
+    // default, the same way generated files are: a file's own naturally repetitive shape and
+    // two-different-icons-share-a-skeleton, respectively, rather than actionable copy-paste.
+    // Recoverable via includeSameFile / includeSvgMarkup. See their doc comments.
+    const visibleGroups = groups.filter((group) => {
+      if (!includeSameFile && group.signals?.includes("same-file")) return false;
+      if (!includeSvgMarkup && group.signals?.includes("svg-markup")) return false;
+      return true;
+    });
 
     // Cluster from the full pre-limit set so a cluster's matchCount/files aren't shrunk by a cap
     // meant for the flat groups list — see FindDuplicatesResult.clusters' doc comment.

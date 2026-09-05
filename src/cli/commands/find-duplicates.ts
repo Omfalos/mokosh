@@ -28,7 +28,9 @@ import type { CommandContext } from "./types";
  *   duplication coverage %), so N separate non-nested matches between the same two files read as
  *   one entry instead of N rows (see docs/known_issues/09-duplicate-clone-family-noise.md).
  *   Same-file-only matches (a file duplicating itself) are excluded by default — pass
- *   `--include-same-file` or set `duplication.includeSameFile` to see them.
+ *   `--include-same-file` or set `duplication.includeSameFile` to see them. Inline-SVG-markup
+ *   matches (two different icon components sharing a literal-normalized `<svg>` skeleton) are
+ *   likewise excluded — pass `--include-svg-markup` or set `duplication.includeSvgMarkup`.
  * @param {CommandContext} ctx - Shared command context; `ctx.rootDir`, `ctx.scanOptions`,
  *   `ctx.minDuplicateLines`, `ctx.limit`, and `ctx.cachePath` tune the scan.
  */
@@ -40,6 +42,7 @@ export async function run(ctx: CommandContext): Promise<void> {
     minDuplicateLines,
     includeGenerated,
     includeSameFile,
+    includeSvgMarkup,
     limit,
     cachePath,
   } = ctx;
@@ -56,6 +59,7 @@ export async function run(ctx: CommandContext): Promise<void> {
     ignoreDirs,
     includeGenerated: includeGenerated || ctx.rawConfig.duplication?.includeGenerated || false,
     includeSameFile: includeSameFile || ctx.rawConfig.duplication?.includeSameFile || false,
+    includeSvgMarkup: includeSvgMarkup || ctx.rawConfig.duplication?.includeSvgMarkup || false,
     ignoreGlobs: ctx.rawConfig.duplication?.ignoreGlobs ?? [],
     tokenCache,
   });
