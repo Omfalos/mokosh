@@ -5,13 +5,16 @@
  * PostCSS AST here) runs the generic tokenize → suffix-array-exact-match pipeline; on top of
  * both, declaration-level matching runs independently — `findStyleVarDuplicates`
  * (`style-vars.ts`) for CSS/SCSS/Less design tokens, `findTypeDefDuplicates` (`type-defs.ts`) for
- * TypeScript `interface`/`type` object shapes — reported as `kind: "definition"` groups
- * alongside the `kind: "block"` (or absent-`kind`) matches the first two strategies produce. See
- * docs/adr-012-duplicate-detection.md for why token-based detection is built in-house instead of
- * adopting jscpd, docs/adr-013-duplicate-detection-noise-reduction.md for why CSS-family matching
- * moved off it, docs/adr-015-suffix-array-duplicate-detection.md for why matching runs on a
- * suffix array (`suffix-duplicates.ts`) rather than the original hash-shingle-bucket matcher
- * (`shingle.ts`, kept and independently tested but no longer used here), and
+ * TypeScript `interface`/`type` object shapes, `findObjectLiteralDuplicates`
+ * (`object-literals.ts`) for content-identical `const` object literals, `findJsxElementDuplicates`
+ * (`jsx-elements.ts`) for content-identical JSX/TSX element trees — the latter two across TS *and*
+ * JS files — reported as `kind: "definition"` groups alongside the `kind: "block"` (or absent-`kind`) matches
+ * the first two strategies produce. See docs/adr-012-duplicate-detection.md for why token-based
+ * detection is built in-house instead of adopting jscpd,
+ * docs/adr-013-duplicate-detection-noise-reduction.md for why CSS-family matching moved off it,
+ * docs/adr-015-suffix-array-duplicate-detection.md for why matching runs on a suffix array
+ * (`suffix-duplicates.ts`) rather than the original hash-shingle-bucket matcher (`shingle.ts`,
+ * kept and independently tested but no longer used here), and
  * docs/adr-018-per-language-definition-duplicates.md for the declaration-level strategy.
  *
  * `graph.nodes` is not a reliable ignore-rule-filtered file list: `DEFAULT_IGNORE_DIRS` and
@@ -33,8 +36,11 @@ import { DEFAULT_IGNORE_DIRS } from "../../const";
 import { LOCK_FILE_NAMES } from "../../parser/lockfile";
 import type { FileType } from "../../types/parse";
 import type { Graph } from "../model";
+import { buildDuplicateClusters, type DuplicateCluster } from "./clusters";
 import { type DuplicateFamily, getDuplicateFamily } from "./families";
 import { hasGeneratedMarker, isGeneratedPath } from "./generated";
+import { findJsxElementDuplicates } from "./jsx-elements";
+import { findObjectLiteralDuplicates } from "./object-literals";
 import type { DuplicateGroup, DuplicateSignal, FileTokens } from "./shingle";
 import { findStyleBlockDuplicates, type StyleSourceFile } from "./style-blocks";
 import { findStyleVarDuplicates } from "./style-vars";
@@ -52,6 +58,7 @@ const DEFAULT_MIN_FILES_FOR_POOL = 20;
  *  tokenizes in-process. */
 export type ParallelTokenizingOption = boolean | { minFiles?: number; maxThreads?: number };
 
+export type { DuplicateCluster } from "./clusters";
 export type { DuplicateFamily } from "./families";
 export { hasGeneratedMarker, isGeneratedPath } from "./generated";
 export type { DuplicateGroup, DuplicateOccurrence, DuplicateSignal } from "./shingle";
@@ -91,6 +98,15 @@ export interface FindDuplicatesOptions {
    *  actionable copy-paste. Set true to scan them anyway; matches involving one are tagged
    *  `signals: ["generated"]`. See docs/adr-013-duplicate-detection-noise-reduction.md. */
   includeGenerated?: boolean | undefined;
+  /** When false (default), skip matches where every occurrence is in a single file — a file's
+   *  own naturally repetitive structure (a long class with many similar methods, a Markdown doc
+   *  table, a big object literal) shows up as "duplicating itself" far more often than it
+   *  represents an actionable copy-paste bug. Dogfooding found this was the single largest noise
+   *  class in `groups` (32% in one measurement). Set true to see them anyway; they're always
+   *  tagged `signals: ["same-file"]` regardless of this flag, so a caller already relying on that
+   *  tag to filter manually is unaffected either way. Mirrors `includeGenerated`'s
+   *  default-off/opt-in-back-in shape. */
+  includeSameFile?: boolean | undefined;
   /** Extra generated-file patterns merged with the built-in list (from
    *  `MokoshConfig.duplication.ignoreGlobs`). Two shapes only — `**​/name/**` (path segment) and
    *  `*.suffix` (basename) — not full glob syntax. */
@@ -110,6 +126,22 @@ export interface FindDuplicatesOptions {
 export interface FindDuplicatesResult {
   /** Duplicate blocks, largest-first, capped at `limit`. */
   groups: DuplicateGroup[];
+  /** `groups` (before `limit` truncation) bucketed by *exact* occurrence file set — every group
+   *  is merged into one cluster with every other group whose occurrences touch the identical set
+   *  of files, so N separate non-nested matches between the same two files (the "window-splitting"
+   *  case, see docs/known_issues/09-duplicate-clone-family-noise.md) read as one `matchCount: N`
+   *  entry instead of N rows a caller has to manually recognize as the same underlying
+   *  duplication. Deliberately *not* transitive across partially-overlapping file sets (a group
+   *  over `{A, B}` and one over `{B, C}` land in separate clusters) — an earlier connected-
+   *  component version was chaining unrelated files through shared bridge files into one
+   *  incomprehensible supercluster on real repos; see `src/graph/duplication/clusters.ts`'s
+   *  top-of-file comment. Largest-`longestMatch`-first, capped at `limit` clusters (each cluster's
+   *  own `groups` are never truncated). No group is dropped or altered to build this — every group
+   *  in `groups` (subject to `limit`) also appears inside exactly one cluster here. Each cluster
+   *  also carries per-file duplication `coverage` — merged occurrence spans divided by that
+   *  file's total line count — so `matchCount: 14` reads as "62% of this file" rather than just
+   *  a row count; see `src/graph/duplication/clusters.ts`'s `DuplicateClusterFileCoverage`. */
+  clusters: DuplicateCluster[];
 }
 
 /**
@@ -173,13 +205,16 @@ function withSignals(group: DuplicateGroup, generatedPaths: ReadonlySet<string>)
  *   token-shingle path only (CSS/Less/SCSS always match on literal declaration content);
  *   `maxPunctuationRatio` gates out token-shingle blocks that are mostly object/array-literal
  *   structural punctuation (e.g. schema/object-literal boilerplate) rather than substantive
- *   shared logic; `ignoreDirs` excludes files under matching directory names; `limit` caps
- *   results; `parallelTokenizing` offloads per-file tokenizing to a worker pool once the
- *   candidate file count is large enough to be worth it. Lock files are always excluded,
- *   independent of `ignoreDirs`.
+ *   shared logic; `ignoreDirs` excludes files under matching directory names; `includeSameFile`
+ *   controls whether same-file-only matches are returned (excluded by default — see its doc
+ *   comment); `limit` caps results; `parallelTokenizing` offloads per-file tokenizing to a worker
+ *   pool once the candidate file count is large enough to be worth it. Lock files are always
+ *   excluded, independent of `ignoreDirs`.
  * @returns `groups` — duplicate blocks (each tagged with its `family`), two or more occurrences
  *   per block, every block that pairwise chain-matches another clustered into one group instead
- *   of one per pair, sorted largest-first across all families.
+ *   of one per pair, sorted largest-first across all families (same-file-only matches excluded
+ *   unless `includeSameFile`). `clusters` — the same groups bucketed by exact file set, with
+ *   per-file duplication coverage, see {@link FindDuplicatesResult.clusters}.
  */
 export async function findDuplicates(
   graph: Graph,
@@ -194,6 +229,7 @@ export async function findDuplicates(
     limit = 50,
     ignoreDirs = DEFAULT_IGNORE_DIRS,
     includeGenerated = false,
+    includeSameFile = false,
     ignoreGlobs = [],
     parallelTokenizing = true,
     tokenCache,
@@ -207,10 +243,20 @@ export async function findDuplicates(
   // `signals: ["generated"]`. Empty when `includeGenerated` is false (they're dropped instead).
   const generatedPaths = new Set<string>();
 
+  // Total line count per scanned file, collected as a side effect of reading each file — powers
+  // clusters' per-file coverage % (see clusters.ts). Exact when the file was freshly read this
+  // scan; falls back to the last token's line number on a token-cache hit, where no source is
+  // read at all — a slight undercount if the file ends in blank lines, acceptable for a coverage
+  // estimate.
+  const fileLineCounts = new Map<string, number>();
+
   const pool = createTokenizingPool(parallelTokenizing, nodes.length);
   try {
     const structuralStyleFiles: StyleSourceFile[] = [];
-    const typeScriptFiles: TypeScriptSourceFile[] = [];
+    // Shared input for both TS-only interface/type extraction and JS+TS object-literal
+    // extraction below — the name reflects the broader (TS ∪ JS) population now, not just the
+    // interface/type extractor that originally motivated it.
+    const jsLikeFiles: TypeScriptSourceFile[] = [];
     const filesByFamily = new Map<DuplicateFamily, FileTokens[]>();
     await Promise.all(
       nodes.map(async (node) => {
@@ -228,6 +274,7 @@ export async function findDuplicates(
           const generated = pathGenerated || hasGeneratedMarker(source);
           if (generated && !includeGenerated) return;
           if (generated) generatedPaths.add(node.path);
+          fileLineCounts.set(node.path, source.split("\n").length);
           structuralStyleFiles.push({ file: node.path, source, fileType: node.type });
           return;
         }
@@ -275,7 +322,17 @@ export async function findDuplicates(
         if (generated && !includeGenerated) return;
         if (generated) generatedPaths.add(node.path);
 
-        if (node.type === "typescript") {
+        fileLineCounts.set(
+          node.path,
+          sourceForTypeDefs !== undefined
+            ? sourceForTypeDefs.split("\n").length
+            : (tokens.at(-1)?.line ?? 0),
+        );
+
+        // TS-only for interface/type extraction below, but object-literal extraction
+        // (findObjectLiteralDuplicates) runs on both — const object literals are equally common
+        // in plain JS, unlike interface/type declarations which are TS-only syntax.
+        if (node.type === "typescript" || node.type === "javascript") {
           if (sourceForTypeDefs === undefined) {
             try {
               sourceForTypeDefs = await readFile(path.join(rootDir, node.path), "utf8");
@@ -284,7 +341,7 @@ export async function findDuplicates(
             }
           }
           if (sourceForTypeDefs !== undefined) {
-            typeScriptFiles.push({ file: node.path, source: sourceForTypeDefs });
+            jsLikeFiles.push({ file: node.path, source: sourceForTypeDefs });
           }
         }
 
@@ -328,11 +385,30 @@ export async function findDuplicates(
     for (const group of findStyleVarDuplicates(structuralStyleFiles)) {
       groups.push(withSignals({ ...group, family: "style" }, generatedPaths));
     }
-    for (const group of findTypeDefDuplicates(typeScriptFiles)) {
+    for (const group of findTypeDefDuplicates(jsLikeFiles)) {
+      groups.push(withSignals({ ...group, family: "code" }, generatedPaths));
+    }
+    for (const group of findObjectLiteralDuplicates(jsLikeFiles)) {
+      groups.push(withSignals({ ...group, family: "code" }, generatedPaths));
+    }
+    for (const group of findJsxElementDuplicates(jsLikeFiles)) {
       groups.push(withSignals({ ...group, family: "code" }, generatedPaths));
     }
 
-    return { groups: groups.sort((a, b) => b.lines - a.lines).slice(0, limit) };
+    // Same-file matches are always computed and tagged above — excluded here, by default, the
+    // same way generated files are: mostly a file's own naturally repetitive shape, not
+    // actionable copy-paste, recoverable via includeSameFile. See its doc comment.
+    const visibleGroups = includeSameFile
+      ? groups
+      : groups.filter((group) => !group.signals?.includes("same-file"));
+
+    // Cluster from the full pre-limit set so a cluster's matchCount/files aren't shrunk by a cap
+    // meant for the flat groups list — see FindDuplicatesResult.clusters' doc comment.
+    const clusters = buildDuplicateClusters(visibleGroups, fileLineCounts).slice(0, limit);
+    return {
+      groups: visibleGroups.sort((a, b) => b.lines - a.lines).slice(0, limit),
+      clusters,
+    };
   } finally {
     if (pool) await pool.destroy();
   }

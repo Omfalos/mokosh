@@ -388,6 +388,7 @@ export async function run(): Promise<void> {
     testsOnly: parsed.testsOnly,
     minDuplicateLines: parsed.minDuplicateLines,
     includeGenerated: parsed.includeGenerated,
+    includeSameFile: parsed.includeSameFile,
     maxCoveragePct: parsed.maxCoveragePct,
     minChurn: parsed.minChurn,
     base: parsed.base,

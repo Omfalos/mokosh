@@ -128,6 +128,7 @@ export type FindDuplicatesArgs = {
   limit?: number;
   ignoreDirs?: string[];
   includeGenerated?: boolean;
+  includeSameFile?: boolean;
   package?: string;
 };
 export type ProposeTagsArgs = {
@@ -692,11 +693,16 @@ export async function handleFindRiskHotspots(
  *   `maxPunctuationRatio` gates out blocks that are mostly object/array-literal structural
  *   punctuation rather than substantive shared logic (default 0.5; set 1 to disable);
  *   `ignoreDirs` overrides which directory names are excluded (default: `DEFAULT_IGNORE_DIRS`
- *   merged with this root's configured `ignoreDirs`, if any); `limit` caps the number of results
- *   returned (default 50). Reuses `cache`'s per-root token cache (see
+ *   merged with this root's configured `ignoreDirs`, if any); `includeSameFile` includes matches
+ *   where every occurrence is in one file (default false — mostly a file's own repetitive shape,
+ *   not actionable copy-paste, so excluded by default the same way `includeGenerated` is); `limit`
+ *   caps the number of results returned (default 50). Reuses `cache`'s per-root token cache (see
  *   `SessionState.getDuplicationTokenCache`) so files unchanged (by mtime/size) since a prior call
  *   in this session skip re-tokenizing entirely.
- * @returns TextResponse with `{ minLines, groups, count }`.
+ * @returns TextResponse with `{ minLines, groups, count, clusters }` — `clusters` buckets `groups`
+ *   by exact file set, each with per-file duplication `coverage`, so a real duplication fragmented
+ *   into many non-nested matches between the same files reads as one entry with a % figure instead
+ *   of a bare match count (see `src/graph/duplication/clusters.ts`).
  */
 export async function handleFindDuplicates(
   cache: SessionState,
@@ -727,17 +733,28 @@ export async function handleFindDuplicates(
         limit: multi ? Infinity : limit,
         ignoreDirs,
         includeGenerated: args.includeGenerated ?? config?.duplication?.includeGenerated ?? false,
+        includeSameFile: args.includeSameFile ?? config?.duplication?.includeSameFile ?? false,
         ignoreGlobs: config?.duplication?.ignoreGlobs ?? [],
         tokenCache,
-      }).then(({ groups }) => tagPackage(groups, pkgName, multi)),
+      }).then(({ groups, clusters }) => ({
+        groups: tagPackage(groups, pkgName, multi),
+        clusters: tagPackage(clusters, pkgName, multi),
+      })),
     ),
   );
   cache.flushDuplicationTokenCache(root);
   const groups = perPackage
-    .flat()
+    .flatMap((result) => result.groups)
     .sort((a, b) => b.lines - a.lines)
     .slice(0, limit);
-  return text({ minLines, groups, count: groups.length });
+  // Clusters never cross a package boundary either (each package's own findDuplicates call
+  // already clustered within its own group set) — re-sort+re-limit across packages the same way
+  // groups are, rather than truncating each package's clusters to `limit` first.
+  const clusters = perPackage
+    .flatMap((result) => result.clusters)
+    .sort((a, b) => b.longestMatch - a.longestMatch || b.matchCount - a.matchCount)
+    .slice(0, limit);
+  return text({ minLines, groups, count: groups.length, clusters });
 }
 
 /**

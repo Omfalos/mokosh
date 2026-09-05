@@ -127,7 +127,7 @@ describe("findDuplicates", () => {
       ["missing.ts", "typescript"],
     ]);
 
-    await expect(findDuplicates(graph, root)).resolves.toEqual({ groups: [] });
+    await expect(findDuplicates(graph, root)).resolves.toEqual({ groups: [], clusters: [] });
   });
 
   test("always excludes lock files, even though their repeated structure would otherwise match", async () => {
@@ -146,7 +146,10 @@ describe("findDuplicates", () => {
       ["pnpm-lock.yaml", "unknown"],
     ]);
 
-    await expect(findDuplicates(graph, root, { minLines: 3 })).resolves.toEqual({ groups: [] });
+    await expect(findDuplicates(graph, root, { minLines: 3 })).resolves.toEqual({
+      groups: [],
+      clusters: [],
+    });
   });
 
   test("excludes files under a default-ignored directory (e.g. dist)", async () => {
@@ -168,7 +171,10 @@ describe("findDuplicates", () => {
       ["src/bundle.js", "javascript"],
     ]);
 
-    await expect(findDuplicates(graph, root, { minLines: 3 })).resolves.toEqual({ groups: [] });
+    await expect(findDuplicates(graph, root, { minLines: 3 })).resolves.toEqual({
+      groups: [],
+      clusters: [],
+    });
   });
 
   test("respects a custom ignoreDirs list", async () => {
@@ -209,7 +215,10 @@ describe("findDuplicates", () => {
       ["b.css", "css"],
     ]);
 
-    await expect(findDuplicates(graph, root, { minLines: 2 })).resolves.toEqual({ groups: [] });
+    await expect(findDuplicates(graph, root, { minLines: 2 })).resolves.toEqual({
+      groups: [],
+      clusters: [],
+    });
   });
 
   test("matches CSS rules with different selectors but an identical declaration body", async () => {
@@ -262,9 +271,27 @@ describe("findDuplicates", () => {
     });
     const graph = graphFor([["a.css", "css"]]);
 
-    const { groups } = await findDuplicates(graph, root, { minLines: 1 });
+    // Same-file matches are excluded by default (see includeSameFile) — opt back in to verify
+    // the signal is still correctly attached to what's computed underneath.
+    const { groups } = await findDuplicates(graph, root, { minLines: 1, includeSameFile: true });
     const cssVarGroup = groups.find((g) => g.defKind === "cssVar");
     expect(cssVarGroup?.signals).toContain("same-file");
+  });
+
+  test("a same-file match is excluded by default but returned with includeSameFile: true", async () => {
+    root = setup({
+      "a.css": [":root {", "  --brand: #3b82f6;", "  --primary: #3b82f6;", "}"].join("\n"),
+    });
+    const graph = graphFor([["a.css", "css"]]);
+
+    const { groups: defaultGroups } = await findDuplicates(graph, root, { minLines: 1 });
+    expect(defaultGroups.some((g) => g.defKind === "cssVar")).toBe(false);
+
+    const { groups: withSameFile } = await findDuplicates(graph, root, {
+      minLines: 1,
+      includeSameFile: true,
+    });
+    expect(withSameFile.some((g) => g.defKind === "cssVar")).toBe(true);
   });
 
   test("never matches across the style/code family boundary, even with identical shape", async () => {
@@ -377,8 +404,23 @@ describe("findDuplicates", () => {
     ]);
 
     const { groups } = await findDuplicates(graph, root, { minLines: 4, windowSize: 8 });
-    expect(groups.some((g) => g.occurrences.some((o) => o.file.startsWith("schema-")))).toBe(false);
-    expect(groups.some((g) => g.occurrences.some((o) => o.file.startsWith("logic-")))).toBe(true);
+    // The token-shingle block matcher never reports the schema files — the punctuation gate this
+    // test is named for is unaffected by the object-literal definition detector below.
+    const blockMatches = groups.filter((g) => g.kind !== "definition");
+    expect(blockMatches.some((g) => g.occurrences.some((o) => o.file.startsWith("schema-")))).toBe(
+      false,
+    );
+    expect(blockMatches.some((g) => g.occurrences.some((o) => o.file.startsWith("logic-")))).toBe(
+      true,
+    );
+    // The schema objects are byte-identical `const` declarations, not merely same-shaped — a
+    // genuinely different, additive detector (findObjectLiteralDuplicates) correctly reports that
+    // as a consolidation candidate, independent of the block matcher's punctuation gate.
+    const definitionMatch = groups.find((g) => g.defKind === "objectLiteral");
+    expect(definitionMatch?.occurrences.map((o) => o.file).sort()).toEqual([
+      "schema-a.ts",
+      "schema-b.ts",
+    ]);
   });
 
   describe("noise reduction (issue 5b)", () => {
@@ -471,10 +513,18 @@ describe("findDuplicates", () => {
       expect(groups[0]?.occurrences.every((o) => o.startLine >= 3)).toBe(true);
     });
 
-    test("a within-file repeated block carries the same-file signal", async () => {
+    test("a within-file repeated block is excluded by default but carries the same-file signal with includeSameFile", async () => {
       root = setup({ "a.ts": `${realBlock}\n\n${realBlock}` });
       const graph = graphFor([["a.ts", "typescript"]]);
-      const { groups } = await findDuplicates(graph, root, { minLines: 4, windowSize: 8 });
+
+      const excluded = await findDuplicates(graph, root, { minLines: 4, windowSize: 8 });
+      expect(excluded.groups).toHaveLength(0);
+
+      const { groups } = await findDuplicates(graph, root, {
+        minLines: 4,
+        windowSize: 8,
+        includeSameFile: true,
+      });
       expect(groups).toHaveLength(1);
       expect(groups[0]?.signals).toEqual(["same-file"]);
     });

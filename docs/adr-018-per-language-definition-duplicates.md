@@ -1,9 +1,11 @@
-# ADR-018: Per-Language Definition Duplicates (Phase 1 — CSS Vars + TS Types)
+# ADR-018: Per-Language Definition Duplicates (Phase 1 — CSS Vars + TS Types; Phase 1b — Object Literals; Phase 1c — JSX Elements)
 
-**Date:** 2026-09-04
+**Date:** 2026-09-04 (phase 1); 2026-09-05 (phases 1b, 1c)
 **Status:** Implemented (phase 1 of [issue 7](./known_issues/07-per-language-analysis-semantics.md)
-— CSS/SCSS/Less variables and TypeScript `interface`/`type` shapes only). JVM, Go, Python, the
-idiom-exclusion registry (7c), and the `MokoshConfig.languages` surface (7d) are deferred.
+— CSS/SCSS/Less variables, TypeScript `interface`/`type` shapes, (phase 1b) content-identical
+`const` object literals, and (phase 1c) content-identical JSX/TSX elements, across TS and JS for
+1b/1c). JVM, Go, Python, the idiom-exclusion registry (7c), and the `MokoshConfig.languages`
+surface (7d) are deferred.
 
 ---
 
@@ -92,3 +94,73 @@ more than two extractors exist, not speculatively now.
   Go (`struct` fields), Python (`@dataclass`/`TypedDict`), the idiom-exclusion registry (7c —
   Java accessors, Go `if err != nil`, TS re-export barrels), and the `MokoshConfig.languages`
   config surface (7d).
+
+## Addendum (2026-09-05): Phase 1b — `const` object literals (TS + JS)
+
+**Status:** Implemented. Direct response to a dogfooding report's "const-object-literal shape
+matching" false-positive class in the token-shingle path — `maxPunctuationRatio` gates out blocks
+that are *mostly* punctuation, but two unrelated object literals with the same key count and
+nesting (not mostly punctuation, just coincidentally same-shaped) still clear that gate.
+
+**Deliberately content-based, not shape-based — the opposite design choice from the TS
+`interface`/`type` extractor in this same ADR.** An `interface`/`type` member is a type
+position: matching two declarations by member name+type regardless of how instances get
+populated is exactly the "these should be one declaration" signal issue 7 targets. A `const`
+object literal's members are *values*: two unrelated config objects sharing key names but
+different values (`{ host: 'x', port: 80 }` vs `{ host: 'y', port: 443 }`) are not obviously a
+duplication candidate the way two identically-shaped types are — many small, legitimately-distinct
+option bags share common key names. `src/graph/duplication/object-literals.ts` therefore
+canonicalizes `key:printedValue` pairs (via the same `ts.createPrinter` approach `type-defs.ts`
+uses for member types), not just key names, so a match requires the same keys *and* the same
+values, order-independent. This makes it closer in spirit to `style-blocks.ts`'s content-based CSS
+rule-body comparator than to this ADR's own type-shape comparator.
+
+Scope limits, deliberate: only `const` declarations (a reassignable `let`/`var`'s initial shape is
+a weaker signal); `as const`/`satisfies`/parenthesized wrappers are unwrapped first; a spread or
+computed key disqualifies the whole literal rather than partially matching around it; default
+`minMembers: 3` (higher than `type-defs.ts`'s 2) since small 1-2-key option bags are extremely
+common and too weak a signal on their own.
+
+**Runs on JavaScript files too, not just TypeScript** — the one place this phase's scope is
+*wider* than phase 1's TS-only interface/type extractor, since object literals (unlike
+`interface`/`type` syntax) are equally common in plain JS. `src/graph/duplication/index.ts`'s
+shared TS/JS source-collection array (previously fed only from `node.type === "typescript"`,
+feeding only `findTypeDefDuplicates`) now also collects `node.type === "javascript"` files; running
+`findTypeDefDuplicates` over JS files this way is harmless (no `interface`/`type` syntax to find)
+rather than adding a second, filtered collection pass.
+
+## Addendum (2026-09-05): Phase 1c — JSX/TSX elements (TS + JS)
+
+**Status:** Implemented. Direct response to the "structurally-templated-by-design files" false
+positive class (icon components specifically) flagged in the same dogfooding pass that motivated
+1b. `maxPunctuationRatio` doesn't help here — the failure mode isn't punctuation density, it's that
+`ignoreLiterals: true` (the default) collapses the one piece of content that actually distinguishes
+two icons — an SVG `d` path-data string — to a `STR` placeholder before the token-shingle matcher
+ever compares anything, so two unrelated icons sharing identical wrapper markup can token-match.
+
+**Content-based, same family as phase 1b, not phase 1's shape-based type matching** — for the same
+reason: two icons sharing wrapper structure but different path data are not a duplication
+candidate, only two icons with the *same* path data are. `src/graph/duplication/jsx-elements.ts`
+canonicalizes tag name, attribute values as printed (not placeholder-normalized), and in-order
+children, recursively.
+
+**Scans every nesting depth, not just whole-component-return shapes** — a deliberate scope choice
+wider than 1b/phase-1 (which only look at top-level declarations): a genuinely duplicated element
+embedded inside an otherwise-different component should still be found. The cost of that choice:
+scanning every depth means a matched outer element and its matched inner elements independently
+clear the comparison and would, unfiltered, report the same underlying duplication as several
+groups — the exact "family of LCP-tree nodes" redundancy `applyDominanceFilter`
+(`suffix-duplicates.ts`, see this ADR's [ADR-015 companion](./adr-015-suffix-array-duplicate-detection.md))
+was built to fix for the token-shingle path. `dropContainedGroups` in the new module applies the
+same containment-based consolidation independently, over AST line spans instead of token indices —
+same accepted lossy trade-off (can rarely under-report a pairing subsumed by an unrelated larger
+match), same reasoning, deliberately not re-derived from scratch.
+
+**Not consolidated with phase 1/1b's parsing.** This is now a *third* independent
+`ts.createSourceFile` parse of every TS/JS file `find_duplicates` scans — `type-defs.ts` and
+`object-literals.ts` already didn't share a parse with each other (ADR-018's own phase-1 text
+already flagged this as "worth folding into `CachedFileTokens`... if this turns out to matter").
+Adding a third pass compounds that, but wasn't addressed here deliberately: consolidating all
+three into one shared parse means changing two already-shipped, tested modules' internals for a
+performance concern nobody has profiled yet on a real repo. Left as a flagged, not-yet-measured
+cost rather than a preemptive refactor.

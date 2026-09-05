@@ -94,6 +94,10 @@ export interface MokoshConfig {
     /** When true, scan generated / vendored files too (default false). Matches involving one are
      *  tagged `signals: ["generated"]`. */
     includeGenerated?: boolean;
+    /** When true, include matches where every occurrence is in a single file (default false) —
+     *  a file's own naturally repetitive structure is usually not actionable copy-paste. Matches
+     *  are always tagged `signals: ["same-file"]` regardless of this setting. */
+    includeSameFile?: boolean;
   };
 }
 

@@ -36,6 +36,7 @@ export interface CommandContext {
   testsOnly: boolean;
   minDuplicateLines: number | undefined;
   includeGenerated: boolean;
+  includeSameFile: boolean;
   maxCoveragePct: number | undefined;
   minChurn: number | undefined;
   base: string | undefined;

@@ -65,7 +65,7 @@ export interface DuplicateGroup {
   kind?: "block" | "definition" | undefined;
   /** What kind of declaration a `kind: "definition"` group matched on. Absent for `kind: "block"`
    *  (or absent-`kind`) groups. */
-  defKind?: "cssVar" | "interface" | "type" | undefined;
+  defKind?: "cssVar" | "interface" | "type" | "objectLiteral" | "jsxElement" | undefined;
 }
 
 interface Location {

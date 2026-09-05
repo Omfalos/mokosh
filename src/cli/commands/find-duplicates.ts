@@ -24,12 +24,25 @@ import type { CommandContext } from "./types";
  *   next to `graph.json`) so only the *first* run against a repo tokenizes everything cold;
  *   subsequent runs (including `--watch` re-triggers) only re-tokenize files whose `mtime`/`size`
  *   changed.
+ *   Also prints `clusters` — the same groups bucketed by exact file set (with per-file
+ *   duplication coverage %), so N separate non-nested matches between the same two files read as
+ *   one entry instead of N rows (see docs/known_issues/09-duplicate-clone-family-noise.md).
+ *   Same-file-only matches (a file duplicating itself) are excluded by default — pass
+ *   `--include-same-file` or set `duplication.includeSameFile` to see them.
  * @param {CommandContext} ctx - Shared command context; `ctx.rootDir`, `ctx.scanOptions`,
  *   `ctx.minDuplicateLines`, `ctx.limit`, and `ctx.cachePath` tune the scan.
  */
 export async function run(ctx: CommandContext): Promise<void> {
-  const { graph, rootDir, scanOptions, minDuplicateLines, includeGenerated, limit, cachePath } =
-    ctx;
+  const {
+    graph,
+    rootDir,
+    scanOptions,
+    minDuplicateLines,
+    includeGenerated,
+    includeSameFile,
+    limit,
+    cachePath,
+  } = ctx;
   const minLines = minDuplicateLines ?? 6;
   const ignoreDirs = [
     ...(scanOptions.ignoreDirs ?? DEFAULT_IGNORE_DIRS),
@@ -37,14 +50,15 @@ export async function run(ctx: CommandContext): Promise<void> {
   ];
   const tokenCachePath = path.join(path.dirname(cachePath), DEFAULT_DUPLICATION_TOKEN_CACHE_FILE);
   const tokenCache = loadTokenCacheFromDisk(tokenCachePath);
-  const { groups } = await findDuplicates(graph, rootDir, {
+  const { groups, clusters } = await findDuplicates(graph, rootDir, {
     minLines,
     limit,
     ignoreDirs,
     includeGenerated: includeGenerated || ctx.rawConfig.duplication?.includeGenerated || false,
+    includeSameFile: includeSameFile || ctx.rawConfig.duplication?.includeSameFile || false,
     ignoreGlobs: ctx.rawConfig.duplication?.ignoreGlobs ?? [],
     tokenCache,
   });
   saveTokenCacheToDisk(tokenCache, tokenCachePath);
-  console.log(JSON.stringify({ minLines, groups, count: groups.length }, null, 2));
+  console.log(JSON.stringify({ minLines, groups, count: groups.length, clusters }, null, 2));
 }

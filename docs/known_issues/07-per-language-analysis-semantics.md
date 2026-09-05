@@ -1,10 +1,15 @@
 # Issue 7 — Analyses treat every language like JS/TS; each needs its own semantics
 
-Status: **phase 1 done** (2026-09-04) — CSS/SCSS/Less variable duplicates (drift +
-consolidation) and TypeScript `interface`/`type` structural duplicates, both as `find_duplicates`
-`kind: "definition"` groups. See [ADR-018](../adr-018-per-language-definition-duplicates.md) for
-the design and `docs/known_issues/README.md` for what's still outstanding (JVM, Go, Python, the
-7c idiom-exclusion registry, the 7d config surface). Found dogfooding v0.5.0 (2026-09-03).
+Status: **phase 1 done** (2026-09-04), **phases 1b and 1c added** (2026-09-05) — CSS/SCSS/Less
+variable duplicates (drift + consolidation), TypeScript `interface`/`type` structural duplicates,
+(1b) content-identical `const` object literals, and (1c) content-identical JSX/TSX elements —
+1b/1c across TS *and* JS — all as `find_duplicates` `kind: "definition"` groups. See
+[ADR-018](../adr-018-per-language-definition-duplicates.md) for the design and
+`docs/known_issues/README.md` for what's still outstanding (JVM, Go, Python, the 7c
+idiom-exclusion registry, the 7d config surface). Found dogfooding v0.5.0 (2026-09-03); 1b/1c were
+direct responses to the "const-object-literal shape matching" and "structurally-templated-by-design
+files (icons)" false-positive classes flagged in a later dogfooding pass of the `groups` noise
+breakdown.
 
 ## Symptom
 
@@ -88,6 +93,26 @@ shape — a `kind: "definition"` group).
   primitive/`unknown`/`any`. Canonical member-list string is the grouping key directly (no
   separate hash step needed). Type-reference resolution (following an aliased member type to its
   own shape) was **not** done — member types are compared as printed text only.
+- **Plain `const` object literals (TS + JS)**: **done (1b).**
+  `src/graph/duplication/object-literals.ts` canonicalizes `key:printedValue` pairs (not just key
+  names — see below) for every `const`-declared object literal (`as const`/`satisfies`/parens
+  unwrapped first) with ≥3 keys. Deliberately content-based, not shape-based like the TS
+  interface/type extractor above: two literals only match when both keys *and* values are
+  identical, since two unrelated config objects sharing key names but different values isn't the
+  same "these should be one declaration" signal a type/interface shape match is. `let`/`var`,
+  spreads, and computed keys are skipped (disqualify the whole literal, not just that member).
+  Runs on JS files too, unlike the TS-only interface/type extractor, since object literals are
+  equally common in plain JS.
+- **JSX/TSX elements (TS + JS)**: **done (1c).** `src/graph/duplication/jsx-elements.ts`
+  canonicalizes every JSX element/fragment (any nesting depth) by tag name, attribute values *as
+  written*, and in-order children, gated on ≥40 characters of canonical content. Direct fix for
+  the "icon component" case: under default `ignoreLiterals: true`, an SVG `d` path string
+  collapses to a placeholder before token-shingle matching happens, so two different icons sharing
+  wrapper boilerplate can token-match as "duplicates." Content-based comparison means only a
+  genuinely copy-pasted element (identical path data too, not just identical wrapper) matches.
+  Since it scans every nesting depth, a matched outer element and its matched inner element would
+  otherwise double-report the same duplication — mirrors `applyDominanceFilter`
+  (issue 9/ADR-015's addendum) with an AST-line-span version of the same containment filter.
 - **JVM**: from the Lezer trees (`java.ts`) and hand-rolled scanners (`kotlin.ts`,
   `scala.ts`), extract record/`data class`/POJO field lists and enum constant sets; canonical
   hash on `(fieldName, fieldType)` sorted. Exclude pure-accessor classes.
@@ -113,6 +138,12 @@ behavior.
   candidates. **Done.**
 - On a TS codebase, reports 1:1-identical `interface`/`type` pairs as definition duplicates.
   **Done.**
+- On a TS or JS codebase, reports content-identical `const` object literals (e.g. a copy-pasted
+  config object) as definition duplicates, without flagging same-shaped-but-different-content
+  literals. **Done (1b).**
+- On a TS/JS codebase with JSX (e.g. React icon components), reports genuinely copy-pasted
+  elements without flagging same-wrapper-different-content ones (e.g. two icons sharing SVG
+  boilerplate but different path data). **Done (1c).**
 - On JVM/Go/Python, reports identical data-shape declarations; stops flagging idiomatic
   boilerplate. **Not done — remaining scope.**
 
@@ -139,6 +170,19 @@ no separate `definitions.ts` registry — see 7a above), `src/graph/duplication/
 `defKind`/occurrence `name`/`value`/`"value-drift"` signal), `src/graph/duplication/style-blocks.ts`
 (exports `parseStyleAst`/`normalizeValue`), `src/graph/duplication/index.ts`, `src/mcp/tools.ts`,
 `docs/mcp.md`, `docs/adr-018-per-language-definition-duplicates.md`.
+
+Phase 1b (done, 2026-09-05): `src/graph/duplication/object-literals.ts` (new),
+`src/graph/duplication/object-literals.test.ts` (new), `src/graph/duplication/shingle.ts`
+(`defKind: "objectLiteral"`), `src/graph/duplication/index.ts` (widened the shared TS/JS source
+collection to also feed `node.type === "javascript"`, not just `"typescript"`), `src/mcp/tools.ts`,
+`docs/mcp.md`.
+
+Phase 1c (done, 2026-09-05): `src/graph/duplication/jsx-elements.ts` (new),
+`src/graph/duplication/jsx-elements.test.ts` (new), `src/graph/duplication/shingle.ts`
+(`defKind: "jsxElement"`), `src/graph/duplication/index.ts`, `docs/mcp.md`. Deliberately not
+consolidated with 1b/phase-1's independent `ts.createSourceFile` parses into one shared pass —
+three separate parses per TS/JS file now, an accepted, not-yet-measured cost (see this module's
+top-of-file comment).
 
 Remaining (JVM/Go/Python + 7c/7d): `src/graph/duplication/jvm-defs.ts`, Go/Python equivalents,
 an idiom-exclusion registry, `src/parser/registry.ts`, `src/config.ts`

@@ -1,6 +1,7 @@
 # Issue 9 — `find_duplicates` reports one row per LCP-tree node instead of per clone family
 
-Status: **fixed, partially** (2026-09-04). Reported by a peer session dogfooding `find_duplicates`
+Status: **fixed** (2026-09-04 dominance filter; 2026-09-05 connected-component clustering closes
+the remaining gap). Reported by a peer session dogfooding `find_duplicates`
 against box-ui-elements (3,480 nodes) with the filters that worked well in an earlier dogfood pass
 (`ignoreLiterals:false`, snapshot/test dirs excluded, `minLines:10`).
 
@@ -79,16 +80,48 @@ assert this explicitly (`exactGroups`' pair coverage is now a subset of, not equ
 - Regression: the full pre-existing `suffix-duplicates.test.ts` / `index.test.ts` suite passes
   unchanged (128 files / 1519 tests project-wide after this change).
 
-## Remaining scope (deferred, not started)
+## Remaining scope
 
-**Connected-component clustering.** For the cases the containment filter can't touch — a
-genuinely branching clone family, or near-duplicates that don't literally nest — group every file
-that shares *any* match into one cluster-level finding ("these N files share a boilerplate shape,
-M variants, longest match K lines") instead of reporting one row per pairwise/subset variant. This
-was considered as the primary fix and set aside in favor of the (much smaller) dominance filter
-first, on the reasoning that it's worth confirming how far a pure post-filter gets before taking
-on a new result shape. If a follow-up dogfood pass against box-ui-elements at `limit:500` still
-shows substantial non-nested cross-file explosion, this is the next lever.
+**Clustering by exact file set: done (2026-09-05, corrected same day).**
+`buildDuplicateClusters` (`src/graph/duplication/clusters.ts`) buckets every `DuplicateGroup` into
+a `DuplicateCluster` — and `findDuplicates`'s result gains a `clusters` field alongside the
+unchanged `groups`. This is the case the dominance filter explicitly couldn't touch: two matches
+that start at genuinely different positions with no containment relationship (the
+`ContentExplorer.tsx`↔`ContentPicker.js` case reported as 14 separate groups) now report as one
+cluster with `matchCount: 14`, `files: [ "ContentExplorer.tsx", "ContentPicker.js" ]`.
+
+**A first version clustered by connected file-component (union-find: any two files that co-occur
+in *any* group are connected, transitively) and that was wrong** — caught by a follow-up dogfood
+pass the same day, before anyone relied on it in practice. Connected-component clustering is
+single-linkage clustering, which chains: on a real production monorepo, one file sharing a single
+incidental block each with dozens of otherwise-unrelated files was enough to transitively merge all
+of them into one "cluster" — measured at **803 files and 4,853 groups collapsed into a single
+entry**, an order of magnitude past the pre-dominance-filter worst case this whole issue started
+from (29 files). Worse than the problem it was meant to fix: a caller could no longer even fall
+back to reading `groups`' file pairs to recover what was related, since the cluster view actively
+obscured it.
+
+**Fix: cluster by exact occurrence file-set equality instead, no transitivity at all.** A group
+over `{A, B}` and a separate group over `{B, C}` land in two different clusters even though both
+touch B — B is a genuine bridge (it duplicates code with both A and C), but that says nothing about
+whether A and C relate to each other, and merging them anyway is exactly the chaining failure mode
+above. This still solves the motivating case (all 14 `ContentExplorer.tsx`/`ContentPicker.js`
+matches share the identical two-file occurrence set, so they merge) while making the 803-file
+scenario structurally impossible — a hub file sharing 50 different, unrelated blocks with 50
+different files now produces 50 separate two-file clusters, not one. Traded away: a genuine N-way
+clone family reported as several *different-sized* subset groups (a 3-file match here, a 2-file
+subset of it there, rather than one consistent N-way group every time) won't merge into one
+cluster under this rule. Accepted deliberately — a conservative under-merge is a far safer default
+than the chaining failure mode it replaces, and this case is already rare in practice since
+`findExactDuplicateGroups` reports a true N-way match as one N-occurrence group whenever the spans
+actually coincide.
+
+Purely additive either way — no group is dropped, reordered, or modified to build a cluster;
+`groups` is unchanged and `clusters` is a new field a caller can ignore. Clustered from the full
+pre-`limit` group set so a cluster's `matchCount`/`files` aren't shrunk by a cap meant for the flat
+list; capped to `limit` clusters itself, largest-`longestMatch`-first. See
+`src/graph/duplication/clusters.ts` and its test file (including a regression test for the hub-file
+chaining scenario above).
 
 **Not pursued:** the peer session's suggested `"self-overlap"` `DuplicateSignal` — `"same-file"`
 (issue 5) already lets a caller filter out every group whose occurrences are all in one file,
@@ -98,7 +131,11 @@ which is what that tag would have covered; the actual gap was group *count*, not
 
 `src/graph/duplication/suffix-duplicates.ts` (the two-pass restructuring +
 `applyDominanceFilter`), `src/graph/duplication/suffix-duplicates.test.ts`,
-`docs/adr-015-suffix-array-duplicate-detection.md` (addendum).
+`docs/adr-015-suffix-array-duplicate-detection.md` (addendum). Clustering follow-up:
+`src/graph/duplication/clusters.ts` (new), `src/graph/duplication/clusters.test.ts` (new),
+`src/graph/duplication/index.ts` (`FindDuplicatesResult.clusters`), `src/cli/commands/
+find-duplicates.ts`, `src/mcp/handlers.ts` (`handleFindDuplicates`), `src/mcp/tools.ts`,
+`docs/mcp.md`.
 
 ## Dependencies
 

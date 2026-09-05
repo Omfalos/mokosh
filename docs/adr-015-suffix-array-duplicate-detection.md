@@ -229,8 +229,9 @@ effect.
   clone families (a shared prefix that different, non-nested subsets of files extend in different
   ways) and non-nested near-duplicates (similar but not literally overlapping-in-token-index
   matches) pass through unchanged, since neither has the "same starting position, different
-  length" structure this filter can act on at all. Connected-component clustering — group every
-  file that shares *any* match into one cluster-level finding instead of trying to filter
-  individual groups — is the next lever if dogfooding shows this still matters after this lands;
-  deliberately deferred rather than attempted speculatively now, see
-  docs/known_issues/09-duplicate-clone-family-noise.md.
+  length" structure this filter can act on at all. **Addressed separately, additively:**
+  `src/graph/duplication/clusters.ts` (2026-09-05) buckets `groups` by *exact* occurrence file-set
+  equality into a new `clusters` field on `FindDuplicatesResult`, rather than trying to make this
+  filter drop more. A first version clustered by connected file-component (transitively) instead
+  and had to be corrected the same day — see docs/known_issues/09-duplicate-clone-family-noise.md
+  for why that chains into meaningless superclusters on real repos.
