@@ -801,4 +801,140 @@ describe("findDuplicates", () => {
       expect(result.groups.length).toBeGreaterThan(0);
     });
   });
+
+  describe("scope (test-file involvement)", () => {
+    // A block that lives only in src files — structurally distinct from every test block below.
+    const srcBlock = [
+      "export function paginate(rows, page, size) {",
+      "  const offset = page * size;",
+      "  return rows.slice(offset, offset + size);",
+      "}",
+    ].join("\n");
+
+    // Three structurally different shared-test blocks — store setup, mock wiring, async teardown.
+    const setupBlock = [
+      "const store = configureStore({ reducer: rootReducer });",
+      "store.dispatch(fetchUser());",
+      "store.dispatch(fetchSettings());",
+      "store.dispatch(fetchFlags());",
+    ].join("\n");
+    const mockBlock = [
+      "mockApi.get = jest.fn().mockResolvedValue({ data: [] });",
+      "mockApi.post = jest.fn().mockResolvedValue({ ok: true });",
+      "mockApi.del = jest.fn().mockResolvedValue({ ok: true });",
+    ].join("\n");
+    const teardownBlock = [
+      "await flushPromises();",
+      "await cleanupDom();",
+      "await unmountAll();",
+      "jest.clearAllTimers();",
+      "jest.clearAllMocks();",
+      "window.localStorage.clear();",
+    ].join("\n");
+
+    // File-specific filler between the shared blocks — structurally different per file, so the
+    // three shared blocks stay three distinct matches instead of merging into one run.
+    const sharedTestBody = (fence: string) =>
+      [setupBlock, fence, mockBlock, `${fence}\n${fence}`, teardownBlock].join("\n");
+
+    // One small shared block repeated across many test files — the render/snapshot skeleton.
+    const skeleton = [
+      'it("renders without crashing", () => {',
+      "  const { container } = render(<Widget />);",
+      "  expect(container).toMatchSnapshot();",
+      "});",
+    ].join("\n");
+
+    test("scope defaults to 'src': test-file duplicates are dropped, src duplicates kept", async () => {
+      root = setup({
+        "src/a.ts": srcBlock,
+        "src/b.ts": srcBlock,
+        "src/__tests__/a.test.ts": sharedTestBody("expect(a).toBe(1);"),
+        "src/__tests__/b.test.ts": sharedTestBody("expect(b).toEqual({ x: 2, y: 3 });"),
+      });
+      const graph = graphFor([
+        ["src/a.ts", "typescript"],
+        ["src/b.ts", "typescript"],
+        ["src/__tests__/a.test.ts", "typescript"],
+        ["src/__tests__/b.test.ts", "typescript"],
+      ]);
+
+      const { groups, clusters } = await findDuplicates(graph, root, {
+        minLines: 2,
+        windowSize: 5,
+      });
+
+      const files = clusters.flatMap((c) => c.files);
+      expect(files).toContain("src/a.ts");
+      expect(files.some((f) => f.includes(".test.ts"))).toBe(false);
+      expect(groups.every((g) => !g.occurrences.some((o) => o.file.includes(".test.ts")))).toBe(
+        true,
+      );
+    });
+
+    test("scope 'all' keeps test duplicates and tags them signals:['test']", async () => {
+      root = setup({
+        "src/__tests__/a.test.ts": sharedTestBody("expect(a).toBe(1);"),
+        "src/__tests__/b.test.ts": sharedTestBody("expect(b).toEqual({ x: 2, y: 3 });"),
+      });
+      const graph = graphFor([
+        ["src/__tests__/a.test.ts", "typescript"],
+        ["src/__tests__/b.test.ts", "typescript"],
+      ]);
+
+      const { groups } = await findDuplicates(graph, root, {
+        minLines: 2,
+        windowSize: 5,
+        scope: "all",
+      });
+
+      expect(groups.length).toBeGreaterThan(0);
+      expect(groups.every((g) => g.signals?.includes("test"))).toBe(true);
+    });
+
+    test("scope 'tests' surfaces a substantive shared-test-logic cluster", async () => {
+      root = setup({
+        "src/a.ts": srcBlock,
+        "src/b.ts": srcBlock,
+        "src/__tests__/a.test.ts": sharedTestBody("expect(a).toBe(1);"),
+        "src/__tests__/b.test.ts": sharedTestBody("expect(b).toEqual({ x: 2, y: 3 });"),
+      });
+      const graph = graphFor([
+        ["src/a.ts", "typescript"],
+        ["src/b.ts", "typescript"],
+        ["src/__tests__/a.test.ts", "typescript"],
+        ["src/__tests__/b.test.ts", "typescript"],
+      ]);
+
+      const { clusters } = await findDuplicates(graph, root, {
+        minLines: 2,
+        windowSize: 5,
+        scope: "tests",
+      });
+
+      expect(clusters).toHaveLength(1);
+      expect(clusters[0]?.files).toEqual(["src/__tests__/a.test.ts", "src/__tests__/b.test.ts"]);
+      expect(clusters[0]?.groups.length).toBeGreaterThanOrEqual(3);
+    });
+
+    test("scope 'tests' still drops a one-block skeleton shared across many test files", async () => {
+      const files: Record<string, string> = {};
+      const nodes: Array<[string, FileType]> = [];
+      for (let i = 0; i < 10; i++) {
+        const p = `src/icons/__tests__/Icon${i}.test.tsx`;
+        files[p] = skeleton;
+        nodes.push([p, "typescript"]);
+      }
+      root = setup(files);
+      const graph = graphFor(nodes);
+
+      const { clusters } = await findDuplicates(graph, root, {
+        minLines: 2,
+        windowSize: 5,
+        scope: "tests",
+      });
+
+      expect(clusters).toHaveLength(0);
+    });
+  });
 });

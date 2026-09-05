@@ -31,8 +31,10 @@ import type { CommandContext } from "./types";
  *   `--include-same-file` or set `duplication.includeSameFile` to see them. Inline-SVG-markup
  *   matches (two different icon components sharing a literal-normalized `<svg>` skeleton) are
  *   likewise excluded — pass `--include-svg-markup` or set `duplication.includeSvgMarkup`.
+ *   Test-file duplication is excluded by default too — pass `--scope tests` for only the
+ *   substantive shared-test-logic clusters, or `--scope all` for everything.
  * @param {CommandContext} ctx - Shared command context; `ctx.rootDir`, `ctx.scanOptions`,
- *   `ctx.minDuplicateLines`, `ctx.limit`, and `ctx.cachePath` tune the scan.
+ *   `ctx.minDuplicateLines`, `ctx.limit`, `ctx.duplicateScope`, and `ctx.cachePath` tune the scan.
  */
 export async function run(ctx: CommandContext): Promise<void> {
   const {
@@ -43,6 +45,7 @@ export async function run(ctx: CommandContext): Promise<void> {
     includeGenerated,
     includeSameFile,
     includeSvgMarkup,
+    duplicateScope,
     limit,
     cachePath,
   } = ctx;
@@ -60,6 +63,7 @@ export async function run(ctx: CommandContext): Promise<void> {
     includeGenerated: includeGenerated || ctx.rawConfig.duplication?.includeGenerated || false,
     includeSameFile: includeSameFile || ctx.rawConfig.duplication?.includeSameFile || false,
     includeSvgMarkup: includeSvgMarkup || ctx.rawConfig.duplication?.includeSvgMarkup || false,
+    scope: duplicateScope ?? ctx.rawConfig.duplication?.scope,
     ignoreGlobs: ctx.rawConfig.duplication?.ignoreGlobs ?? [],
     tokenCache,
   });

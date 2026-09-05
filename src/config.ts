@@ -104,6 +104,12 @@ export interface MokoshConfig {
      *  usually an authored clone. Matches are always tagged `signals: ["svg-markup"]` regardless
      *  of this setting. */
     includeSvgMarkup?: boolean;
+    /** Which duplicates to surface, by test-file involvement (default `"src"`). `"src"` drops
+     *  every cluster with a test-file occurrence; `"tests"` returns only substantive test
+     *  clusters (shared setup/mocks/assertions, not render/snapshot skeletons); `"all"` returns
+     *  everything. The `--scope` CLI flag overrides this. Matches are always tagged
+     *  `signals: ["test"]` regardless of this setting. */
+    scope?: "src" | "tests" | "all";
   };
 }
 

@@ -81,6 +81,21 @@ export type { TypeScriptSourceFile } from "./type-defs";
  *  stays on the token-shingle path (still isolated to the `"style"` family, see `families.ts`). */
 const STRUCTURAL_STYLE_TYPES: ReadonlySet<FileType> = new Set<FileType>(["css", "scss", "less"]);
 
+/** A path that belongs to a test: a `__tests__` / `__mocks__` / `__snapshots__` / `test` /
+ *  `tests` / `e2e` directory segment, a `.test.` / `.spec.` basename infix (so
+ *  `Foo-e2e.test.stories.tsx` counts too, not just `Foo.test.ts`), or a `.snap` snapshot.
+ *  Matched against project-relative, `/`-separated paths — `findDuplicates` normalizes
+ *  separators before use. */
+const TEST_PATH =
+  /(?:^|\/)(?:__tests__|__mocks__|__snapshots__|tests?|e2e)\/|\.(?:test|spec)\.[^/]*$|\.snap$/;
+
+/** `scope: "tests"` keeps a test cluster only if it clears one of these bars — the point is to
+ *  surface shared setup / mocks / assertions worth extracting, not the `render(<X/>);
+ *  expect(…).toMatchSnapshot()` skeleton every component test repeats. */
+const TEST_SUBSTANTIVE_BLOCKS = 3;
+const TEST_SUBSTANTIVE_MAX_FILES = 6;
+const TEST_SUBSTANTIVE_TOKENS = 120;
+
 export interface FindDuplicatesOptions {
   /** Minimum duplicated block size, in source lines, to report (default 6). */
   minLines?: number | undefined;
@@ -126,6 +141,19 @@ export interface FindDuplicatesOptions {
    *  `signals: ["svg-markup"]` regardless. Mirrors `includeSameFile`'s default-off/opt-in shape.
    *  See `svg-markup.ts`. */
   includeSvgMarkup?: boolean | undefined;
+  /** Which duplicates to surface, by whether test files are involved (default `"src"`). A group
+   *  with any occurrence in a test file (`__tests__/`, `__mocks__/`, `*.test.*`, `*.spec.*`,
+   *  `__snapshots__/`) is always tagged `signals: ["test"]`; this option decides which of those
+   *  reach `groups`/`clusters`:
+   *  - `"src"` (default) — drop every cluster that has a test-file occurrence. Auditing product
+   *    code shouldn't be buried under `render(<Icon/>); expect(…).toMatchSnapshot()` repeated
+   *    across hundreds of icon tests.
+   *  - `"tests"` — surface *only* test clusters, and only the substantive ones: a cluster with
+   *    ≥ {@link TEST_SUBSTANTIVE_BLOCKS} distinct shared blocks across ≤ {@link
+   *    TEST_SUBSTANTIVE_MAX_FILES} files, or one block ≥ {@link TEST_SUBSTANTIVE_TOKENS} tokens —
+   *    i.e. shared setup / mocks / assertions worth a helper, not a one-block render skeleton.
+   *  - `"all"` — every cluster, test or not, subject only to the other filters. */
+  scope?: "src" | "tests" | "all" | undefined;
   /** Extra generated-file patterns merged with the built-in list (from
    *  `MokoshConfig.duplication.ignoreGlobs`). Two shapes only — `**​/name/**` (path segment) and
    *  `*.suffix` (basename) — not full glob syntax. */
@@ -192,7 +220,8 @@ function isUnderIgnoredDir(relPath: string, ignoreDirs: readonly string[]): bool
  * @description Attaches advisory {@link DuplicateSignal}s to a group: `"same-file"` when every
  *   occurrence is in one file, `"generated"` when any occurrence is in a file scanned only
  *   because `includeGenerated: true`, `"svg-markup"` when every occurrence's source span reads as
- *   inline SVG / SVG-shaped JSX markup (see {@link isSvgMarkupSpan}). Merged with any signal the
+ *   inline SVG / SVG-shaped JSX markup (see {@link isSvgMarkupSpan}), `"test"` when any occurrence
+ *   is in a test file (see {@link TEST_PATH}). Merged with any signal the
  *   group's own extractor already set (e.g. `style-vars.ts`'s `"value-drift"`) rather than
  *   replacing it.
  *
@@ -215,6 +244,7 @@ function withSignals(
   const signals: DuplicateSignal[] = [...(group.signals ?? [])];
   if (new Set(group.occurrences.map((occ) => occ.file)).size === 1) signals.push("same-file");
   if (group.occurrences.some((occ) => generatedPaths.has(occ.file))) signals.push("generated");
+  if (group.occurrences.some((occ) => TEST_PATH.test(occ.file))) signals.push("test");
   if (
     group.occurrences.length > 0 &&
     group.occurrences.every((occ) => {
@@ -225,6 +255,42 @@ function withSignals(
     signals.push("svg-markup");
   }
   return signals.length > 0 ? { ...group, signals } : group;
+}
+
+/**
+ * @description Whether a cluster's shared test code is substantial enough to be worth surfacing
+ *   under `scope: "tests"` — several distinct shared blocks between a small set of files (shared
+ *   setup, mocks and assertions copied between two real test suites), or one large shared block.
+ *   A cluster that's just one small block repeated across many files is the
+ *   `render(<X/>); expect(…).toMatchSnapshot()` skeleton and stays hidden.
+ * @param cluster - A built {@link DuplicateCluster}.
+ * @returns `true` when the cluster clears one of the substantive-test bars.
+ */
+function isSubstantiveTestCluster(cluster: DuplicateCluster): boolean {
+  const maxTokens = Math.max(0, ...cluster.groups.map((group) => group.tokens));
+  if (maxTokens >= TEST_SUBSTANTIVE_TOKENS) return true;
+  return (
+    cluster.groups.length >= TEST_SUBSTANTIVE_BLOCKS &&
+    cluster.files.length <= TEST_SUBSTANTIVE_MAX_FILES
+  );
+}
+
+/**
+ * @description Applies the `scope` option to one cluster. A cluster "involves tests" when any of
+ *   its groups carries the `"test"` signal (every group in a cluster shares the same file set, so
+ *   this is all-or-nothing per cluster).
+ * @param cluster - A built {@link DuplicateCluster}.
+ * @param scope - `"src"` drops test clusters, `"tests"` keeps only substantive ones, `"all"`
+ *   keeps every cluster.
+ * @returns `true` if the cluster should appear in the result under `scope`.
+ */
+function clusterInScope(
+  cluster: DuplicateCluster,
+  scope: NonNullable<FindDuplicatesOptions["scope"]>,
+): boolean {
+  if (scope === "all") return true;
+  const involvesTests = cluster.groups.some((group) => group.signals?.includes("test"));
+  return scope === "tests" ? involvesTests && isSubstantiveTestCluster(cluster) : !involvesTests;
 }
 
 /**
@@ -253,7 +319,9 @@ function withSignals(
  *   shared logic; `ignoreDirs` excludes files under matching directory names; `includeSameFile`
  *   controls whether same-file-only matches are returned (excluded by default — see its doc
  *   comment); `includeSvgMarkup` likewise controls whether inline-SVG-markup matches are returned
- *   (excluded by default — two different icons share a literal-normalized skeleton); `limit` caps
+ *   (excluded by default — two different icons share a literal-normalized skeleton); `scope`
+ *   filters whole clusters by test-file involvement — `"src"` (default) drops every test cluster,
+ *   `"tests"` returns only the substantive ones, `"all"` returns everything; `limit` caps
  *   results; `parallelTokenizing` offloads per-file tokenizing to a worker
  *   pool once the candidate file count is large enough to be worth it. Lock files and
  *   `type: "unknown"` nodes (non-code assets like `.svg`/`.json` pulled in via an explicit
@@ -261,7 +329,8 @@ function withSignals(
  * @returns `groups` — duplicate blocks (each tagged with its `family`), two or more occurrences
  *   per block, every block that pairwise chain-matches another clustered into one group instead
  *   of one per pair, sorted largest-first across all families (same-file-only and svg-markup
- *   matches excluded unless `includeSameFile` / `includeSvgMarkup`). `clusters` — the same groups
+ *   matches excluded unless `includeSameFile` / `includeSvgMarkup`; test matches filtered per
+ *   `scope`). `clusters` — the same groups
  *   bucketed by exact file set, with
  *   per-file duplication coverage, see {@link FindDuplicatesResult.clusters}.
  */
@@ -280,6 +349,7 @@ export async function findDuplicates(
     includeGenerated = false,
     includeSameFile = false,
     includeSvgMarkup = false,
+    scope = "src",
     ignoreGlobs = [],
     parallelTokenizing = true,
     tokenCache,
@@ -466,10 +536,23 @@ export async function findDuplicates(
 
     // Cluster from the full pre-limit set so a cluster's matchCount/files aren't shrunk by a cap
     // meant for the flat groups list — see FindDuplicatesResult.clusters' doc comment.
-    const clusters = buildDuplicateClusters(visibleGroups, fileLineCounts).slice(0, limit);
+    const allClusters = buildDuplicateClusters(visibleGroups, fileLineCounts);
+
+    // `scope` filters whole clusters by test-file involvement (see the option's doc): "src" drops
+    // every test cluster, "tests" keeps only the substantive ones, "all" keeps everything.
+    // Applied post-clustering because "substantive" is a cluster-level judgement (distinct-block
+    // count, file count). `groups` is then narrowed to the surviving clusters' members so the two
+    // outputs stay consistent — every visible group lands in exactly one cluster (see
+    // clusters.ts), so identity-set membership is exact.
+    const scopedClusters = allClusters.filter((cluster) => clusterInScope(cluster, scope));
+    const survivingGroups = new Set(scopedClusters.flatMap((cluster) => cluster.groups));
+
     return {
-      groups: visibleGroups.sort((a, b) => b.lines - a.lines).slice(0, limit),
-      clusters,
+      groups: visibleGroups
+        .filter((group) => survivingGroups.has(group))
+        .sort((a, b) => b.lines - a.lines)
+        .slice(0, limit),
+      clusters: scopedClusters.slice(0, limit),
     };
   } finally {
     if (pool) await pool.destroy();

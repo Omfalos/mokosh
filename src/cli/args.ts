@@ -60,6 +60,7 @@ export interface ParsedArgs {
   includeGenerated: boolean;
   includeSameFile: boolean;
   includeSvgMarkup: boolean;
+  duplicateScope: "src" | "tests" | "all" | undefined;
   findRiskHotspots: boolean;
   maxCoveragePct: number | undefined;
   minChurn: number | undefined;
@@ -105,6 +106,16 @@ function parseOptionalInt(raw: string | undefined): number | undefined {
  */
 function parseCsv(raw: string | undefined): string[] | undefined {
   return raw ? raw.split(",").map((part) => part.trim()) : undefined;
+}
+
+/**
+ * @description Validates `--scope` for `--find-duplicates`. Anything not one of the three known
+ *   values (including absent) yields `undefined`, so `findDuplicates` applies its own default.
+ * @param {string | undefined} raw - The raw `--scope` value.
+ * @returns {"src" | "tests" | "all" | undefined} The validated scope, or `undefined`.
+ */
+function parseDuplicateScope(raw: string | undefined): "src" | "tests" | "all" | undefined {
+  return raw === "src" || raw === "tests" || raw === "all" ? raw : undefined;
 }
 
 /**
@@ -170,6 +181,7 @@ export const OPTIONS = {
   "include-generated": { type: "boolean" },
   "include-same-file": { type: "boolean" },
   "include-svg-markup": { type: "boolean" },
+  scope: { type: "string" },
   "find-risk-hotspots": { type: "boolean" },
   "max-coverage-pct": { type: "string" },
   "min-churn": { type: "string" },
@@ -418,6 +430,7 @@ export function parseArgs(cliTokens: string[]): ParsedArgs {
     includeGenerated: (values["include-generated"] as boolean) ?? false,
     includeSameFile: (values["include-same-file"] as boolean) ?? false,
     includeSvgMarkup: (values["include-svg-markup"] as boolean) ?? false,
+    duplicateScope: parseDuplicateScope(values.scope),
     maxCoveragePct: parseOptionalInt(values["max-coverage-pct"]),
     minChurn: parseOptionalInt(values["min-churn"]),
     base: values.base,

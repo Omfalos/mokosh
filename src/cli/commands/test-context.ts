@@ -34,6 +34,7 @@ export function makeContext(overrides: Partial<CommandContext> & { graph: Graph 
     includeGenerated: false,
     includeSameFile: false,
     includeSvgMarkup: false,
+    duplicateScope: undefined,
     maxCoveragePct: undefined,
     minChurn: undefined,
     base: undefined,

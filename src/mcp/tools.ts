@@ -333,7 +333,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "find_duplicates",
     description:
-      'Find duplicated code blocks across the project, largest-first. CSS/SCSS/Less matched structurally; other languages tokenized/suffix-array matched. Also reports kind:"definition" groups (CSS/SCSS/Less vars, TS types, object literals) and clusters (shared file set + coverage %). Lock files/ignored dirs excluded. Requires analyze(). See docs/mcp.md.',
+      'Find duplicated code blocks across the project, largest-first. CSS/SCSS/Less matched structurally, other languages tokenized. Also reports kind:"definition" groups and clusters (file set + coverage %). Lock files/ignored dirs excluded. Requires analyze(). See docs/mcp.md.',
     inputSchema: {
       type: "object",
       properties: {
@@ -350,13 +350,13 @@ export const TOOL_DEFINITIONS = [
         maxPunctuationRatio: {
           type: "number",
           description:
-            "Max fraction of a block that may be object/array-literal punctuation ({ } : , [ ]) (default: 0.5) — filters schema/object-literal shape. Not for the CSS/Less/SCSS comparator. Set 1 to disable.",
+            "Max fraction of a block that may be object/array-literal punctuation ({ } : , [ ]) (default: 0.5) — filters schema shape. Set 1 to disable.",
         },
         ignoreDirs: {
           type: "array",
           items: { type: "string" },
           description:
-            "Directory names to exclude, matched against any path segment (default: DEFAULT_IGNORE_DIRS + this root's configured ignoreDirs). Pass [] to disable.",
+            "Directory names to exclude, matched against any path segment (default: DEFAULT_IGNORE_DIRS + configured ignoreDirs). Pass [] to disable.",
         },
         limit: {
           type: "number",
@@ -365,7 +365,7 @@ export const TOOL_DEFINITIONS = [
         includeGenerated: {
           type: "boolean",
           description:
-            "Scan generated / vendored files too (default: false) — protobuf, *.generated.*, generated/ dirs, @generated-marked files skipped by default. Matches involving one tagged signals:['generated'].",
+            "Scan generated / vendored files too (default: false) — protobuf, *.generated.*, @generated files. Tagged signals:['generated'].",
         },
         includeSameFile: {
           type: "boolean",
@@ -375,7 +375,13 @@ export const TOOL_DEFINITIONS = [
         includeSvgMarkup: {
           type: "boolean",
           description:
-            "Include matches that are all inline SVG / JSX markup (default: false) — different icons sharing a normalized skeleton, or an identical <defs>/<filter> block. Tagged signals:['svg-markup'].",
+            "Include matches that are all inline SVG / JSX markup (default: false) — different icons sharing a normalized skeleton. Tagged signals:['svg-markup'].",
+        },
+        scope: {
+          type: "string",
+          enum: ["src", "tests", "all"],
+          description:
+            "Test-file duplicates (default 'src'): 'src' drops clusters touching a test file; 'tests' returns only substantive shared test logic; 'all' returns everything. Tagged signals:['test'].",
         },
         package: FAN_OUT_PACKAGE_PROPERTY,
       },

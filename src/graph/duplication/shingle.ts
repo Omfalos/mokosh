@@ -39,11 +39,15 @@ export interface DuplicateOccurrence {
  * consolidation case: different names, same value); `"svg-markup"` — every occurrence's source
  * span is predominantly inline SVG / SVG-shaped JSX markup (a block match where two *different*
  * icons share a literal-normalized skeleton, or a `defKind: "jsxElement"` match on an identical
- * `<defs>`/`<filter>` block — see `svg-markup.ts`). `"same-file"` and `"svg-markup"` groups are
- * excluded from `findDuplicates`' results by default (opt back in with `includeSameFile` /
- * `includeSvgMarkup`); the tag is always attached regardless. Designed to grow (issue 7 adds more).
+ * `<defs>`/`<filter>` block — see `svg-markup.ts`); `"test"` — at least one occurrence is in a
+ * test file (`__tests__/`, `__mocks__/`, `*.test.*`, `*.spec.*`, `__snapshots__/`). `"same-file"`
+ * and `"svg-markup"` groups are excluded from `findDuplicates`' results by default (opt back in
+ * with `includeSameFile` / `includeSvgMarkup`); `"test"` groups are filtered by the `scope`
+ * option (see `findDuplicates`), which separates substantive shared test logic from
+ * render/snapshot skeletons. The tag is always attached regardless of any filter. Designed to
+ * grow (issue 7 adds more).
  */
-export type DuplicateSignal = "same-file" | "generated" | "value-drift" | "svg-markup";
+export type DuplicateSignal = "same-file" | "generated" | "value-drift" | "svg-markup" | "test";
 
 export interface DuplicateGroup {
   /** Every location sharing this duplicated block (two or more) — locations that pairwise
