@@ -260,6 +260,31 @@ const KEYWORDS = new Set([
   "is",
 ]);
 
+/** Single-char tokens that carry computation — arithmetic, bitwise, logical-not, optional. The
+ *  omissions are deliberate: `( ) { } [ ] ; , : .` are pure structure, and `= < > /` are excluded
+ *  because they overwhelmingly appear as JSX attribute/tag punctuation (`attr={…}`, `<Tag/>`)
+ *  rather than as assignment or comparison — counting them would let an icon-component wrapper
+ *  score like real logic. Multi-char forms (`===`, `<=`, `=>`, …) are caught via
+ *  {@link MULTI_CHAR_OPERATORS} instead and stay significant. */
+const LOGIC_OPERATOR_CHARS = new Set(["+", "-", "*", "%", "&", "|", "!", "^", "~", "?"]);
+const MULTI_CHAR_OPERATOR_SET: ReadonlySet<string> = new Set(MULTI_CHAR_OPERATORS);
+
+/**
+ * @description Whether a normalized token text is "logic-bearing" — a language keyword or an
+ *   operator — as opposed to a normalized identifier/literal (`ID`/`NUM`/`STR`) or structural
+ *   punctuation. Used to score a duplicate block by how much of it is actual computation rather
+ *   than boilerplate shape (a Flow `type Props` block, a JSX icon wrapper, a schema object all
+ *   have very few of these). See `docs/adr-019-logic-token-scoring.md`.
+ * @param text - A {@link NormalizedToken}'s `text`.
+ * @returns `true` for keywords and operators; `false` for `ID`/`NUM`/`STR` and `( ) { } [ ] ; , : . = < > /`.
+ */
+export function isSignificantToken(text: string): boolean {
+  if (text === "ID" || text === "NUM" || text === "STR") return false;
+  if (KEYWORDS.has(text)) return true;
+  if (text.length === 1) return LOGIC_OPERATOR_CHARS.has(text);
+  return MULTI_CHAR_OPERATOR_SET.has(text);
+}
+
 /**
  * @description Tokenizes source text into a normalized stream for shingle-based duplicate
  *   matching: comments and import/using statements are masked out first (shared import lists are

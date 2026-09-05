@@ -1,5 +1,68 @@
 import { describe, expect, test } from "vitest";
-import { tokenize } from "./tokenizer";
+import { isSignificantToken, tokenize } from "./tokenizer";
+
+describe("isSignificantToken", () => {
+  test("keywords and operators are significant", () => {
+    for (const t of ["if", "for", "return", "const", "await", "=>", "===", "&&", "+", "?", "!"]) {
+      expect(isSignificantToken(t)).toBe(true);
+    }
+  });
+
+  test("normalized identifiers/literals and structural punctuation are not", () => {
+    for (const t of [
+      "ID",
+      "NUM",
+      "STR",
+      "(",
+      ")",
+      "{",
+      "}",
+      "[",
+      "]",
+      ";",
+      ",",
+      ":",
+      ".",
+      "=",
+      "<",
+      ">",
+      "/",
+    ]) {
+      expect(isSignificantToken(t)).toBe(false);
+    }
+  });
+
+  test("a JSX icon wrapper scores far lower than a real function of the same length", () => {
+    const wrapper = tokenize(
+      [
+        "const Icon = ({ className = '', width = 14, title }) => (",
+        "  <AccessibleSVG className={className} title={title} width={width}>",
+        '    <path d="M1 2 L3 4" fill="currentColor" />',
+        "  </AccessibleSVG>",
+        ");",
+      ].join("\n"),
+      "typescript",
+    );
+    const fn = tokenize(
+      [
+        "function totalise(items) {",
+        "  let sum = 0;",
+        "  for (const item of items) {",
+        "    if (item.active && item.value > 0) {",
+        "      sum += item.value;",
+        "    }",
+        "  }",
+        "  return sum > 0 ? sum : -1;",
+        "}",
+      ].join("\n"),
+      "typescript",
+    );
+    const score = (ts: ReturnType<typeof tokenize>) =>
+      ts.filter((t) => isSignificantToken(t.text)).length;
+    expect(score(wrapper)).toBeLessThan(6);
+    expect(score(fn)).toBeGreaterThan(score(wrapper) * 3);
+  });
+});
 
 describe("tokenize", () => {
   test("normalizes identifiers to a shared placeholder", () => {

@@ -937,4 +937,77 @@ describe("findDuplicates", () => {
       expect(clusters).toHaveLength(0);
     });
   });
+
+  describe("logic-token score / minScore", () => {
+    // ~18 lines of pure call-chain shape — no keywords, and `.` / `(` / `)` / `;` are all
+    // non-significant, so the whole block scores ~0 despite the line count. Statements, not a
+    // declaration, so it stays a `kind: "block"` match (definition groups are score-exempt).
+    const boilerplate = Array.from(
+      { length: 18 },
+      (_, i) => `  layout.section${i}.render(ctx);`,
+    ).join("\n");
+    // ~5 lines but dense with keywords/operators.
+    const logic = [
+      "function classify(x) {",
+      "  if (x > 10 && x % 2 === 0) return 'big-even';",
+      "  if (x > 10 || x < -10) return 'extreme';",
+      "  return x >= 0 ? 'small' : 'negative';",
+      "}",
+    ].join("\n");
+
+    test("groups carry a score and rank denser logic above longer boilerplate", async () => {
+      root = setup({
+        "src/boiler-a.tsx": boilerplate,
+        "src/boiler-b.tsx": boilerplate,
+        "src/logic-a.ts": logic,
+        "src/logic-b.ts": logic,
+      });
+      const graph = graphFor([
+        ["src/boiler-a.tsx", "typescript"],
+        ["src/boiler-b.tsx", "typescript"],
+        ["src/logic-a.ts", "typescript"],
+        ["src/logic-b.ts", "typescript"],
+      ]);
+
+      const { groups } = await findDuplicates(graph, root, { minLines: 3, windowSize: 6 });
+
+      const logicGroup = groups.find((g) => g.occurrences.every((o) => o.file.includes("logic-")));
+      const boilerGroup = groups.find((g) =>
+        g.occurrences.every((o) => o.file.includes("boiler-")),
+      );
+      expect(logicGroup?.score).toBeGreaterThan(0);
+      expect(boilerGroup?.score).toBe(0);
+      // Boilerplate spans more lines...
+      expect(boilerGroup?.lines).toBeGreaterThan(logicGroup?.lines as number);
+      // ...but scores lower, and so ranks after it.
+      expect(logicGroup?.score).toBeGreaterThan(boilerGroup?.score as number);
+      expect(groups.indexOf(logicGroup as (typeof groups)[number])).toBeLessThan(
+        groups.indexOf(boilerGroup as (typeof groups)[number]),
+      );
+    });
+
+    test("minScore drops the low-score boilerplate block but keeps the logic block", async () => {
+      root = setup({
+        "src/boiler-a.tsx": boilerplate,
+        "src/boiler-b.tsx": boilerplate,
+        "src/logic-a.ts": logic,
+        "src/logic-b.ts": logic,
+      });
+      const graph = graphFor([
+        ["src/boiler-a.tsx", "typescript"],
+        ["src/boiler-b.tsx", "typescript"],
+        ["src/logic-a.ts", "typescript"],
+        ["src/logic-b.ts", "typescript"],
+      ]);
+
+      const { groups } = await findDuplicates(graph, root, {
+        minLines: 3,
+        windowSize: 6,
+        minScore: 8,
+      });
+
+      expect(groups.some((g) => g.occurrences.every((o) => o.file.includes("logic-")))).toBe(true);
+      expect(groups.some((g) => g.occurrences.some((o) => o.file.includes("boiler-")))).toBe(false);
+    });
+  });
 });

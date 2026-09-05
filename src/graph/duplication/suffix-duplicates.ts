@@ -27,6 +27,7 @@ import {
   type DuplicateGroup,
   type DuplicateOccurrence,
   type FileTokens,
+  significantTokenCount,
   structuralPunctuationRatio,
 } from "./shingle";
 import { buildLcpArray, buildSuffixArray } from "./suffix-array";
@@ -261,7 +262,16 @@ function applyDominanceFilter(
       ...occurrences.map((occurrence) => occurrence.endLine - occurrence.startLine + 1),
     );
 
-    groups.push({ occurrences, lines, tokens: candidate.lcpLength });
+    // Every surviving occurrence shares the same normalized token run, so the logic-token count
+    // is identical across them — measure it once, off the first.
+    const first = survivors[0] as SourcePosition;
+    const score = significantTokenCount(
+      tokensByFile.get(first.file) as NormalizedToken[],
+      first.localIndex,
+      candidate.lcpLength,
+    );
+
+    groups.push({ occurrences, lines, tokens: candidate.lcpLength, score });
   }
 
   return groups;

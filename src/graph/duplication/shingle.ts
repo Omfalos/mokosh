@@ -10,7 +10,7 @@
  * buckets are capped below.
  */
 import type { DuplicateFamily } from "./families";
-import type { NormalizedToken } from "./tokenizer";
+import { isSignificantToken, type NormalizedToken } from "./tokenizer";
 
 /** One file's worth of tokens, kept together so a match can be traced back to its source. */
 export interface FileTokens {
@@ -62,6 +62,14 @@ export interface DuplicateGroup {
   /** Token-window length backing this block, after chain-merging adjacent windows. For
    *  `kind: "definition"` groups this is the member/field count instead (1 for `cssVar`). */
   tokens: number;
+  /** Count of *logic-bearing* tokens (keywords + operators, not `ID`/`NUM`/`STR`/punctuation —
+   *  see {@link isSignificantToken}) in the verified span. `findDuplicates` ranks and (with
+   *  `minScore`) filters on this so a large low-information block — a Flow `type Props`, a JSX
+   *  icon wrapper, a schema object literal — no longer outranks real shared logic. Set on
+   *  `kind: "block"` groups by `suffix-duplicates.ts`; absent on `kind: "definition"` groups
+   *  (already content-verified) — those are ranked by `lines` instead. See
+   *  docs/adr-019-logic-token-scoring.md. */
+  score?: number | undefined;
   /** Which language family both occurrences belong to (set by `findDuplicates`, which never
    *  matches across families — see docs/adr-013-duplicate-detection-noise-reduction.md).
    *  Absent when called directly with a token stream that isn't family-scoped, e.g. in tests. */
@@ -234,6 +242,29 @@ export function structuralPunctuationRatio(
     if (STRUCTURAL_PUNCTUATION.has((tokens[i] as NormalizedToken).text)) count++;
   }
   return count / length;
+}
+
+/**
+ * @description Count of logic-bearing tokens ({@link isSignificantToken}) in
+ *   `tokens[start .. start + length)` — the "information content" of a duplicated block, as
+ *   opposed to its raw token count. A 30-line Flow `type Props` block or JSX icon wrapper has
+ *   very few; a 30-line function has many. `findDuplicates` ranks (and, with `minScore`, filters)
+ *   on this. See docs/adr-019-logic-token-scoring.md.
+ * @param tokens - The full token stream the block is sliced from.
+ * @param start - Block start index.
+ * @param length - Block length in tokens.
+ * @returns The number of significant tokens in the span, in `[0, length]`.
+ */
+export function significantTokenCount(
+  tokens: NormalizedToken[],
+  start: number,
+  length: number,
+): number {
+  let count = 0;
+  for (let i = start; i < start + length; i++) {
+    if (isSignificantToken((tokens[i] as NormalizedToken).text)) count++;
+  }
+  return count;
 }
 
 interface PairMatch {
