@@ -1010,4 +1010,36 @@ describe("findDuplicates", () => {
       expect(groups.some((g) => g.occurrences.some((o) => o.file.includes("boiler-")))).toBe(false);
     });
   });
+
+  describe("includeDocs (markdown family)", () => {
+    const prose = [
+      "## Usage",
+      "",
+      "The component accepts a value prop and an onChange callback prop.",
+      "It renders a labelled control and forwards every other prop to the root.",
+      "Pass a name prop when the control is inside a form so submission works.",
+      "The disabled prop greys the control out and blocks the onChange callback.",
+    ].join("\n");
+
+    test("markdown-family matches are excluded by default and tagged signals:['docs']", async () => {
+      root = setup({ "docs/A.md": prose, "docs/B.md": prose });
+      const graph = graphFor([
+        ["docs/A.md", "markdown"],
+        ["docs/B.md", "markdown"],
+      ]);
+
+      const excluded = await findDuplicates(graph, root, { minLines: 3, windowSize: 6 });
+      expect(excluded.groups).toHaveLength(0);
+      expect(excluded.clusters).toHaveLength(0);
+
+      const included = await findDuplicates(graph, root, {
+        minLines: 3,
+        windowSize: 6,
+        includeDocs: true,
+      });
+      expect(included.groups.length).toBeGreaterThan(0);
+      expect(included.groups.every((g) => g.signals?.includes("docs"))).toBe(true);
+      expect(included.groups.every((g) => g.family === "markdown")).toBe(true);
+    });
+  });
 });

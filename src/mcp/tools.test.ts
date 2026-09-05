@@ -10,7 +10,7 @@ import { TOOL_DEFINITIONS } from "./tools";
  */
 const MAX_DESCRIPTION_CHARS = 700;
 const MAX_TOTAL_DESCRIPTION_CHARS = 10_000;
-const MAX_TOTAL_SCHEMA_CHARS = 24_000; // ~6K tokens — the payload size ec923c5 measured pre-trim
+const MAX_TOTAL_SCHEMA_CHARS = 24_200; // ~6K tokens — ec923c5's pre-trim size + the find_duplicates scope/includeDocs params
 
 describe("TOOL_DEFINITIONS size budget", () => {
   test.each(TOOL_DEFINITIONS.map((tool) => ({ name: tool.name, description: tool.description })))(

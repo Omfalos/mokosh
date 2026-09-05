@@ -38,6 +38,7 @@ export interface CommandContext {
   includeGenerated: boolean;
   includeSameFile: boolean;
   includeSvgMarkup: boolean;
+  includeDocs: boolean;
   duplicateScope: "src" | "tests" | "all" | undefined;
   maxCoveragePct: number | undefined;
   minChurn: number | undefined;

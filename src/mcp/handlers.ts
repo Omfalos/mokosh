@@ -130,6 +130,7 @@ export type FindDuplicatesArgs = {
   includeGenerated?: boolean;
   includeSameFile?: boolean;
   includeSvgMarkup?: boolean;
+  includeDocs?: boolean;
   scope?: "src" | "tests" | "all";
   package?: string;
 };
@@ -742,6 +743,7 @@ export async function handleFindDuplicates(
         includeGenerated: args.includeGenerated ?? config?.duplication?.includeGenerated ?? false,
         includeSameFile: args.includeSameFile ?? config?.duplication?.includeSameFile ?? false,
         includeSvgMarkup: args.includeSvgMarkup ?? config?.duplication?.includeSvgMarkup ?? false,
+        includeDocs: args.includeDocs ?? config?.duplication?.includeDocs ?? false,
         scope: args.scope ?? config?.duplication?.scope,
         ignoreGlobs: config?.duplication?.ignoreGlobs ?? [],
         tokenCache,

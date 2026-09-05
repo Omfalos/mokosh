@@ -390,6 +390,7 @@ export async function run(): Promise<void> {
     includeGenerated: parsed.includeGenerated,
     includeSameFile: parsed.includeSameFile,
     includeSvgMarkup: parsed.includeSvgMarkup,
+    includeDocs: parsed.includeDocs,
     duplicateScope: parsed.duplicateScope,
     maxCoveragePct: parsed.maxCoveragePct,
     minChurn: parsed.minChurn,

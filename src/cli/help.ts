@@ -81,6 +81,8 @@ MCP parity (mirrors the MCP server's tools for use when MCP is unavailable):
   --include-svg-markup         Include matches whose occurrences are all inline SVG / SVG-shaped
                                 JSX markup (default: excluded — two different icons share a
                                 literal-normalized skeleton); use with --find-duplicates
+  --include-docs               Include markdown-family matches (default: excluded — mirrored
+                                prose docs, README ↔ *.mdx); use with --find-duplicates
   --scope <src|tests|all>      Which duplicates to surface by test-file involvement (default:
                                 src — drops test clusters). tests = only substantive shared
                                 test-logic clusters; all = everything. Use with --find-duplicates

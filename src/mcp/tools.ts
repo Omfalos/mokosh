@@ -383,6 +383,11 @@ export const TOOL_DEFINITIONS = [
           description:
             "Test-file duplicates (default 'src'): 'src' drops clusters touching a test file; 'tests' returns only substantive shared test logic; 'all' returns everything. Tagged signals:['test'].",
         },
+        includeDocs: {
+          type: "boolean",
+          description:
+            "Include markdown-family matches (default: false) — mirrored prose docs (README <-> *.mdx). Tagged signals:['docs'].",
+        },
         package: FAN_OUT_PACKAGE_PROPERTY,
       },
       required: ["root"],
