@@ -237,8 +237,11 @@ function withSignals(
  *   identifiers (and, by default, literals) are normalized to placeholders so renamed-variable
  *   copies still match, then a sliding token window is hashed and chain-merged into contiguous
  *   blocks. Token-shingled files are additionally partitioned into language families
- *   ({@link getDuplicateFamily} — `"style"` for Stylus, `"code"` for everything else) so
- *   matching never crosses that boundary — see docs/adr-013-duplicate-detection-noise-reduction.md.
+ *   ({@link getDuplicateFamily} — `"js"` for JS/TS/Coffee/LS, `"jvm"` for Java/Kotlin/Scala/
+ *   Groovy, `"style"` for Stylus, and one family each for Python, Go, Lua, Markdown, Gherkin) so
+ *   matching never crosses a family boundary — a `for` loop tokenizes almost identically in Java,
+ *   Go and TS, so a single `"code"` family produced phantom cross-language matches on polyglot
+ *   repos. See docs/adr-013-duplicate-detection-noise-reduction.md.
  * @param graph - The graph to scan; its node paths (already ignore-rule-filtered) are the file
  *   list, re-read from disk since duplication data isn't cached on `FileNode`.
  * @param rootDir - Absolute project root that graph paths are relative to.
@@ -442,13 +445,13 @@ export async function findDuplicates(
       groups.push(withSignals({ ...group, family: "style" }, generatedPaths, sourceByFile));
     }
     for (const group of findTypeDefDuplicates(jsLikeFiles)) {
-      groups.push(withSignals({ ...group, family: "code" }, generatedPaths, sourceByFile));
+      groups.push(withSignals({ ...group, family: "js" }, generatedPaths, sourceByFile));
     }
     for (const group of findObjectLiteralDuplicates(jsLikeFiles)) {
-      groups.push(withSignals({ ...group, family: "code" }, generatedPaths, sourceByFile));
+      groups.push(withSignals({ ...group, family: "js" }, generatedPaths, sourceByFile));
     }
     for (const group of findJsxElementDuplicates(jsLikeFiles)) {
-      groups.push(withSignals({ ...group, family: "code" }, generatedPaths, sourceByFile));
+      groups.push(withSignals({ ...group, family: "js" }, generatedPaths, sourceByFile));
     }
 
     // Same-file and svg-markup matches are always computed and tagged above — excluded here, by

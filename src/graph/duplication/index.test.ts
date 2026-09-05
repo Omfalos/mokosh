@@ -331,7 +331,7 @@ describe("findDuplicates", () => {
     const cssGroup = groups.find((g) => g.occurrences.every((o) => o.file.endsWith(".css")));
     const tsGroup = groups.find((g) => g.occurrences.every((o) => o.file.endsWith(".ts")));
     expect(cssGroup?.family).toBe("style");
-    expect(tsGroup?.family).toBe("code");
+    expect(tsGroup?.family).toBe("js");
 
     // ...but no group ever pairs a style file with a code file.
     expect(
