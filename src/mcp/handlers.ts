@@ -1,6 +1,7 @@
 import path from "node:path";
 import { DefaultGitProvider } from "../git";
 import {
+  type ApiSurface,
   applyConfig,
   applyTags,
   buildApiSurface,
@@ -30,13 +31,13 @@ import {
   loadCoverageMap,
   loadMokoshConfig,
   MermaidExporter,
+  type PublicExport,
   parseQuery,
   proposeAffectedTests,
   proposeTags,
   queryCallGraph,
   queryChangeImpact,
   queryTypeGraph,
-  type SerializedGraph,
   slimSerialize,
   summarizeBranchComparison,
   summarizeWorkspaceLayout,
@@ -65,7 +66,11 @@ export type AnalyzeArgs = {
   cycleKinds?: CycleEdgeKind[];
 };
 export type GetWorkspacePackagesArgs = { root: string };
-export type GetWorkspaceAffectedArgs = { root: string; file: string };
+export type GetWorkspaceAffectedArgs = {
+  root: string;
+  file: string;
+  maxFilesPerPackage?: number;
+};
 export type GetDependenciesArgs = {
   root: string;
   file: string;
@@ -169,7 +174,12 @@ export type GetModuleResponsibilityArgs = {
 };
 export type GetFeatureGraphArgs = { root: string; minOutDegree?: number; package?: string };
 export type GetCallGraphArgs = { root: string; function: string; package?: string };
-export type GetApiSurfaceArgs = { root: string; entryPoints?: string[]; package?: string };
+export type GetApiSurfaceArgs = {
+  root: string;
+  entryPoints?: string[];
+  package?: string;
+  maxExportsPerPackage?: number;
+};
 export type ApplyTagsArgs = { root: string; dryRun?: boolean; package?: string };
 
 export type ToolArgs =
@@ -207,6 +217,19 @@ export type ToolArgs =
 // never a merged Graph.
 // ---------------------------------------------------------------------------
 
+/** Adds a `package` field to each `{ path }`-shaped result, looked up in `packageOf`. A no-op
+ *  when `packageOf` is empty (plain, non-workspace root) so single-package output is untouched. */
+function withPackageMeta<T extends { path: string }>(
+  items: T[],
+  packageOf: Map<string, string>,
+): Array<T & { package?: string }> {
+  if (packageOf.size === 0) return items;
+  return items.map((item) => {
+    const pkg = packageOf.get(item.path);
+    return pkg ? { ...item, package: pkg } : item;
+  });
+}
+
 /** Tags each item in a list-shaped result with its owning package, but only when more than one
  *  package graph was actually queried — a single/non-monorepo result stays untouched. */
 function tagPackage<T extends object>(
@@ -215,24 +238,6 @@ function tagPackage<T extends object>(
   multi: boolean,
 ): Array<T & { package?: string }> {
   return multi && pkg ? items.map((item) => ({ ...item, package: pkg })) : items;
-}
-
-/** Throws a clear error when a graph-shaped (non-list) tool is run across more than one
- *  workspace package without `package` narrowing it to one — asks the caller to disambiguate
- *  rather than silently picking one or merging graphs. */
-function requireSinglePackage<T>(
-  graphs: Array<{ package: string; graph: T }>,
-  toolName: string,
-): { package: string; graph: T } {
-  if (graphs.length > 1) {
-    throw new Error(
-      `${toolName} returns a single graph and this is a monorepo with ${graphs.length} packages. ` +
-        `Pass package to pick one (see get_workspace_packages for the list).`,
-    );
-  }
-  const only = graphs[0];
-  if (!only) throw new Error(`${toolName}: no graph resolved for this root.`);
-  return only;
 }
 
 // ---------------------------------------------------------------------------
@@ -318,11 +323,12 @@ export async function handleGetDependencies(
   args: GetDependenciesArgs,
 ): Promise<TextResponse> {
   const { root, file, depth = 1, withMeta = false } = args;
-  const graph = await cache.resolveGraphForFile(root, file);
+  const { graph, packageOf } = await cache.resolveFlatGraphForFile(root, file);
   const deps = getDependencies(graph, file, depth);
-  const dependencies = withMeta
+  const withMetaDeps = withMeta
     ? deps.map((dep) => ({ ...dep, ...getNodeMeta(graph, dep.path) }))
     : deps;
+  const dependencies = withPackageMeta(withMetaDeps, packageOf);
   return text({ file, dependencies });
 }
 
@@ -339,11 +345,12 @@ export async function handleGetDependents(
   args: GetDependentsArgs,
 ): Promise<TextResponse> {
   const { root, file, withMeta = false } = args;
-  const graph = await cache.resolveGraphForFile(root, file);
+  const { graph, packageOf } = await cache.resolveFlatGraphForFile(root, file);
   const deps = getDependents(graph, file);
-  const dependents = withMeta
+  const withMetaDeps = withMeta
     ? deps.map((dep) => ({ ...dep, ...getNodeMeta(graph, dep.path) }))
     : deps;
+  const dependents = withPackageMeta(withMetaDeps, packageOf);
   return text({ file, dependents });
 }
 
@@ -362,9 +369,14 @@ export async function handleGetAffected(
   args: GetAffectedArgs,
 ): Promise<TextResponse> {
   const { root, file, testsOnly = false, cached = false, changedSymbols, withMeta = false } = args;
-  const graph = await cache.resolveGraphForFile(root, file);
+  const { graph, packageOf } = await cache.resolveFlatGraphForFile(root, file);
   const annotate = (paths: string[]) =>
-    withMeta ? paths.map((p) => ({ path: p, ...getNodeMeta(graph, p) })) : paths;
+    withMeta
+      ? withPackageMeta(
+          paths.map((p) => ({ path: p, ...getNodeMeta(graph, p) })),
+          packageOf,
+        )
+      : paths;
 
   if (cached) {
     const impactCache = await cache.getOrBuildChangeImpactForFile(root, file, graph);
@@ -431,8 +443,15 @@ export async function handleGetCallers(
   args: GetCallersArgs,
 ): Promise<TextResponse> {
   const { root, file, depth = 1, withEdgeDetail = false } = args;
-  const graph = await cache.resolveGraphForFile(root, file);
-  const callers = getCallers(graph, file, { depth, withEdgeDetail });
+  const { graph, packageOf } = await cache.resolveFlatGraphForFile(root, file);
+  const rawCallers = getCallers(graph, file, { depth, withEdgeDetail });
+  const callers =
+    packageOf.size === 0
+      ? rawCallers
+      : rawCallers.map((entry) => {
+          const pkg = packageOf.get(entry.file);
+          return pkg ? { ...entry, package: pkg } : entry;
+        });
   return text({ file, callers, count: callers.length });
 }
 
@@ -884,9 +903,13 @@ export async function handleDetectFeatures(
 
 /**
  * @description Filters the graph by category, tag, or path substring and returns matching nodes.
- *   Slim mode (default) strips edge metadata and internal tags for a compact response; pass `slim: false` for full edge data.
+ *   On a monorepo root the filter runs once against the flattened whole-workspace graph, so
+ *   `sort`/`limit` rank globally and cross-package import edges are retained; each result node
+ *   carries its owning `package`, and the `package:` query key (or the `package` arg) narrows to
+ *   one. Slim mode (default) strips edge metadata and internal tags for a compact response; pass
+ *   `slim: false` for full edge data.
  * @param cache - Session state used to build or retrieve the graph.
- * @param args - `root`/`entryPoints` select the graph; `filter` is the query DSL string; `mermaid` switches output to a diagram; `slim` controls response verbosity.
+ * @param args - `root`/`entryPoints` select the graph; `filter` is the query DSL string; `package` narrows to one workspace package; `mermaid` switches output to a diagram; `slim` controls response verbosity.
  * @returns TextResponse containing either a Mermaid diagram string or a JSON node list with cycle info.
  */
 export async function handleQuery(cache: SessionState, args: QueryArgs): Promise<TextResponse> {
@@ -900,39 +923,21 @@ export async function handleQuery(cache: SessionState, args: QueryArgs): Promise
     return textQueryResult(graph, filter, mermaid, slim);
   }
 
-  const graphs = await cache.resolveGraphs(root, pkg);
-  if (mermaid) {
-    // A Mermaid diagram is one connected picture — merging separate packages' diagrams into one
-    // isn't the goal here (get_workspace_affected covers cross-package blast radius).
-    const { graph } = requireSinglePackage(graphs, "query with mermaid: true");
-    return textQueryResult(graph, filter, mermaid, slim);
-  }
-
-  const multi = graphs.length > 1;
-  const query = parseQuery(filter);
-  const merged = graphs.reduce<SerializedGraph>(
-    (acc, { graph, package: pkgName }) => {
-      const filtered = filterGraph(graph.serialize(), query);
-      const nodes = tagPackage(filtered.nodes, pkgName, multi);
-      return {
-        nodes: [...acc.nodes, ...nodes],
-        cycles: [...(acc.cycles ?? []), ...(filtered.cycles ?? [])],
-      };
-    },
-    { nodes: [], cycles: [] },
-  );
-  return text(slim ? slimSerialize(merged) : merged);
+  const { graph, packageOf } = await cache.resolveFlatGraph(root, pkg);
+  return textQueryResult(graph, filter, mermaid, slim, packageOf);
 }
 
-/** Formats a single-graph query result — the shared tail of `handleQuery`'s entryPoints and
- *  single-package-mermaid branches. */
+/** Formats a single-graph query result — shared by `handleQuery`'s entryPoints and
+ *  flattened-workspace branches. `packageOf` (empty on a plain root) enables the `package:`
+ *  filter key and stamps each result node with its owning package. */
 function textQueryResult(
   graph: Graph,
   filter: string,
   mermaid: boolean,
   slim: boolean,
+  packageOf: Map<string, string> = new Map(),
 ): TextResponse {
-  const filtered = filterGraph(graph.serialize(), parseQuery(filter));
+  const filtered = filterGraph(graph.serialize(), parseQuery(filter), { packageOf });
   if (mermaid) {
     return text(MermaidExporter.serialize(Graph.deserialize(filtered)));
   }
@@ -966,20 +971,27 @@ export async function handleGetWorkspacePackages(
 }
 
 /**
- * @description Cross-package blast-radius analysis — returns every file that could be affected
- *   if `file` changes, annotated with the package it belongs to. Requires a prior `analyze` call with no entry points.
+ * @description Cross-package blast-radius analysis — the files affected if `file` changes,
+ *   grouped by owning package with each package's file list capped so the response stays small
+ *   on large monorepos (where the raw blast radius can be most of the repo). For the full,
+ *   uncapped list of affected files in one package, call `get_affected` on `file` (it now spans
+ *   the whole workspace) or narrow with a `query`. Requires a prior `analyze` call with no entry points.
  * @param cache - Session state holding the cached WorkspaceGraph.
- * @param args - `root` identifies the monorepo; `file` is the changed file (relative to root).
- * @returns TextResponse with `{ file, affected, count }` where each entry includes its package name.
+ * @param args - `root` identifies the monorepo; `file` is the changed file (relative to root);
+ *   `maxFilesPerPackage` caps each package's `sample` list (default 10; 0 = counts only).
+ * @returns TextResponse with a `WorkspaceAffectedSummary`: `{ file, totalAffected, packageCount, byPackage, truncated }`.
  */
 export async function handleGetWorkspaceAffected(
   cache: SessionState,
   args: GetWorkspaceAffectedArgs,
 ): Promise<TextResponse> {
-  const { root, file } = args;
+  const { root, file, maxFilesPerPackage } = args;
   const wg = await cache.ensureFreshWorkspace(root);
-  const affected = wg.getAffectedAcrossPackages(file);
-  return text({ file, affected, count: affected.length });
+  const summary = wg.summarizeAffectedAcrossPackages(
+    file,
+    maxFilesPerPackage !== undefined ? { maxFilesPerPackage } : {},
+  );
+  return text(summary);
 }
 
 /**
@@ -1004,9 +1016,10 @@ export function handleClearCache(cache: SessionState, args: ClearCacheArgs): Tex
 /**
  * @description Returns type-level relationships for the project. Without `type`, returns an inventory
  *   of all interfaces, classes, enums, and type aliases. With `type`, returns which files import that
- *   type and which types the defining file itself imports. Requires a prior `analyze` call.
+ *   type and which types the defining file itself imports. On a monorepo root this spans the whole
+ *   workspace (flattened graph); pass `package` to scope it to one. Requires a prior `analyze` call.
  * @param cache - Session state holding the cached graph for `root`.
- * @param args - `root` selects the graph; `type` is the exact exported name to look up (omit for full inventory).
+ * @param args - `root` selects the graph; `type` is the exact exported name to look up (omit for full inventory); `package` scopes to one workspace package.
  * @returns TextResponse with either a full type inventory or a focused `TypeQueryResult`.
  */
 export async function handleGetTypeGraph(
@@ -1014,8 +1027,7 @@ export async function handleGetTypeGraph(
   args: GetTypeGraphArgs,
 ): Promise<TextResponse> {
   const { root, type, package: pkg } = args;
-  const graphs = await cache.resolveGraphs(root, pkg);
-  const { graph } = requireSinglePackage(graphs, "get_type_graph");
+  const { graph } = await cache.resolveFlatGraph(root, pkg);
   const typeGraph = buildTypeGraph(graph);
   if (type) {
     return text(queryTypeGraph(typeGraph, type));
@@ -1067,8 +1079,7 @@ export async function handleGetFeatureGraph(
   args: GetFeatureGraphArgs,
 ): Promise<TextResponse> {
   const { root, minOutDegree, package: pkg } = args;
-  const graphs = await cache.resolveGraphs(root, pkg);
-  const { graph } = requireSinglePackage(graphs, "get_feature_graph");
+  const { graph } = await cache.resolveFlatGraph(root, pkg);
   const featureGraph = buildFeatureGraph(
     graph,
     minOutDegree !== undefined ? { minOutDegree } : undefined,
@@ -1090,8 +1101,7 @@ export async function handleGetCallGraph(
   args: GetCallGraphArgs,
 ): Promise<TextResponse> {
   const { root, function: functionName, package: pkg } = args;
-  const graphs = await cache.resolveGraphs(root, pkg);
-  const { graph } = requireSinglePackage(graphs, "get_call_graph");
+  const { graph } = await cache.resolveFlatGraph(root, pkg);
   return text(queryCallGraph(graph, functionName));
 }
 
@@ -1119,51 +1129,125 @@ export async function handleFindSymbol(
 /**
  * @description Builds the API surface report for a project, expanding `export *` chains so every
  *   symbol accessible to consumers is listed. Partitions the graph into `internalFiles`,
- *   `unreachableFromEntry` (separate consumers or dead-code candidates), and `testFiles`. When `entryPoints` is omitted,
- *   auto-detects them from `package.json` exports/main/module fields. Requires a prior `analyze` call.
- * @param cache - Session state holding the cached graph for `root`.
- * @param args - `root` selects the graph; `entryPoints` are the public entry files (auto-detected when omitted).
- * @returns TextResponse with `{ entryPoints, publicExports, internalFiles, unreachableFromEntry, testFiles }`.
+ *   `unreachableFromEntry` (separate consumers or dead-code candidates), and `testFiles`.
+ *   On a monorepo root: one surface per workspace package, using the entry points the
+ *   `WorkspaceGraph` already resolved per package (no re-reading of `package.json`). A package
+ *   with no resolvable entry point is listed in `skipped` rather than failing the whole call,
+ *   and — unless a single `package` is requested — each package's `publicExports` is capped and
+ *   the path lists are reduced to counts so the response stays small.
+ * @param cache - Session state holding the cached graph(s) for `root`.
+ * @param args - `root` selects the project; `entryPoints` overrides auto-detection; `package`
+ *   scopes to one workspace package (returns its full surface); `maxExportsPerPackage` caps the
+ *   per-package `publicExports` list in the multi-package response (default 50).
+ * @returns TextResponse: a single `ApiSurface` for a plain root or a single requested package;
+ *   otherwise `{ packages: [...capped per-package summaries], skipped, truncated }`.
  */
+/** JVM (and Go, after language-aware detection) treat every source file as an entry point, so a
+ *  surface can carry hundreds of them. Echo at most this many back, with the true `entryPointCount`
+ *  alongside — an empty `unreachableFromEntry` next to a large count then reads as "every file is
+ *  an entry", not "nothing is separate". */
+const MAX_ENTRY_POINTS_ECHOED = 25;
+
+function echoEntryPoints(eps: string[]): {
+  entryPoints: string[];
+  entryPointCount: number;
+  entryPointsTruncated?: true;
+} {
+  if (eps.length <= MAX_ENTRY_POINTS_ECHOED) {
+    return { entryPoints: eps, entryPointCount: eps.length };
+  }
+  return {
+    entryPoints: eps.slice(0, MAX_ENTRY_POINTS_ECHOED),
+    entryPointCount: eps.length,
+    entryPointsTruncated: true,
+  };
+}
+
 export async function handleGetApiSurface(
   cache: SessionState,
   args: GetApiSurfaceArgs,
 ): Promise<TextResponse> {
   const { root, entryPoints, package: pkg } = args;
-  const graphs = await cache.resolveGraphs(root, pkg);
-  const multi = graphs.length > 1;
-  const buildSurface = (graph: Graph, pkgName: string) => {
+  const maxExportsPerPackage = args.maxExportsPerPackage ?? 50;
+
+  // Plain (non-monorepo) root: unchanged single-graph behavior.
+  if (!cache.isWorkspaceRoot(root)) {
+    const graph = await cache.ensureFresh(root);
     const eps = entryPoints?.length ? entryPoints : detectAllEntryPoints(graph, root);
     if (eps.length === 0) {
       throw new Error(
-        `No entry points found${multi ? ` for package "${pkgName}"` : ""}. Pass entryPoints explicitly or ensure package.json has a main/exports field.`,
+        "No entry points found. Pass entryPoints explicitly, or (JS) ensure package.json has a main/exports field.",
       );
     }
-    return buildApiSurface(graph, eps);
+    const surface = buildApiSurface(graph, eps);
+    return text({ ...surface, ...echoEntryPoints(surface.entryPoints) });
+  }
+
+  // Monorepo root: one surface per package. Entry points come from the WorkspaceGraph the
+  // detectors already resolved per package (relative to each package's own root), or from an
+  // explicit `entryPoints` arg — either way filtered to files actually present in that
+  // package's graph, so a package that contributes none is skipped, never thrown on.
+  const wg = await cache.ensureFreshWorkspace(root);
+  const graphs = await cache.resolveGraphs(root, pkg); // validates `pkg`, restricts to own files
+
+  const surfaceFor = (pkgName: string, graph: Graph): ApiSurface | null => {
+    const candidates = entryPoints?.length
+      ? entryPoints
+      : (wg.packages.get(pkgName)?.pkg.entryPoints ?? []).map((ep) => path.relative(root, ep));
+    const eps = candidates.filter((ep) => graph.nodes.has(ep));
+    return eps.length ? buildApiSurface(graph, eps) : null;
   };
 
-  if (!multi) {
+  // A single package was requested → return its full surface.
+  if (graphs.length === 1) {
     const only = graphs[0];
     if (!only) throw new Error("get_api_surface: no graph resolved for this root.");
-    return text(buildSurface(only.graph, only.package));
+    const surface = surfaceFor(only.package, only.graph);
+    if (!surface) {
+      throw new Error(
+        `No entry point for package "${only.package}" is present in the analyzed graph. Pass entryPoints explicitly.`,
+      );
+    }
+    return text({ ...surface, ...echoEntryPoints(surface.entryPoints) });
   }
-  const surfaces = graphs.map(({ graph, package: pkgName }) => ({
-    pkgName,
-    surface: buildSurface(graph, pkgName),
-  }));
 
-  // internalFiles/unreachableFromEntry/testFiles/entryPoints are bare (already-unambiguous
-  // root-relative) path lists — only publicExports is object-shaped and worth tagging.
-  const merged = {
-    entryPoints: surfaces.flatMap(({ surface }) => surface.entryPoints),
-    publicExports: surfaces.flatMap(({ pkgName, surface }) =>
-      tagPackage(surface.publicExports, pkgName, true),
-    ),
-    internalFiles: surfaces.flatMap(({ surface }) => surface.internalFiles),
-    unreachableFromEntry: surfaces.flatMap(({ surface }) => surface.unreachableFromEntry),
-    testFiles: surfaces.flatMap(({ surface }) => surface.testFiles),
-  };
-  return text(merged);
+  // Every package → capped per-package breakdown; packages with no entry point are listed in `skipped`.
+  const packages: Array<{
+    package: string;
+    entryPoints: string[];
+    entryPointCount: number;
+    entryPointsTruncated?: true;
+    publicExports: PublicExport[];
+    publicExportCount: number;
+    internalFileCount: number;
+    unreachableFromEntryCount: number;
+    testFileCount: number;
+  }> = [];
+  const skipped: Array<{ package: string; reason: string }> = [];
+  let truncated = false;
+
+  for (const { package: pkgName, graph } of graphs) {
+    const surface = surfaceFor(pkgName, graph);
+    if (!surface) {
+      skipped.push({
+        package: pkgName,
+        reason: "no entry point resolvable from the WorkspaceGraph",
+      });
+      continue;
+    }
+    const cappedExports = surface.publicExports.slice(0, maxExportsPerPackage);
+    if (cappedExports.length < surface.publicExports.length) truncated = true;
+    packages.push({
+      package: pkgName,
+      ...echoEntryPoints(surface.entryPoints),
+      publicExports: cappedExports,
+      publicExportCount: surface.publicExports.length,
+      internalFileCount: surface.internalFiles.length,
+      unreachableFromEntryCount: surface.unreachableFromEntry.length,
+      testFileCount: surface.testFiles.length,
+    });
+  }
+  return text({ packages, skipped, truncated });
 }
 
 /**

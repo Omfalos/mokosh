@@ -200,6 +200,7 @@ export interface SlimNode {
   exports: string[];
   tags: string[];
   importsFiles: string[];
+  package?: string;
   description?: string;
   testedBy?: string[];
   coveragePct?: number;
@@ -230,6 +231,7 @@ export function slimSerialize(filtered: SerializedGraph): SlimSerializedGraph {
     importsFiles: node.imports
       .filter((imp) => !imp.isExternal && imp.toPath)
       .map((imp) => imp.toPath as string),
+    ...(node.package !== undefined && { package: node.package }),
     ...(node.description !== undefined && { description: node.description }),
     ...(node.testedBy !== undefined && { testedBy: node.testedBy }),
     ...(node.coveragePct !== undefined && { coveragePct: node.coveragePct }),

@@ -156,7 +156,13 @@ export {
 } from "./graph/workspace";
 export { type MonorepoDetector, registerMonorepoDetector } from "./graph/workspace/registry";
 export type { MonorepoLayout, WorkspacePackage } from "./graph/workspace/types";
-export { type SerializedWorkspaceGraph, WorkspaceGraph } from "./graph/workspace-model";
+export {
+  type FlatWorkspaceGraph,
+  packageOwnsFile,
+  type SerializedWorkspaceGraph,
+  type WorkspaceAffectedSummary,
+  WorkspaceGraph,
+} from "./graph/workspace-model";
 export {
   registerConfigMatcher,
   registerTestLibrary,

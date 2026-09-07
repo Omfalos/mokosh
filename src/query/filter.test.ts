@@ -506,6 +506,40 @@ describe("filterGraph", {
     "node",
   ],
 }, () => {
+  describe("packageOf (flattened workspace)", () => {
+    const graph: SerializedGraph = {
+      nodes: [
+        makeNode({ path: "packages/app/src/page.ts", category: "logic" }),
+        makeNode({ path: "packages/shared/src/utils.ts", category: "logic" }),
+      ],
+    };
+    const packageOf = new Map([
+      ["packages/app/src/page.ts", "@org/app"],
+      ["packages/shared/src/utils.ts", "@org/shared"],
+    ]);
+
+    test("package: filters to the named package", () => {
+      const result = filterGraph(graph, { package: "@org/app" }, { packageOf });
+      expect(result.nodes.map((n) => n.path)).toEqual(["packages/app/src/page.ts"]);
+    });
+
+    test("package: supports negation", () => {
+      const result = filterGraph(graph, { package: "!@org/app" }, { packageOf });
+      expect(result.nodes.map((n) => n.path)).toEqual(["packages/shared/src/utils.ts"]);
+    });
+
+    test("stamps each result node with its owning package", () => {
+      const result = filterGraph(graph, {}, { packageOf });
+      expect(result.nodes.map((n) => n.package).sort()).toEqual(["@org/app", "@org/shared"]);
+    });
+
+    test("package: is a no-op when no packageOf is supplied", () => {
+      const result = filterGraph(graph, { package: "@org/app" });
+      expect(result.nodes).toHaveLength(2);
+      expect(result.nodes.every((n) => n.package === undefined)).toBe(true);
+    });
+  });
+
   describe("import edge trimming", () => {
     const graph: SerializedGraph = {
       nodes: [

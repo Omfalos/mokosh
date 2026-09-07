@@ -38,6 +38,7 @@ export type NodeMatcher = (
   node: FileNode,
   query: NodeQuery,
   reverseIndex: Map<string, string[]> | undefined,
+  packageOf?: Map<string, string> | undefined,
 ) => boolean;
 
 /**
@@ -79,6 +80,24 @@ export const matchLastAuthor: NodeMatcher = (node, query) => {
  */
 export const matchPath: NodeMatcher = (node, query) =>
   !query.path || matchesPath(node.path, query.path);
+
+/**
+ * @description Matches `NodeQuery.package` against the node's owning workspace package name,
+ *   looked up in the `packageOf` map threaded through from `filterGraph`. Supports a `!` prefix
+ *   for negation. When no `packageOf` is supplied (non-workspace query) the criterion is a
+ *   no-op — a `package:` clause simply has nothing to match against.
+ * @param {FileNode} node - The graph node to evaluate.
+ * @param {NodeQuery} query - Filter criteria; omitted fields are treated as wildcards.
+ * @param {Map<string, string[]> | undefined} _reverseIndex - Unused.
+ * @param {Map<string, string> | undefined} packageOf - Path → owning-package-name lookup.
+ * @returns {boolean} `true` if the node satisfies this criterion.
+ */
+export const matchPackage: NodeMatcher = (node, query, _reverseIndex, packageOf) => {
+  if (!query.package) return true;
+  if (!packageOf) return true;
+  const pkg = packageOf.get(node.path) ?? "";
+  return matchesStr(pkg, query.package);
+};
 
 /**
  * @description Matches `NodeQuery.isExternal` against whether the node has any external import.
@@ -314,8 +333,9 @@ export const matchMaxCommits: NodeMatcher = (node, query) =>
  * @param {Map<string, string[]>} reverseIndex - Optional reverse importer lookup, forwarded to `matchNode` for each sub-query.
  * @returns {boolean} `true` if the node satisfies this criterion.
  */
-export const matchAny: NodeMatcher = (node, query, reverseIndex) =>
-  !query.any?.length || query.any.some((subQuery) => matchNode(node, subQuery, reverseIndex));
+export const matchAny: NodeMatcher = (node, query, reverseIndex, packageOf) =>
+  !query.any?.length ||
+  query.any.some((subQuery) => matchNode(node, subQuery, reverseIndex, packageOf));
 
 /** @description All matchers, applied in order by `matchNode`. Add new filter keys here. */
 export const NODE_MATCHERS: NodeMatcher[] = [
@@ -323,6 +343,7 @@ export const NODE_MATCHERS: NodeMatcher[] = [
   matchType,
   matchLastAuthor,
   matchPath,
+  matchPackage,
   matchIsExternal,
   matchTags,
   matchAllTags,
@@ -358,12 +379,14 @@ export const NODE_MATCHERS: NodeMatcher[] = [
  * @param {FileNode} node - The graph node to evaluate.
  * @param {NodeQuery} query - Filter criteria; omitted fields are treated as wildcards.
  * @param {Map<string, string[]>} reverseIndex - Optional reverse importer lookup, required when `query.importedBy` is set.
+ * @param {Map<string, string>} packageOf - Optional path → owning-package-name lookup, required when `query.package` is set (flattened-workspace queries).
  * @returns {boolean} `true` if the node passes every active filter criterion.
  */
 export function matchNode(
   node: FileNode,
   query: NodeQuery,
   reverseIndex?: Map<string, string[]>,
+  packageOf?: Map<string, string>,
 ): boolean {
-  return NODE_MATCHERS.every((matcher) => matcher(node, query, reverseIndex));
+  return NODE_MATCHERS.every((matcher) => matcher(node, query, reverseIndex, packageOf));
 }

@@ -5,6 +5,10 @@ export type CommandHandler = (ctx: CommandContext) => Promise<void>;
 /** Shared context passed to every command handler. */
 export interface CommandContext {
   graph: Graph;
+  /** Path → owning-package-name lookup, populated only when `graph` is a flattened monorepo
+   *  workspace graph. Empty for single-package runs. Enables the `package:` query key and
+   *  per-node `package` annotation in `--query` output. */
+  packageOf: Map<string, string>;
   rootDir: string;
   /** Resolved path to the disk graph cache file (`--cache` or the default); commands that
    *  maintain their own disk cache (e.g. `find-duplicates`'s token cache) derive their cache

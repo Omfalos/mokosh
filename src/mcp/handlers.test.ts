@@ -15,6 +15,7 @@ import {
   handleFindSymbol,
   handleFindUnused,
   handleGetAffected,
+  handleGetApiSurface,
   handleGetDependencies,
   handleGetDependents,
   handleGetWorkspaceAffected,
@@ -107,7 +108,9 @@ function makeCache(): SessionState {
     startWatching: vi.fn(),
     isWorkspaceRoot: vi.fn().mockReturnValue(false),
     resolveGraphForFile: vi.fn().mockResolvedValue(graph),
+    resolveFlatGraphForFile: vi.fn().mockResolvedValue({ graph, packageOf: new Map() }),
     resolveGraphs: vi.fn().mockResolvedValue([{ package: "", graph }]),
+    resolveFlatGraph: vi.fn().mockResolvedValue({ graph, packageOf: new Map() }),
     getOrBuildChangeImpact: vi.fn().mockReturnValue({ impact: new Map(), graphHash: "" }),
     getOrBuildChangeImpactForFile: vi.fn().mockResolvedValue({ impact: new Map(), graphHash: "" }),
   } as unknown as SessionState;
@@ -1411,7 +1414,7 @@ describe("handleGetWorkspaceAffected", {
     "workspace-model",
   ],
 }, () => {
-  test("returns cross-package affected files", async () => {
+  test("returns a package-grouped blast-radius summary", async () => {
     const wg = makeWorkspaceFixture();
     const cache = makeWorkspaceCache(wg);
 
@@ -1421,23 +1424,195 @@ describe("handleGetWorkspaceAffected", {
         file: "packages/shared/src/utils.ts",
       }),
     ) as {
-      affected: Array<{ file: string; package: string }>;
-      count: number;
+      totalAffected: number;
+      packageCount: number;
+      byPackage: Array<{ package: string; count: number; sample: string[]; more: number }>;
+      truncated: boolean;
     };
 
-    expect(data.count).toBeGreaterThan(0);
-    const appEntry = data.affected.find((a) => a.file === "packages/app/src/page.ts");
-    expect(appEntry?.package).toBe("@org/app");
+    expect(data.totalAffected).toBeGreaterThan(0);
+    const appGroup = data.byPackage.find((g) => g.package === "@org/app");
+    expect(appGroup?.count).toBeGreaterThan(0);
+    expect(appGroup?.sample).toContain("packages/app/src/page.ts");
   });
 
-  test("returns empty affected for an unknown file", async () => {
+  test("caps each package's sample at maxFilesPerPackage", async () => {
+    const wg = makeWorkspaceFixture();
+    const cache = makeWorkspaceCache(wg);
+
+    const data = parse(
+      await handleGetWorkspaceAffected(cache, {
+        root: ROOT,
+        file: "packages/shared/src/utils.ts",
+        maxFilesPerPackage: 0,
+      }),
+    ) as {
+      byPackage: Array<{ sample: string[]; count: number; more: number }>;
+      truncated: boolean;
+    };
+
+    for (const group of data.byPackage) {
+      expect(group.sample).toHaveLength(0);
+      expect(group.more).toBe(group.count);
+    }
+    if (data.byPackage.some((g) => g.count > 0)) expect(data.truncated).toBe(true);
+  });
+
+  test("returns zero totals for an unknown file", async () => {
     const wg = makeWorkspaceFixture();
     const cache = makeWorkspaceCache(wg);
 
     const data = parse(
       await handleGetWorkspaceAffected(cache, { root: ROOT, file: "nonexistent/file.ts" }),
-    ) as { count: number };
+    ) as { totalAffected: number; packageCount: number };
 
-    expect(data.count).toBe(0);
+    expect(data.totalAffected).toBe(0);
+    expect(data.packageCount).toBe(0);
+  });
+});
+
+describe("handleGetApiSurface (monorepo)", {
+  tags: ["SessionState", "WorkspaceGraph", "handleGetApiSurface", "handlers", "api-surface"],
+}, () => {
+  // Two packages, each with an index entry file that exports symbols. @org/lib has no
+  // resolvable entry point (empty entryPoints) so it must land in `skipped`, not throw.
+  function makeApiWorkspace(): WorkspaceGraph {
+    const mkNode = (p: string, exports: string[], imports: unknown[] = []) => ({
+      path: p,
+      type: "typescript" as const,
+      category: "logic" as const,
+      imports: imports as never,
+      exports: exports.map((name) => ({ name })),
+      tags: [],
+      mtime: 0,
+      size: 0,
+    });
+
+    const appIndex = mkNode("packages/app/src/index.ts", ["startApp", "AppConfig"]);
+    const appGraph = new Graph(new Map([[appIndex.path, appIndex]]));
+
+    const libFile = mkNode("packages/lib/src/thing.ts", ["thing"]);
+    const libGraph = new Graph(new Map([[libFile.path, libFile]]));
+
+    const wg = new WorkspaceGraph(ROOT, "pnpm");
+    wg.addPackage(
+      {
+        name: "@org/app",
+        root: `${ROOT}/packages/app`,
+        relativeRoot: "packages/app",
+        entryPoints: [`${ROOT}/packages/app/src/index.ts`],
+      },
+      appGraph,
+    );
+    wg.addPackage(
+      {
+        name: "@org/lib",
+        root: `${ROOT}/packages/lib`,
+        relativeRoot: "packages/lib",
+        entryPoints: [], // detector found none
+      },
+      libGraph,
+    );
+    return wg;
+  }
+
+  function makeApiCache(wg: WorkspaceGraph, pkg?: string): SessionState {
+    return {
+      isWorkspaceRoot: vi.fn().mockReturnValue(true),
+      ensureFreshWorkspace: vi.fn().mockResolvedValue(wg),
+      resolveGraphs: vi
+        .fn()
+        .mockResolvedValue(
+          [...wg.packages.entries()]
+            .filter(([name]) => !pkg || name === pkg)
+            .map(([name, { graph }]) => ({ package: name, graph })),
+        ),
+    } as unknown as SessionState;
+  }
+
+  test("returns a per-package breakdown, skipping packages with no entry point", async () => {
+    const wg = makeApiWorkspace();
+    const data = parse(await handleGetApiSurface(makeApiCache(wg), { root: ROOT })) as {
+      packages: Array<{ package: string; publicExports: unknown[]; publicExportCount: number }>;
+      skipped: Array<{ package: string; reason: string }>;
+      truncated: boolean;
+    };
+
+    expect(data.packages.map((p) => p.package)).toEqual(["@org/app"]);
+    expect(data.packages[0]?.publicExportCount).toBe(2);
+    expect(data.skipped.map((s) => s.package)).toEqual(["@org/lib"]);
+    expect(data.truncated).toBe(false);
+  });
+
+  test("maxExportsPerPackage caps publicExports and sets truncated", async () => {
+    const wg = makeApiWorkspace();
+    const data = parse(
+      await handleGetApiSurface(makeApiCache(wg), { root: ROOT, maxExportsPerPackage: 1 }),
+    ) as {
+      packages: Array<{ publicExports: unknown[]; publicExportCount: number }>;
+      truncated: boolean;
+    };
+
+    expect(data.packages[0]?.publicExports).toHaveLength(1);
+    expect(data.packages[0]?.publicExportCount).toBe(2);
+    expect(data.truncated).toBe(true);
+  });
+
+  test("a single requested package returns its full ApiSurface", async () => {
+    const wg = makeApiWorkspace();
+    const data = parse(
+      await handleGetApiSurface(makeApiCache(wg, "@org/app"), { root: ROOT, package: "@org/app" }),
+    ) as { entryPoints: string[]; entryPointCount: number; publicExports: Array<{ name: string }> };
+
+    expect(data.entryPoints).toEqual(["packages/app/src/index.ts"]);
+    expect(data.entryPointCount).toBe(1);
+    expect(data.publicExports.map((e) => e.name).sort()).toEqual(["AppConfig", "startApp"]);
+  });
+
+  test("caps the echoed entryPoints list for an all-files-are-entry (JVM-style) package", async () => {
+    // 30 source files, all listed as entry points — mirrors collectJvmSources.
+    const files = Array.from({ length: 30 }, (_, i) => `mod/src/F${i}.kt`);
+    const graph = new Graph(
+      new Map(
+        files.map((p) => [
+          p,
+          {
+            path: p,
+            type: "kotlin" as const,
+            category: "logic" as const,
+            imports: [],
+            exports: [{ name: `Sym${p}` }],
+            tags: [],
+            mtime: 0,
+            size: 0,
+          },
+        ]),
+      ),
+    );
+    const wg = new WorkspaceGraph(ROOT, "gradle");
+    wg.addPackage(
+      {
+        name: "mod",
+        root: `${ROOT}/mod`,
+        relativeRoot: "mod",
+        entryPoints: files.map((p) => `${ROOT}/${p}`),
+      },
+      graph,
+    );
+    const cache = {
+      isWorkspaceRoot: vi.fn().mockReturnValue(true),
+      ensureFreshWorkspace: vi.fn().mockResolvedValue(wg),
+      resolveGraphs: vi.fn().mockResolvedValue([{ package: "mod", graph }]),
+    } as unknown as SessionState;
+
+    const data = parse(await handleGetApiSurface(cache, { root: ROOT, package: "mod" })) as {
+      entryPoints: string[];
+      entryPointCount: number;
+      entryPointsTruncated?: boolean;
+    };
+
+    expect(data.entryPointCount).toBe(30);
+    expect(data.entryPoints).toHaveLength(25);
+    expect(data.entryPointsTruncated).toBe(true);
   });
 });

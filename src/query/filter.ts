@@ -5,15 +5,28 @@ import type { NodeQuery } from "./types";
 
 export { matchNode } from "./matchers";
 
+/** @description Optional extras for {@link filterGraph}. */
+export interface FilterGraphOptions {
+  /** Path → owning-package-name lookup, from a flattened `WorkspaceGraph`. When supplied,
+   *  enables the `package:` query key and stamps each result node with its `package`. */
+  packageOf?: Map<string, string> | undefined;
+}
+
 /**
  * @description Filters a serialized graph to only nodes matching all criteria in `query`,
  *   then trims each node's import list to edges whose target is also in the result set.
  *   Optionally sorts the result and applies a `limit`.
  * @param {SerializedGraph} graph - The serialized graph to filter.
  * @param {NodeQuery} query - Filter criteria; omitted fields are treated as wildcards.
+ * @param {FilterGraphOptions} [options] - Optional `packageOf` lookup for workspace-scoped queries.
  * @returns {SerializedGraph} A new `SerializedGraph` containing only the matching subgraph.
  */
-export function filterGraph(graph: SerializedGraph, query: NodeQuery): SerializedGraph {
+export function filterGraph(
+  graph: SerializedGraph,
+  query: NodeQuery,
+  options: FilterGraphOptions = {},
+): SerializedGraph {
+  const { packageOf } = options;
   const reverseIndex = new Map<string, string[]>();
   if (query.importedBy !== undefined) {
     for (const node of graph.nodes) {
@@ -27,13 +40,19 @@ export function filterGraph(graph: SerializedGraph, query: NodeQuery): Serialize
     }
   }
 
-  const filteredNodes = graph.nodes.filter((node) => matchNode(node, query, reverseIndex));
+  const filteredNodes = graph.nodes.filter((node) =>
+    matchNode(node, query, reverseIndex, packageOf),
+  );
   const nodePaths = new Set(filteredNodes.map((node) => node.path));
 
-  const resultNodes = filteredNodes.map((node) => ({
-    ...node,
-    imports: node.imports.filter((imp) => !imp.toPath || nodePaths.has(imp.toPath)),
-  }));
+  const resultNodes = filteredNodes.map((node) => {
+    const pkg = packageOf?.get(node.path);
+    return {
+      ...node,
+      imports: node.imports.filter((imp) => !imp.toPath || nodePaths.has(imp.toPath)),
+      ...(pkg !== undefined && { package: pkg }),
+    };
+  });
 
   if (query.sort) {
     const direction = query.sortDir === "asc" ? -1 : 1;

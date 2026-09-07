@@ -3,6 +3,54 @@ import type { FileNode } from "../types/node";
 import { Graph } from "./model";
 import type { WorkspacePackage } from "./workspace/types";
 
+/**
+ * @description Whether `relPath` falls under `pkg`'s own `relativeRoot` — i.e. the package owns
+ *   that file, as opposed to merely importing it across a package boundary. Each per-package
+ *   `Graph` also carries "borrowed" nodes for cross-package files it imports (so outward
+ *   traversal reaches them); this predicate is how callers that iterate every package's graph
+ *   avoid double-counting a file that two packages both import.
+ * @param {string} relPath - A monorepo-root-relative file path.
+ * @param {Pick<WorkspacePackage, "relativeRoot">} pkg - The package to test ownership against.
+ * @returns {boolean} `true` if `relPath` is `pkg.relativeRoot` or sits beneath it.
+ */
+export function packageOwnsFile(
+  relPath: string,
+  pkg: Pick<WorkspacePackage, "relativeRoot">,
+): boolean {
+  return relPath === pkg.relativeRoot || relPath.startsWith(`${pkg.relativeRoot}/`);
+}
+
+/** @description A whole-workspace `Graph` (one namespace, all packages' own nodes, cross-package
+ *   edges intact) paired with a path → owning-package-name lookup. Produced by
+ *   {@link WorkspaceGraph.flatten}. */
+export interface FlatWorkspaceGraph {
+  graph: Graph;
+  packageOf: Map<string, string>;
+}
+
+/** @description Compact, capped cross-package blast radius — the response shape of
+ *   {@link WorkspaceGraph.summarizeAffectedAcrossPackages}. */
+export interface WorkspaceAffectedSummary {
+  /** The changed file the blast radius was computed for. */
+  file: string;
+  /** Total affected files across every package (the real count, never capped). */
+  totalAffected: number;
+  /** Number of distinct packages with at least one affected file. */
+  packageCount: number;
+  /** Per-package breakdown, sorted by `count` descending. */
+  byPackage: Array<{
+    package: string;
+    /** Real affected-file count for this package. */
+    count: number;
+    /** Up to `maxFilesPerPackage` example paths. */
+    sample: string[];
+    /** `count - sample.length` — files omitted from `sample`. */
+    more: number;
+  }>;
+  /** `true` if any package's `sample` was capped (`more > 0` somewhere). */
+  truncated: boolean;
+}
+
 /** @description JSON-safe snapshot of a `WorkspaceGraph`, suitable for writing to disk and restoring via `WorkspaceGraph.deserialize`. */
 export interface SerializedWorkspaceGraph {
   monorepoRoot: string;
@@ -21,6 +69,10 @@ export interface SerializedWorkspaceGraph {
  */
 export class WorkspaceGraph {
   readonly packages: Map<string, { graph: Graph; pkg: WorkspacePackage }> = new Map();
+
+  /** Lazily-built merged view; see {@link flatten}. Never invalidated — a rebuild replaces the
+   *  whole `WorkspaceGraph` instance rather than mutating this one. */
+  private flattened?: FlatWorkspaceGraph;
 
   /**
    * @param {string} monorepoRoot - Absolute path to the monorepo root directory.
@@ -68,6 +120,33 @@ export class WorkspaceGraph {
   }
 
   /**
+   * @description Merges every package's own nodes into a single `Graph` sharing one path
+   *   namespace, plus a `path → package name` lookup. "Borrowed" cross-package nodes are
+   *   dropped (each is contributed by its owning package instead), so no file appears twice.
+   *   Cross-package import edges already carry real monorepo-root-relative `toPath`s, so
+   *   `Graph.traverse` and `Graph.findCycles` span package boundaries on the returned graph
+   *   with no special-casing — this is the basis for whole-workspace blast radius, call
+   *   graphs, symbol search and queries. The graph is read-only: `FileNode`s are shared by
+   *   reference with the per-package graphs, never cloned.
+   *   Result is memoized for the life of this `WorkspaceGraph`.
+   * @returns {FlatWorkspaceGraph} The merged graph and its package lookup.
+   */
+  flatten(): FlatWorkspaceGraph {
+    if (this.flattened) return this.flattened;
+    const merged = new Map<string, FileNode>();
+    const packageOf = new Map<string, string>();
+    for (const { graph, pkg } of this.packages.values()) {
+      for (const [nodePath, node] of graph.nodes) {
+        if (!packageOwnsFile(nodePath, pkg)) continue;
+        merged.set(nodePath, node);
+        packageOf.set(nodePath, pkg.name);
+      }
+    }
+    this.flattened = { graph: new Graph(merged), packageOf };
+    return this.flattened;
+  }
+
+  /**
    * @description Returns the workspace package whose `relativeRoot` is a path prefix of `relPath`.
    * @param {string} relPath - A monorepo-root-relative file path to look up.
    * @returns {WorkspacePackage | undefined} The owning package, or `undefined` if none matches.
@@ -104,43 +183,72 @@ export class WorkspaceGraph {
 
   /**
    * @description Cross-package blast-radius analysis. Returns every file (with its package name)
-   *   that could be affected if the given monorepo-root-relative path changes.
-   *   Step 1: traverses incoming edges within the owning package graph for intra-package dependents.
-   *   Step 2: surfaces files in other packages that hold workspace import edges pointing at the owner.
+   *   transitively affected if the given monorepo-root-relative path changes — a full incoming
+   *   traversal over the flattened whole-workspace graph, so it follows real import edges across
+   *   package boundaries. The full, unbounded list: on a large monorepo this can be most of the
+   *   repo, so prefer {@link summarizeAffectedAcrossPackages} for an agent-facing response.
    * @param {string} relPath - Monorepo-root-relative path of the changed file.
    * @returns {Array<{ file: string; package: string }>} Each affected file paired with its package name.
    */
   getAffectedAcrossPackages(relPath: string): Array<{ file: string; package: string }> {
-    const ownerPkg = this.getPackageForFile(relPath);
-    if (!ownerPkg) return [];
-
-    const ownerEntry = this.packages.get(ownerPkg.name);
-    if (!ownerEntry) return [];
+    const { graph, packageOf } = this.flatten();
+    if (!graph.nodes.has(relPath)) return [];
 
     const result: Array<{ file: string; package: string }> = [];
-
-    // Intra-package dependents
-    ownerEntry.graph.traverse(
+    graph.traverse(
       relPath,
       (node) => {
-        if (node.path !== relPath) result.push({ file: node.path, package: ownerPkg.name });
+        if (node.path !== relPath) {
+          result.push({ file: node.path, package: packageOf.get(node.path) ?? "" });
+        }
         return true;
       },
       { direction: "incoming" },
     );
+    return result;
+  }
 
-    // Cross-package: files in other packages that hold workspace imports into ownerPkg
-    for (const { graph, pkg } of this.packages.values()) {
-      if (pkg.name === ownerPkg.name) continue;
-      for (const node of graph.nodes.values()) {
-        const hasEdge = node.imports.some(
-          (imp) => imp.isWorkspace && imp.workspacePackage === ownerPkg.name,
-        );
-        if (hasEdge) result.push({ file: node.path, package: pkg.name });
-      }
+  /**
+   * @description Agent-friendly form of {@link getAffectedAcrossPackages}: the blast radius
+   *   grouped by owning package, with each package's file list capped so the response stays
+   *   small even when thousands of files are affected. Packages are sorted by affected count
+   *   (descending).
+   * @param {string} relPath - Monorepo-root-relative path of the changed file.
+   * @param {{ maxFilesPerPackage?: number }} [opts] - `maxFilesPerPackage` caps each package's
+   *   `sample` list (default 10; `0` = counts only, no file lists).
+   * @returns {WorkspaceAffectedSummary} Totals plus a capped per-package breakdown.
+   */
+  summarizeAffectedAcrossPackages(
+    relPath: string,
+    opts: { maxFilesPerPackage?: number } = {},
+  ): WorkspaceAffectedSummary {
+    const maxFilesPerPackage = opts.maxFilesPerPackage ?? 10;
+    const affected = this.getAffectedAcrossPackages(relPath);
+
+    const grouped = new Map<string, string[]>();
+    for (const { file, package: pkg } of affected) {
+      const list = grouped.get(pkg) ?? [];
+      list.push(file);
+      grouped.set(pkg, list);
     }
 
-    return result;
+    let truncated = false;
+    const byPackage = [...grouped.entries()]
+      .map(([pkg, files]) => {
+        const sample = files.slice(0, maxFilesPerPackage);
+        const more = files.length - sample.length;
+        if (more > 0) truncated = true;
+        return { package: pkg, count: files.length, sample, more };
+      })
+      .sort((a, b) => b.count - a.count);
+
+    return {
+      file: relPath,
+      totalAffected: affected.length,
+      packageCount: byPackage.length,
+      byPackage,
+      truncated,
+    };
   }
 
   /**

@@ -132,7 +132,8 @@ src/
 
 **`WorkspaceGraph`** (`src/graph/workspace-model.ts`) — monorepo container:
 - `packages: Map<name, { graph, pkg }>` — one `Graph` per workspace package
-- `getAffectedAcrossPackages(relPath)` — cross-package blast-radius analysis
+- `flatten()` — merges every package's own nodes into one `Graph` (cross-package edges intact) plus a `packageOf` path→package lookup; the basis for whole-workspace queries, blast radius, call graphs and symbol search (see `docs/adr-020-workspace-flattening.md`)
+- `getAffectedAcrossPackages(relPath)` — cross-package blast-radius analysis (now a thin wrapper over `flatten()` + incoming traversal)
 - `getPackageDependencies()` — package-level dep map
 
 ## Query DSL
@@ -145,6 +146,7 @@ src/
 | `type:<value>` | `type:typescript` |
 | `tag:<value>` | `tag:auth`, `tag:!generated`, `tag:auth+core` (AND) |
 | `path:<substr>` | `path:src/api`, `path:!__tests__` |
+| `package:<value>` | `package:@org/app`, `package:!@org/legacy` (monorepo roots only — exact package name) |
 | `importsFile:<substr>` | `importsFile:src/utils/logger` |
 | `importedBy:<substr>` | `importedBy:src/index` |
 | `minImports:<N>` / `maxImports:<N>` | `minImports:5` |
@@ -163,6 +165,8 @@ Always available in this project — configured in `.mcp.json`. **Prefer MCP too
 Call order: `analyze` first (builds + caches graph), then any of: `get_dependencies`, `get_dependents`, `get_affected`, `propose_tags`, `propose_affected_tests`, `detect_features`, `query`, `find_unused`, `find_duplicates`.
 
 `query` defaults to `slim: true` — compact nodes with `importsFiles` (flat path list), export names, and meaningful tags only. Pass `slim: false` only when full edge metadata is needed.
+
+On a monorepo root, whole-graph tools (`query`, `get_type_graph`, `get_feature_graph`, `get_call_graph`) and file-scoped ones (`get_affected`, `get_dependents`, `get_callers`, `get_dependencies`) run against the **flattened whole-workspace graph** — one namespace, cross-package edges intact — so blast radius, call graphs and queries span package boundaries and each result node carries its `package`. Pass the `package` arg (or `package:<name>` in a query filter) to narrow to one. `find_unused` and the tag-writing tools stay per-package.
 
 ## Build
 
@@ -196,4 +200,4 @@ Run `/pre-update` — it calls `get_affected` to show blast radius before any ed
 - `traversal.md` — graph traversal semantics
 - `lock-files.md` — lock file parsing
 - `releasing.md` — release process and commit conventions
-- `adr-001-styles-parsing.md` through `adr-017-jvm-languages.md` — ADRs for key architecture/parser decisions
+- `adr-001-styles-parsing.md` through `adr-020-workspace-flattening.md` — ADRs for key architecture/parser decisions

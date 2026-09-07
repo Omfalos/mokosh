@@ -15,6 +15,7 @@ const SIMPLE_CLAUSE_HANDLERS: Record<string, { field: keyof NodeQuery; kind: Cla
   category: { field: "category", kind: "string" },
   type: { field: "type", kind: "string" },
   path: { field: "path", kind: "string" },
+  package: { field: "package", kind: "string" },
   importsfile: { field: "importsFile", kind: "string" },
   importedby: { field: "importedBy", kind: "string" },
   lastauthor: { field: "lastAuthor", kind: "string" },

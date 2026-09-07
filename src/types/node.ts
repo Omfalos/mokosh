@@ -81,4 +81,7 @@ export interface FileNode extends GraphNode {
   cognitiveComplexity?: number;
   /** Per-function complexity breakdown. Covers named function declarations, const-assigned arrow/function expressions, and class methods/constructors/accessors — anonymous inline callbacks are not included. Only present for TypeScript/JavaScript files. */
   functions?: FunctionComplexity[];
+  /** Owning workspace package name. Not set by the builder or persisted — a query/output-time
+   *  annotation stamped by `filterGraph`/handlers when results come from a flattened workspace graph. */
+  package?: string;
 }

@@ -15,10 +15,12 @@ import {
   DEFAULT_WORKSPACE_GRAPH_CACHE_FILE,
   type DuplicationTokenCache,
   detectMonorepo,
+  type FlatWorkspaceGraph,
   Graph,
   loadTokenCacheFromDisk,
   type MonorepoLayout,
   type ParallelParsingOption,
+  packageOwnsFile,
   type SerializedWorkspaceGraph,
   saveTokenCacheToDisk,
   WorkspaceGraph,
@@ -123,12 +125,24 @@ function loadDiskGraphSeed(cachePath: string): Graph | null {
  * @returns A new `Graph` restricted to nodes under `pkg.relativeRoot`.
  */
 function restrictToOwnFiles(graph: Graph, pkg: WorkspacePackage): Graph {
-  const owned = new Map(
-    [...graph.nodes].filter(
-      ([path]) => path === pkg.relativeRoot || path.startsWith(`${pkg.relativeRoot}/`),
-    ),
-  );
+  const owned = new Map([...graph.nodes].filter(([nodePath]) => packageOwnsFile(nodePath, pkg)));
   return new Graph(owned);
+}
+
+/**
+ * @description Narrows a {@link FlatWorkspaceGraph} to just the nodes owned by `pkgName`,
+ *   keeping the `packageOf` entries in sync. Used when a whole-workspace tool is scoped to one
+ *   package via a `package` arg.
+ * @param flat - The flattened workspace graph.
+ * @param pkgName - The package to keep.
+ * @returns A new `FlatWorkspaceGraph` containing only that package's nodes.
+ */
+function restrictFlatToPackage(flat: FlatWorkspaceGraph, pkgName: string): FlatWorkspaceGraph {
+  const nodes = new Map(
+    [...flat.graph.nodes].filter(([nodePath]) => flat.packageOf.get(nodePath) === pkgName),
+  );
+  const packageOf = new Map([...flat.packageOf].filter(([nodePath]) => nodes.has(nodePath)));
+  return { graph: new Graph(nodes), packageOf };
 }
 
 type LastAnalyzeArgs =
@@ -341,30 +355,14 @@ export class SessionState {
   }
 
   /**
-   * @description Change-impact-cache variant of `getOrBuildChangeImpact` for a specific workspace
-   *   package, keyed by `${root}::${packageName}` so each package's cache is independent.
-   * @param root - Absolute monorepo root path.
-   * @param packageName - The owning package's name, from `WorkspaceGraph.getPackageForFile`.
-   * @param graph - That package's `Graph`, already resolved by the caller.
-   * @returns The `ChangeImpactCache` for this package.
-   */
-  getOrBuildChangeImpactForPackage(
-    root: string,
-    packageName: string,
-    graph: Graph,
-  ): ChangeImpactCache {
-    return this.getOrBuildChangeImpactFor(`${root}::${packageName}`, () => graph);
-  }
-
-  /**
    * @description `getAffected`'s `cached: true` entry point: resolves the right change-impact
-   *   cache for `file` — root-keyed on a plain root, `${root}::${packageName}`-keyed on a
-   *   workspace root (so each package's cache stays independent, never a merged one).
+   *   cache for `file` — root-keyed on a plain root, `${root}::__flat__`-keyed on a workspace
+   *   root (one cache over the flattened whole-workspace graph, matching `resolveGraphForFile`).
    * @param root - Absolute project root path.
-   * @param file - Root-relative path the impact cache is queried for; used only to resolve the
+   * @param file - Root-relative path the impact cache is queried for; used only to validate the
    *   owning package on a workspace root.
-   * @param graph - The already-resolved `Graph` for `file` (from `resolveGraphForFile`), reused
-   *   here instead of re-resolving.
+   * @param graph - The already-resolved `Graph` for `file` (from `resolveGraphForFile`, i.e. the
+   *   flattened graph on a workspace root), reused here instead of re-resolving.
    * @returns The `ChangeImpactCache` to query.
    */
   async getOrBuildChangeImpactForFile(
@@ -374,13 +372,12 @@ export class SessionState {
   ): Promise<ChangeImpactCache> {
     if (!this.isWorkspaceRoot(root)) return this.getOrBuildChangeImpactFor(root, () => graph);
     const wg = await this.ensureFreshWorkspace(root);
-    const pkg = wg.getPackageForFile(file);
-    if (!pkg) {
+    if (!wg.getPackageForFile(file)) {
       throw new Error(
         `No workspace package owns "${file}". Call get_workspace_packages to list packages.`,
       );
     }
-    return this.getOrBuildChangeImpactFor(`${root}::${pkg.name}`, () => graph);
+    return this.getOrBuildChangeImpactFor(`${root}::__flat__`, () => graph);
   }
 
   /**
@@ -409,8 +406,9 @@ export class SessionState {
   /**
    * @description Resolves the `Graph` a file-scoped query (one `file` argument) should run
    *   against. On a plain (non-monorepo) root this is exactly `ensureFresh`. On a workspace root
-   *   it resolves the package that owns `file` via `WorkspaceGraph.getPackageForFile` and returns
-   *   that package's own `Graph` — never a merged whole-repo graph.
+   *   it returns the flattened whole-workspace graph (`WorkspaceGraph.flatten()`), so blast
+   *   radius, callers and dependency traversal from `file` cross package boundaries. Still
+   *   validates that some package owns `file`.
    * @param root - Absolute project root path.
    * @param file - Root-relative path of the file the query is about.
    * @returns The `Graph` to query.
@@ -418,17 +416,28 @@ export class SessionState {
    *   package owns `file`.
    */
   async resolveGraphForFile(root: string, file: string): Promise<Graph> {
-    if (!this.isWorkspaceRoot(root)) return this.ensureFresh(root);
+    return (await this.resolveFlatGraphForFile(root, file)).graph;
+  }
+
+  /**
+   * @description Like {@link resolveGraphForFile} but also returns the `path → package name`
+   *   lookup, for handlers that annotate their results with each file's owning package.
+   * @param root - Absolute project root path.
+   * @param file - Root-relative path of the file the query is about.
+   * @returns The graph to query and its package lookup (`packageOf` empty on a plain root).
+   * @throws {Error} if `analyze` was never called, or no package owns `file` on a workspace root.
+   */
+  async resolveFlatGraphForFile(root: string, file: string): Promise<FlatWorkspaceGraph> {
+    if (!this.isWorkspaceRoot(root)) {
+      return { graph: await this.ensureFresh(root), packageOf: new Map() };
+    }
     const wg = await this.ensureFreshWorkspace(root);
-    const pkg = wg.getPackageForFile(file);
-    if (!pkg) {
+    if (!wg.getPackageForFile(file)) {
       throw new Error(
         `No workspace package owns "${file}". Call get_workspace_packages to list packages.`,
       );
     }
-    const entry = wg.packages.get(pkg.name);
-    if (!entry) throw new Error(`Workspace package "${pkg.name}" has no graph built.`);
-    return entry.graph;
+    return wg.flatten();
   }
 
   /**
@@ -465,6 +474,36 @@ export class SessionState {
       package: name,
       graph: restrictToOwnFiles(graph, pkgMeta),
     }));
+  }
+
+  /**
+   * @description Resolves the single `Graph` a whole-workspace tool should run against, plus a
+   *   `path → package name` lookup. On a plain (non-monorepo) root this is exactly
+   *   `ensureFresh`'s graph with an empty `packageOf`, so single-package behavior is unchanged.
+   *   On a workspace root it is `WorkspaceGraph.flatten()` — every package's own nodes merged
+   *   into one namespace with cross-package edges intact — optionally narrowed to `pkg`.
+   *   Unlike `resolveGraphs`, callers do not fan out or concatenate: they run their existing
+   *   single-`Graph` logic once and annotate results with `packageOf`.
+   * @param root - Absolute project root path.
+   * @param pkg - Optional workspace package name to restrict the flattened graph to.
+   * @returns The graph to query and its package lookup.
+   * @throws {Error} if `analyze` was never called for `root`, or `pkg` names an unknown package.
+   */
+  async resolveFlatGraph(root: string, pkg?: string): Promise<FlatWorkspaceGraph> {
+    if (!this.isWorkspaceRoot(root)) {
+      return { graph: await this.ensureFresh(root), packageOf: new Map() };
+    }
+    const wg = await this.ensureFreshWorkspace(root);
+    const flat = wg.flatten();
+    if (pkg) {
+      if (!wg.packages.has(pkg)) {
+        throw new Error(
+          `Unknown workspace package "${pkg}". Call get_workspace_packages to list packages.`,
+        );
+      }
+      return restrictFlatToPackage(flat, pkg);
+    }
+    return flat;
   }
 
   /**

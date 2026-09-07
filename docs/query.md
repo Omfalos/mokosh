@@ -22,6 +22,7 @@ The query is a comma-separated string of `key:value` pairs.
 | --- | --- | --- |
 | `path` | Matches if the file path *contains* the value. | `path:src/api` |
 | `type` | Matches the exact file type (e.g., `typescript`, `python`). | `type:python` |
+| `package` | Exact match on the owning workspace package name. Prefix with `"!"` to exclude. Only meaningful on a monorepo root (where the query runs across the whole flattened workspace and every result node reports its `package`); a no-op elsewhere. | `package:@org/app`, `package:!@org/legacy` |
 | `category` | Matches the exact node category (e.g., `logic`, `ui`, `test`). | `category:logic` |
 | `tag` / `tags` | Matches if the file has **any** of the specified tags (OR). Prefix with `"!"` to exclude. | `tag:auth`, `tag:!test` |
 | `tag` (AND syntax) | Use `+` within the value to require **all** listed tags (AND). | `tag:auth+core` |

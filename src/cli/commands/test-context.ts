@@ -4,6 +4,7 @@ import type { CommandContext } from "./types";
 
 export function makeContext(overrides: Partial<CommandContext> & { graph: Graph }): CommandContext {
   return {
+    packageOf: new Map(),
     rootDir: "/tmp/mokosh-test",
     cachePath: "/tmp/mokosh-test/mokosh-cache/graph.json",
     entryPoints: [],
