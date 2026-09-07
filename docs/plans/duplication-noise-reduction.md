@@ -5,6 +5,11 @@ dogfood audits of `find_duplicates` / `--check-cycles` against `box-ui-elements`
 pure TS/JS/SCSS/Markdown) through 2026-09-05, building on the SVG-noise work in
 `4b527ec` and the clone-family work in `docs/known_issues/09-duplicate-clone-family-noise.md`.
 
+**JVM companion:** `docs/plans/duplication-noise-reduction-jvm.md` covers the Kotlin/Java side —
+`minScore` calibration for item A, block-identity clustering for item E, plus three JVM-only
+noise classes (KMP source-set splits, `@JvmName` compat shims, Kotlin builder/data-class idiom)
+and workspace-wide dedup. Backed by a `square/okhttp` dogfood run on 2026-09-05.
+
 ## Context
 
 A no-limit `find_duplicates` run on `box-ui-elements` started at **11,300 groups / 8,794
