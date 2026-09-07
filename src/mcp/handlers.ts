@@ -11,6 +11,7 @@ import {
   type CycleEdgeKind,
   compareBranches,
   configToGraphOptions,
+  createWorkspaceGraph,
   DEFAULT_IGNORE_DIRS,
   detectAllEntryPoints,
   detectFeatures,
@@ -28,6 +29,8 @@ import {
   getLanguageCoverage,
   getNodeMeta,
   hasCoverageData,
+  hasGitTimestampData,
+  languageSupportNote,
   loadCoverageMap,
   loadMokoshConfig,
   MermaidExporter,
@@ -399,9 +402,12 @@ export async function handleGetAffected(
  *   complexity, doc drift, and (when coverage is loaded) risk hotspots. The base ref's graph is
  *   built via a temporary `git worktree` and cached to disk by commit sha, so repeat comparisons
  *   against the same base commit are free after the first. Requires a prior `analyze` call.
+ *   On a monorepo root both sides are the flattened whole-workspace graph — the base side is a
+ *   full `createWorkspaceGraph` in the worktree — so `entryPoints` is rejected there.
  * @param cache - Session state holding the cached graph for `root`.
  * @param args - `root`/`baseRef` identify the comparison; `entryPoints` seeds the base-ref build
- *   (defaults to the entry points from the last `analyze` call); `detail` (`"summary"`, default, or
+ *   (defaults to the entry points from the last `analyze` call; not allowed on a monorepo root);
+ *   `detail` (`"summary"`, default, or
  *   `"full"`) picks the token-frugal projection vs. the complete `BranchComparison`; `maxItems`
  *   caps each delta list in summary mode (default 8); the rest tune the underlying
  *   duplication/complexity/coverage tool calls.
@@ -412,6 +418,37 @@ export async function handleCompareBranches(
   args: CompareBranchesArgs,
 ): Promise<TextResponse> {
   const { root, baseRef, headRef, minDuplicateLines, complexityMetric, complexityThreshold } = args;
+  const graphOptions = configToGraphOptions(cache.getConfig(root));
+
+  // On a monorepo root there is no single entry-point-seeded graph: the head side is the
+  // flattened whole-workspace graph, and the base side is built the same way (a full
+  // `createWorkspaceGraph` in the ref's worktree, then flattened) via `workspaceBuilder`.
+  if (cache.isWorkspaceRoot(root)) {
+    if (args.entryPoints?.length) {
+      throw new Error(
+        "compare_branches on a monorepo root compares the whole workspace — omit entryPoints. " +
+          "To compare one package, point root at that package's directory.",
+      );
+    }
+    const headGraph = (await cache.ensureFreshWorkspace(root)).flatten().graph;
+    const comparison = await compareBranches(root, baseRef, headGraph, {
+      headRef,
+      entryPoints: [],
+      minDuplicateLines,
+      complexityMetric,
+      complexityThreshold,
+      maxCoveragePct: args.maxCoveragePct,
+      ...graphOptions,
+      workspaceBuilder: async (worktreeDir) =>
+        (await createWorkspaceGraph(worktreeDir, { silent: true, ...graphOptions })).flatten()
+          .graph,
+    });
+    if (args.detail === "full") return text(comparison);
+    return text(
+      summarizeBranchComparison(comparison, { metric: complexityMetric, maxItems: args.maxItems }),
+    );
+  }
+
   const graph = await cache.ensureFresh(root);
   const entryPoints =
     args.entryPoints ?? cache.getLastEntryPoints(root)?.map((ep) => path.relative(root, ep)) ?? [];
@@ -422,7 +459,7 @@ export async function handleCompareBranches(
     complexityMetric,
     complexityThreshold,
     maxCoveragePct: args.maxCoveragePct,
-    ...configToGraphOptions(cache.getConfig(root)),
+    ...graphOptions,
   });
   if (args.detail === "full") return text(comparison);
   return text(
@@ -452,7 +489,8 @@ export async function handleGetCallers(
           const pkg = packageOf.get(entry.file);
           return pkg ? { ...entry, package: pkg } : entry;
         });
-  return text({ file, callers, count: callers.length });
+  const note = callers.length === 0 ? languageSupportNote(graph, "callEdges") : undefined;
+  return text({ file, callers, count: callers.length, ...(note && { note }) });
 }
 
 /**
@@ -587,6 +625,15 @@ export async function handleCheckDocDrift(
   const graphs = await cache.resolveGraphs(root, pkg);
   const multi = graphs.length > 1;
 
+  // Same convention as find_uncovered / find_risk_hotspots: an explicit error when the data the
+  // tool depends on was never loaded, rather than an empty result that reads as "all clear".
+  if (!graphs.some(({ graph }) => hasGitTimestampData(graph))) {
+    return text({
+      error:
+        "No git-stats data available. Set gitStats: true in mokosh.config and call analyze again.",
+    });
+  }
+
   const staleDocs = graphs.flatMap(({ graph, package: pkgName }) =>
     tagPackage(
       [...graph.nodes.values()]
@@ -629,7 +676,14 @@ export async function handleFindComplexFunctions(
     )
     .sort((a, b) => b[metric] - a[metric])
     .slice(0, limit);
-  return text({ metric, threshold, functions, count: functions.length });
+  const note =
+    functions.length === 0
+      ? languageSupportNote(
+          graphs.map(({ graph }) => graph),
+          "functionComplexity",
+        )
+      : undefined;
+  return text({ metric, threshold, functions, count: functions.length, ...(note && { note }) });
 }
 
 /**
@@ -1033,7 +1087,8 @@ export async function handleGetTypeGraph(
     return text(queryTypeGraph(typeGraph, type));
   }
   const types = Array.from(typeGraph.types.values());
-  return text({ count: types.length, types });
+  const note = types.length === 0 ? languageSupportNote(graph, "typeGraph") : undefined;
+  return text({ count: types.length, types, ...(note && { note }) });
 }
 
 /**
@@ -1102,7 +1157,12 @@ export async function handleGetCallGraph(
 ): Promise<TextResponse> {
   const { root, function: functionName, package: pkg } = args;
   const { graph } = await cache.resolveFlatGraph(root, pkg);
-  return text(queryCallGraph(graph, functionName));
+  const result = queryCallGraph(graph, functionName);
+  const note =
+    result.callers.length === 0 && result.callees.length === 0
+      ? languageSupportNote(graph, "callEdges")
+      : undefined;
+  return text({ ...result, ...(note && { note }) });
 }
 
 /**
@@ -1132,15 +1192,17 @@ export async function handleFindSymbol(
  *   `unreachableFromEntry` (separate consumers or dead-code candidates), and `testFiles`.
  *   On a monorepo root: one surface per workspace package, using the entry points the
  *   `WorkspaceGraph` already resolved per package (no re-reading of `package.json`). A package
- *   with no resolvable entry point is listed in `skipped` rather than failing the whole call,
- *   and — unless a single `package` is requested — each package's `publicExports` is capped and
- *   the path lists are reduced to counts so the response stays small.
+ *   with no resolvable entry point is listed in `skipped` rather than failing the whole call.
+ *   Unless a single `package` is requested, the response is compact: per-package counts only
+ *   (no path lists), each exported symbol reduced to `{ name, kind }`, and the `publicExports`
+ *   sample capped at `maxExportsPerPackage` (default 10; `0` = counts only). Use `package` for
+ *   one package's full `ApiSurface`.
  * @param cache - Session state holding the cached graph(s) for `root`.
  * @param args - `root` selects the project; `entryPoints` overrides auto-detection; `package`
  *   scopes to one workspace package (returns its full surface); `maxExportsPerPackage` caps the
- *   per-package `publicExports` list in the multi-package response (default 50).
+ *   per-package `publicExports` sample in the multi-package response (default 10, `0` = counts only).
  * @returns TextResponse: a single `ApiSurface` for a plain root or a single requested package;
- *   otherwise `{ packages: [...capped per-package summaries], skipped, truncated }`.
+ *   otherwise `{ packages: [...compact per-package summaries], skipped, truncated }`.
  */
 /** JVM (and Go, after language-aware detection) treat every source file as an entry point, so a
  *  surface can carry hundreds of them. Echo at most this many back, with the true `entryPointCount`
@@ -1168,7 +1230,7 @@ export async function handleGetApiSurface(
   args: GetApiSurfaceArgs,
 ): Promise<TextResponse> {
   const { root, entryPoints, package: pkg } = args;
-  const maxExportsPerPackage = args.maxExportsPerPackage ?? 50;
+  const maxExportsPerPackage = args.maxExportsPerPackage ?? 10;
 
   // Plain (non-monorepo) root: unchanged single-graph behavior.
   if (!cache.isWorkspaceRoot(root)) {
@@ -1211,18 +1273,21 @@ export async function handleGetApiSurface(
     return text({ ...surface, ...echoEntryPoints(surface.entryPoints) });
   }
 
-  // Every package → capped per-package breakdown; packages with no entry point are listed in `skipped`.
-  const packages: Array<{
+  // Every package → capped per-package breakdown; packages with no entry point are listed in
+  // `skipped`. Deliberately compact so a 30+-package monorepo stays well under an MCP token cap:
+  // no per-package path lists (counts only), and each exported symbol is just `name` + `kind`
+  // (call get_api_surface with `package` for one package's full surface). `maxExportsPerPackage:
+  // 0` drops the `publicExports` sample entirely — a counts-only mode.
+  interface PackageApiSummary {
     package: string;
-    entryPoints: string[];
     entryPointCount: number;
-    entryPointsTruncated?: true;
-    publicExports: PublicExport[];
     publicExportCount: number;
+    publicExports?: Array<{ name: string; kind: PublicExport["kind"] }>;
     internalFileCount: number;
     unreachableFromEntryCount: number;
     testFileCount: number;
-  }> = [];
+  }
+  const packages: PackageApiSummary[] = [];
   const skipped: Array<{ package: string; reason: string }> = [];
   let truncated = false;
 
@@ -1235,17 +1300,23 @@ export async function handleGetApiSurface(
       });
       continue;
     }
-    const cappedExports = surface.publicExports.slice(0, maxExportsPerPackage);
-    if (cappedExports.length < surface.publicExports.length) truncated = true;
-    packages.push({
+    const summary: PackageApiSummary = {
       package: pkgName,
-      ...echoEntryPoints(surface.entryPoints),
-      publicExports: cappedExports,
+      entryPointCount: surface.entryPoints.length,
       publicExportCount: surface.publicExports.length,
       internalFileCount: surface.internalFiles.length,
       unreachableFromEntryCount: surface.unreachableFromEntry.length,
       testFileCount: surface.testFiles.length,
-    });
+    };
+    if (maxExportsPerPackage > 0) {
+      summary.publicExports = surface.publicExports
+        .slice(0, maxExportsPerPackage)
+        .map((exp) => ({ name: exp.name, kind: exp.kind }));
+      if (summary.publicExports.length < surface.publicExports.length) truncated = true;
+    } else if (surface.publicExports.length > 0) {
+      truncated = true;
+    }
+    packages.push(summary);
   }
   return text({ packages, skipped, truncated });
 }

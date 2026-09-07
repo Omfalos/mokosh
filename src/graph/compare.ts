@@ -24,6 +24,13 @@ export interface BuildGraphAtRefOptions {
   pathAliases?: Record<string, string[]> | undefined;
   /** Extra directory names to skip during test/doc discovery, on top of the built-in list. Sourced from `MokoshConfig.ignoreDirs`. */
   additionalIgnoreDirs?: string[] | undefined;
+  /** Monorepo roots only. When set, the base-ref graph is built by calling this with the
+   *  worktree directory — the caller builds a whole `WorkspaceGraph` there and returns its
+   *  flattened `Graph`, so cross-package edges survive. Bypasses the entry-point-seeded
+   *  `GraphBuilder` path (which has no `workspaceMap` and would miss `@org/*` imports).
+   *  Injected rather than imported to keep `compare.ts` free of the `createWorkspaceGraph`
+   *  dependency cycle. */
+  workspaceBuilder?: ((worktreeDir: string) => Promise<Graph>) | undefined;
 }
 
 /**
@@ -49,6 +56,7 @@ export async function buildGraphAtRef(
   if (cached) return { sha, graph: cached };
 
   const graph = await withWorktree(rootDir, sha, async (worktreeDir) => {
+    if (options.workspaceBuilder) return options.workspaceBuilder(worktreeDir);
     const resolver = options.pathAliases
       ? new DefaultResolver(worktreeDir, { pathAliases: options.pathAliases })
       : undefined;

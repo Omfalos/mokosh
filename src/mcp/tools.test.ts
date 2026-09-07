@@ -10,7 +10,7 @@ import { TOOL_DEFINITIONS } from "./tools";
  */
 const MAX_DESCRIPTION_CHARS = 700;
 const MAX_TOTAL_DESCRIPTION_CHARS = 10_000;
-const MAX_TOTAL_SCHEMA_CHARS = 24_800; // ~6.2K tokens — ec923c5's pre-trim size + find_duplicates scope/includeDocs params + adr-020 (workspace `package` narrowing on the whole-graph tools; get_workspace_affected's grouped/capped shape + maxFilesPerPackage)
+const MAX_TOTAL_SCHEMA_CHARS = 24_800; // ~6.2K tokens — ec923c5's pre-trim size + find_duplicates scope/includeDocs params + adr-020 monorepo work (workspace `package` narrowing; get_workspace_affected / get_api_surface compact shapes; compare_branches monorepo note)
 
 describe("TOOL_DEFINITIONS size budget", () => {
   test.each(TOOL_DEFINITIONS.map((tool) => ({ name: tool.name, description: tool.description })))(

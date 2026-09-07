@@ -133,7 +133,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "compare_branches",
     description:
-      "Compare the current graph (root) against baseRef, for reviewing a PR/branch: file diff, stale post-rename references, and deltas for duplication, complexity, doc drift, and coverage/risk hotspots. Returns a compact summary by default (verdict + headline + capped delta lists); pass detail:'full' for every entry. See docs/mcp.md for details. Requires a prior analyze() call.",
+      "Compare the current graph (root) against baseRef, for reviewing a PR/branch: file diff, stale post-rename references, and deltas for duplication, complexity, doc drift, and coverage/risk hotspots. Returns a compact summary by default (verdict + headline + capped delta lists); pass detail:'full' for every entry. Monorepo root: whole flattened workspace, no entryPoints. See docs/mcp.md. Requires a prior analyze() call.",
     inputSchema: {
       type: "object",
       properties: {
@@ -610,7 +610,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "get_api_surface",
     description:
-      "Build the API surface report for a project: every exported symbol resolved to its defining file and kind, partitioned into internalFiles, unreachableFromEntry, and testFiles. Requires a prior analyze() call. Entry points auto-detect when omitted: JS/TS from package.json exports/main; Go/Python/JVM from every non-test source file. On a monorepo root with no `package`, returns one capped summary per package plus `skipped` (packages with no entry point). See docs/mcp.md.",
+      "Build the API surface report: every exported symbol resolved to its defining file and kind, partitioned into internalFiles, unreachableFromEntry, testFiles. Requires a prior analyze() call. Entry points auto-detect: JS/TS from package.json; Go/Python/JVM from every non-test source file. Monorepo root, no `package`: a compact per-package breakdown (counts + name/kind samples) plus `skipped`; use `package` for one package's full surface. See docs/mcp.md.",
     inputSchema: {
       type: "object",
       properties: {
@@ -625,7 +625,7 @@ export const TOOL_DEFINITIONS = [
         maxExportsPerPackage: {
           type: "number",
           description:
-            "Monorepo, no `package`: cap each package's publicExports list (default 50).",
+            "Monorepo, no `package`: cap each package's publicExports sample (default 10; 0 = counts only).",
         },
       },
       required: ["root"],

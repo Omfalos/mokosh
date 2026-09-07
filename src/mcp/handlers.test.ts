@@ -1558,6 +1558,43 @@ describe("handleGetApiSurface (monorepo)", {
     expect(data.truncated).toBe(true);
   });
 
+  test("multi-package publicExports carry only name + kind (no paths)", async () => {
+    const wg = makeApiWorkspace();
+    const data = parse(await handleGetApiSurface(makeApiCache(wg), { root: ROOT })) as {
+      packages: Array<{ publicExports: Array<Record<string, unknown>> }>;
+    };
+    for (const exp of data.packages[0]?.publicExports ?? []) {
+      expect(Object.keys(exp).sort()).toEqual(["kind", "name"]);
+    }
+  });
+
+  test("maxExportsPerPackage: 0 is counts-only — no publicExports arrays", async () => {
+    const wg = makeApiWorkspace();
+    const data = parse(
+      await handleGetApiSurface(makeApiCache(wg), { root: ROOT, maxExportsPerPackage: 0 }),
+    ) as {
+      packages: Array<{ publicExports?: unknown[]; publicExportCount: number }>;
+      truncated: boolean;
+    };
+
+    expect(data.packages[0]?.publicExports).toBeUndefined();
+    expect(data.packages[0]?.publicExportCount).toBe(2);
+    expect(data.truncated).toBe(true);
+  });
+
+  test("multi-package summaries omit per-package path lists", async () => {
+    const wg = makeApiWorkspace();
+    const data = parse(await handleGetApiSurface(makeApiCache(wg), { root: ROOT })) as {
+      packages: Array<Record<string, unknown>>;
+    };
+    const keys = Object.keys(data.packages[0] ?? {});
+    expect(keys).not.toContain("entryPoints");
+    expect(keys).not.toContain("internalFiles");
+    expect(keys).not.toContain("unreachableFromEntry");
+    expect(keys).toContain("entryPointCount");
+    expect(keys).toContain("internalFileCount");
+  });
+
   test("a single requested package returns its full ApiSurface", async () => {
     const wg = makeApiWorkspace();
     const data = parse(

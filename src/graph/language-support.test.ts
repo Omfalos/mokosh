@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import type { FileNode } from "../types/node";
 import type { FileType } from "../types/parse";
-import { getLanguageCoverage } from "./language-support";
+import { getLanguageCoverage, languageSupportNote } from "./language-support";
 import { Graph } from "./model";
 
 function makeNode(p: string, type: FileType): FileNode {
@@ -152,5 +152,51 @@ describe("getLanguageCoverage", { tags: ["getLanguageCoverage", "Graph", "FileNo
 
   test("returns an empty array for an empty graph", () => {
     expect(getLanguageCoverage(makeGraph([]))).toEqual([]);
+  });
+});
+
+describe("languageSupportNote", { tags: ["languageSupportNote", "Graph", "FileNode"] }, () => {
+  test("returns a note naming the present languages when none support the feature", () => {
+    const graph = makeGraph([makeNode("A.kt", "kotlin"), makeNode("B.scala", "scala")]);
+    const note = languageSupportNote(graph, "callEdges");
+    expect(note).toBeDefined();
+    expect(note).toContain("kotlin, scala");
+    expect(note).toContain("call edges");
+  });
+
+  test("returns undefined when a supported language is present", () => {
+    const graph = makeGraph([makeNode("A.kt", "kotlin"), makeNode("b.ts", "typescript")]);
+    expect(languageSupportNote(graph, "callEdges")).toBeUndefined();
+  });
+
+  test("functionComplexity: go/python/ts supported, kotlin not", () => {
+    expect(
+      languageSupportNote(makeGraph([makeNode("a.go", "go")]), "functionComplexity"),
+    ).toBeUndefined();
+    expect(
+      languageSupportNote(makeGraph([makeNode("A.kt", "kotlin")]), "functionComplexity"),
+    ).toContain("per-function complexity");
+  });
+
+  test("typeGraph: only ts/js supported", () => {
+    expect(languageSupportNote(makeGraph([makeNode("a.py", "python")]), "typeGraph")).toContain(
+      "type extraction",
+    );
+    expect(
+      languageSupportNote(makeGraph([makeNode("a.ts", "typescript")]), "typeGraph"),
+    ).toBeUndefined();
+  });
+
+  test("accepts an array of graphs (workspace) — undefined if any has a supported language", () => {
+    const kt = makeGraph([makeNode("A.kt", "kotlin")]);
+    const ts = makeGraph([makeNode("b.ts", "typescript")]);
+    expect(languageSupportNote([kt, ts], "callEdges")).toBeUndefined();
+    expect(
+      languageSupportNote([kt, makeGraph([makeNode("B.kt", "kotlin")])], "callEdges"),
+    ).toBeDefined();
+  });
+
+  test("empty graph -> generic subject", () => {
+    expect(languageSupportNote(makeGraph([]), "callEdges")).toContain("this project");
   });
 });

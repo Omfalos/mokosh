@@ -288,6 +288,17 @@ export function hasChurnData(graph: Graph): boolean {
   return [...graph.nodes.values()].some((node) => node.commitCount90d !== undefined);
 }
 
+/**
+ * @description Returns `true` if at least one node has a last-commit timestamp — i.e. `analyze`
+ *   ran with `gitStats` enabled. `check_doc_drift` needs this: without it `enrichDocDrift`
+ *   populates no `staleFor`, so an empty result would be indistinguishable from "no drift".
+ * @param graph - The graph to check.
+ * @returns Whether any node has a defined `lastCommitAt`.
+ */
+export function hasGitTimestampData(graph: Graph): boolean {
+  return [...graph.nodes.values()].some((node) => node.lastCommitAt !== undefined);
+}
+
 export interface RiskHotspotEntry {
   file: string;
   name: string;

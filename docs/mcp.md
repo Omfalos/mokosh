@@ -150,6 +150,11 @@ temporary `git worktree`, cached to disk keyed by commit sha (`<root>/mokosh-cac
 so repeat comparisons against the same base commit are free after the first. Requires a prior
 `analyze` call. See `docs/adr-016-branch-comparison.md` for the mechanism.
 
+**Monorepo root**: both sides are the flattened whole-workspace graph — the base side is a full
+`createWorkspaceGraph` run inside the ref's worktree, then flattened, so cross-package edges are
+preserved. `entryPoints` is rejected (there is no single entry-point-seeded graph). To compare
+one package, point `root` at that package's directory.
+
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `root` | `string` | yes | |
@@ -514,14 +519,23 @@ Builds the API surface report for a project. Expands `export *` chains so every 
 - **JS/TS**: every `exports` sub-path target (`.`, `./client`, …), then `main`, then `src/index.*`.
 - **Go / Python / JVM** (no `package.json`): every non-test source file is an entry point — for these the "surface" is all exported symbols in the module. Python prefers the shallowest `__init__.py` files when present. Such surfaces carry a large `entryPointCount` with a capped `entryPoints` sample (`entryPointsTruncated: true`); an empty `unreachableFromEntry` alongside a big count means "every file is an entry", not "nothing is separate".
 
-**Monorepo root**: one surface per workspace package, using the entry points the `WorkspaceGraph` already resolved per package (each from its *own* `package.json` / detector). A package with no resolvable entry point is listed in `skipped` (the call never fails as a whole). Unless a single `package` is requested, each package's `publicExports` is capped (`maxExportsPerPackage`, default 50; exact `publicExportCount` alongside) and the file partitions are returned as counts — response shape `{ packages: [...], skipped: [...], truncated }`.
+**Monorepo root**: one surface per workspace package, using the entry points the `WorkspaceGraph` already resolved per package (each from its *own* `package.json` / detector). A package with no resolvable entry point is listed in `skipped` (the call never fails as a whole). Unless a single `package` is requested, the response is deliberately **compact** so a 30+-package monorepo stays under an MCP token cap — response shape `{ packages: [...], skipped: [...], truncated }`, where each `packages[]` entry is:
+
+```jsonc
+{ "package": "@org/foo",
+  "entryPointCount": 1, "publicExportCount": 214,
+  "publicExports": [ { "name": "createClient", "kind": "function" }, … ],  // ≤ maxExportsPerPackage, name+kind only
+  "internalFileCount": 88, "unreachableFromEntryCount": 3, "testFileCount": 40 }
+```
+
+No per-package path lists (counts only); each exported symbol is just `name` + `kind`. `maxExportsPerPackage: 0` drops the `publicExports` sample entirely (counts-only mode). For a package's full `ApiSurface` — resolved `definedIn` paths, docs, signatures, the actual file lists — call `get_api_surface` again with `package: "@org/foo"`.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `root` | `string` | yes | |
 | `entryPoints` | `string[]` | no | Project-relative paths of public entry points. Omit to auto-detect (see above) |
-| `package` | `string` | no | Monorepo: return the full surface for just this package instead of the capped per-package breakdown |
-| `maxExportsPerPackage` | `number` | no | Monorepo, no `package`: cap each package's `publicExports` list (default 50) |
+| `package` | `string` | no | Monorepo: return the full `ApiSurface` for just this package instead of the compact per-package breakdown |
+| `maxExportsPerPackage` | `number` | no | Monorepo, no `package`: cap each package's `publicExports` sample (default 10; `0` = counts only) |
 
 **Requires:** a prior `analyze` call for the same `root`.
 

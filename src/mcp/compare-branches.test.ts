@@ -1,14 +1,21 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { BranchComparison } from "../index";
-import { Graph } from "../index";
+import { Graph, WorkspaceGraph } from "../index";
 import type { SessionState } from "./cache";
 import { handleCompareBranches } from "./handlers";
 
-const compareBranchesMock = vi.hoisted(() => vi.fn());
+const { compareBranchesMock, createWorkspaceGraphMock } = vi.hoisted(() => ({
+  compareBranchesMock: vi.fn(),
+  createWorkspaceGraphMock: vi.fn(),
+}));
 
 vi.mock("../index", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../index")>();
-  return { ...actual, compareBranches: compareBranchesMock };
+  return {
+    ...actual,
+    compareBranches: compareBranchesMock,
+    createWorkspaceGraph: createWorkspaceGraphMock,
+  };
 });
 
 const ROOT = "/tmp/mokosh-test";
@@ -17,6 +24,7 @@ function makeCache(overrides: Partial<SessionState> = {}): SessionState {
   const graph = Graph.deserialize({ nodes: [] });
   return {
     ensureFresh: vi.fn().mockResolvedValue(graph),
+    isWorkspaceRoot: vi.fn().mockReturnValue(false),
     getConfig: vi.fn().mockReturnValue({}),
     getLastEntryPoints: vi.fn().mockReturnValue(undefined),
     ...overrides,
@@ -44,6 +52,11 @@ const fullComparison = (): BranchComparison => ({
 });
 
 describe("handleCompareBranches", { tags: ["handleCompareBranches", "mcp"] }, () => {
+  beforeEach(() => {
+    compareBranchesMock.mockReset();
+    createWorkspaceGraphMock.mockReset();
+  });
+
   it("returns the compact summary by default", async () => {
     compareBranchesMock.mockResolvedValue(fullComparison());
     const cache = makeCache();
@@ -107,5 +120,58 @@ describe("handleCompareBranches", { tags: ["handleCompareBranches", "mcp"] }, ()
       expect.anything(),
       expect.objectContaining({ entryPoints: ["src/other.ts"] }),
     );
+  });
+
+  describe("monorepo root", () => {
+    function workspaceCache(): SessionState {
+      const wg = new WorkspaceGraph(ROOT, "pnpm");
+      wg.addPackage(
+        { name: "@org/a", root: `${ROOT}/packages/a`, relativeRoot: "packages/a", entryPoints: [] },
+        Graph.deserialize({ nodes: [] }),
+      );
+      return makeCache({
+        isWorkspaceRoot: vi.fn().mockReturnValue(true),
+        ensureFreshWorkspace: vi.fn().mockResolvedValue(wg),
+      } as Partial<SessionState>);
+    }
+
+    it("compares the flattened workspace and passes a workspaceBuilder for the base ref", async () => {
+      compareBranchesMock.mockResolvedValue(fullComparison());
+
+      await handleCompareBranches(workspaceCache(), { root: ROOT, baseRef: "HEAD~5" });
+
+      const opts = compareBranchesMock.mock.calls[0]?.[3] as Record<string, unknown>;
+      expect(opts.entryPoints).toEqual([]);
+      expect(typeof opts.workspaceBuilder).toBe("function");
+    });
+
+    it("the workspaceBuilder builds + flattens a WorkspaceGraph at the worktree dir", async () => {
+      compareBranchesMock.mockResolvedValue(fullComparison());
+      const flatGraph = Graph.deserialize({ nodes: [] });
+      createWorkspaceGraphMock.mockResolvedValue({ flatten: () => ({ graph: flatGraph }) });
+
+      await handleCompareBranches(workspaceCache(), { root: ROOT, baseRef: "HEAD~5" });
+
+      const opts = compareBranchesMock.mock.calls[0]?.[3] as {
+        workspaceBuilder: (dir: string) => Promise<Graph>;
+      };
+      const built = await opts.workspaceBuilder("/tmp/worktree-xyz");
+      expect(createWorkspaceGraphMock).toHaveBeenCalledWith(
+        "/tmp/worktree-xyz",
+        expect.objectContaining({ silent: true }),
+      );
+      expect(built).toBe(flatGraph);
+    });
+
+    it("rejects explicit entryPoints on a monorepo root", async () => {
+      await expect(
+        handleCompareBranches(workspaceCache(), {
+          root: ROOT,
+          baseRef: "main",
+          entryPoints: ["packages/a/src/index.ts"],
+        }),
+      ).rejects.toThrow(/whole workspace/);
+      expect(compareBranchesMock).not.toHaveBeenCalled();
+    });
   });
 });

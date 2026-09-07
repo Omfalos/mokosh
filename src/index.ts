@@ -91,9 +91,13 @@ export {
 export {
   CALL_EDGE_TYPES,
   EXPORT_TRACKING_TYPES,
+  FUNCTION_COMPLEXITY_TYPES,
   getLanguageCoverage,
   IMPORT_SYMBOL_TYPES,
   type LanguageCoverage,
+  type LanguageFeature,
+  languageSupportNote,
+  TYPE_GRAPH_TYPES,
 } from "./graph/language-support";
 // Core graph classes
 export { Graph } from "./graph/model";
@@ -113,6 +117,7 @@ export {
   getNodeMeta,
   hasChurnData,
   hasCoverageData,
+  hasGitTimestampData,
   type NodeMeta,
   type PathWithSymbols,
   type RiskHotspotEntry,

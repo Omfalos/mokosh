@@ -42,6 +42,63 @@ export const CALL_EDGE_TYPES: ReadonlySet<FileType> = new Set<FileType>([
   "java",
 ]);
 
+/** File types whose parser populates the per-function complexity breakdown (`FileNode.functions`). */
+export const FUNCTION_COMPLEXITY_TYPES: ReadonlySet<FileType> = new Set<FileType>([
+  "typescript",
+  "javascript",
+  "go",
+  "python",
+]);
+
+/** File types the type graph (`buildTypeGraph`) can extract interfaces/classes/enums/aliases from. */
+export const TYPE_GRAPH_TYPES: ReadonlySet<FileType> = new Set<FileType>([
+  "typescript",
+  "javascript",
+]);
+
+/** A graph-analysis capability that only some languages' parsers feed. */
+export type LanguageFeature = "callEdges" | "functionComplexity" | "typeGraph";
+
+const FEATURE_TYPES: Record<LanguageFeature, ReadonlySet<FileType>> = {
+  callEdges: CALL_EDGE_TYPES,
+  functionComplexity: FUNCTION_COMPLEXITY_TYPES,
+  typeGraph: TYPE_GRAPH_TYPES,
+};
+
+const FEATURE_LABEL: Record<LanguageFeature, string> = {
+  callEdges: "call edges",
+  functionComplexity: "per-function complexity",
+  typeGraph: "type extraction",
+};
+
+/**
+ * @description Returns an explanatory note when none of the graphs contain a language whose
+ *   parser feeds `feature` — so an empty tool result (`count: 0`) reads as "language not
+ *   supported" rather than "nothing found". Returns `undefined` when at least one supported-
+ *   language file is present (the empty result is then genuine).
+ * @param graphs - One graph, or the per-package graphs of a workspace.
+ * @param feature - The capability the calling tool depends on.
+ * @returns A one-sentence note, or `undefined`.
+ */
+export function languageSupportNote(
+  graphs: Graph | Graph[],
+  feature: LanguageFeature,
+): string | undefined {
+  const list = Array.isArray(graphs) ? graphs : [graphs];
+  const supported = FEATURE_TYPES[feature];
+  const present = new Set<FileType>();
+  for (const graph of list) {
+    for (const node of graph.nodes.values()) {
+      if (supported.has(node.type)) return undefined;
+      if (node.type !== "markdown" && node.type !== "unknown") present.add(node.type);
+    }
+  }
+  const langs = [...present].sort();
+  const subject = langs.length === 0 ? "this project" : langs.join(", ");
+  const verb = langs.length === 1 ? "is" : "are";
+  return `${FEATURE_LABEL[feature]} is only tracked for ${[...supported].sort().join(", ")} — ${subject} ${verb} unsupported, so this result is empty by design.`;
+}
+
 export interface LanguageCoverage {
   type: FileType;
   fileCount: number;

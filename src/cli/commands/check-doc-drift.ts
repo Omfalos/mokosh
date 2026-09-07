@@ -1,4 +1,5 @@
 /** CLI command: flags markdown docs whose referenced files changed more recently than the doc itself. */
+import { hasGitTimestampData } from "../../index";
 import type { CommandContext } from "./types";
 
 /**
@@ -12,6 +13,15 @@ import type { CommandContext } from "./types";
  */
 export async function run(ctx: CommandContext): Promise<void> {
   const { graph } = ctx;
+
+  if (!hasGitTimestampData(graph)) {
+    process.stderr.write(
+      "Warning: no git-stats data — rebuild with --git-stats (or config equivalent). Doc drift cannot be detected.\n",
+    );
+    console.log("No doc drift detected.");
+    return;
+  }
+
   const staleDocs = [...graph.nodes.values()]
     .filter((node) => node.type === "markdown" && node.staleFor && node.staleFor.length > 0)
     .map((node) => ({ doc: node.path, staleFor: node.staleFor as string[] }));

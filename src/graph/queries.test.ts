@@ -10,6 +10,7 @@ import {
   getDependents,
   hasChurnData,
   hasCoverageData,
+  hasGitTimestampData,
   slimSerialize,
   summarizeWorkspacePackages,
 } from "./queries";
@@ -168,6 +169,19 @@ describe("hasChurnData", () => {
     expect(node).toBeDefined();
     if (node) node.commitCount90d = 3;
     expect(hasChurnData(graph)).toBe(true);
+  });
+});
+
+describe("hasGitTimestampData", () => {
+  test("false when no node has lastCommitAt", () => {
+    expect(hasGitTimestampData(makeGraph())).toBe(false);
+  });
+
+  test("true when at least one node has lastCommitAt", () => {
+    const graph = makeGraph();
+    const node = graph.nodes.get("src/a.ts");
+    if (node) node.lastCommitAt = 1_700_000_000_000;
+    expect(hasGitTimestampData(graph)).toBe(true);
   });
 });
 
