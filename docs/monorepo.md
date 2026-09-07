@@ -35,21 +35,19 @@ mokosh --root /path/to/monorepo --workspace-packages
 mokosh --root /path/to/monorepo --workspace-affected --file packages/shared/src/utils.ts
 ```
 
-Every other command, given no entry points on a detected monorepo root, resolves against one
-package's own `Graph` instead — via `--package <name>`, or via `--file <path>` when the file
-already implies which package (`--dependencies`, `--dependents`, `--affected`, `--callers` all
-do this automatically):
+Every other command, given no entry points on a detected monorepo root, runs against the **whole
+workspace flattened into one `Graph`** — `WorkspaceGraph.flatten()` merges every package's own
+nodes into a single namespace with cross-package edges intact — so blast radius, call graphs and
+`--query` span package boundaries and every result reports its owning `package`:
 
 ```bash
-mokosh --root /path/to/monorepo --dependencies --file packages/api/src/handlers/auth.ts
-mokosh --root /path/to/monorepo --find-duplicates --package @myorg/api
+mokosh --root /path/to/monorepo --query "category:logic,sort:complexity,limit:10"
+mokosh --root /path/to/monorepo --affected --file packages/shared/src/utils.ts
+mokosh --root /path/to/monorepo --query "package:@myorg/api,type:typescript"
 ```
 
-Neither given is an error — unlike the MCP server's equivalent tools, this one-shot CLI process
-(each command `console.log`s its own output directly) has no natural place to fan out and merge
-across every package, so it asks you to pick one instead of guessing. Pass `--entry` explicitly
-to opt back into the old whole-repo-from-these-entry-points behavior, ignoring package boundaries
-entirely.
+Pass `--package <name>` to narrow any command to one package, or `--entry` explicitly to opt into
+whole-repo-from-these-entry-points behavior, ignoring package boundaries entirely.
 
 ## MCP
 
@@ -60,8 +58,8 @@ Pass `entryPoints: []` to `analyze` to trigger workspace detection:
 ```
 
 This returns the **package layout immediately** (`monorepoType`, `packageCount`, package list).
-The per-package dependency graphs are built lazily on the first `get_workspace_affected` call —
-so `analyze([])` stays fast even on a large JVM monorepo. Pass `eager: true` to build every
+The per-package dependency graphs are built lazily on the first workspace-aware tool call that
+needs edges — so `analyze([])` stays fast even on a large JVM monorepo. Pass `eager: true` to build every
 package graph up front and get the `{ nodeCount, categories, cycles }` payload instead.
 
 Once built, the workspace graph is persisted to `mokosh-cache/workspace-graph.json` and keyed by
@@ -74,11 +72,13 @@ rebuild (the rest are reused incrementally).
 JVM package-index scan with `ignoreDirs` in `mokosh.config.json` (or the `MOKOSH_IGNORE_DIRS`
 env var). Tune parallelism with `MOKOSH_WORKSPACE_CONCURRENCY` (default: CPU count; `1` = sequential).
 
-`get_workspace_packages` and `get_workspace_affected` are workspace-specific — every other MCP
-tool works on a monorepo root too, resolving against the right package's own graph (file-scoped
-tools auto-route from their `file` argument; whole-graph tools take an optional `package`
-argument, fanning out across every package when it's omitted). See [MCP reference](./mcp.md) for
-the full breakdown.
+`get_workspace_packages` is workspace-specific — every other MCP tool works on a monorepo root
+too. `query`, `get_affected`, `get_dependents`, `get_callers`, `get_dependencies`,
+`get_type_graph`, `get_call_graph` and `get_feature_graph` run against the flattened
+whole-workspace graph (cross-package edges intact, global `sort`/`limit`, each node tagged with
+its `package`); the remaining analysis tools fan out per package and concatenate. Pass an
+optional `package` argument (or `package:<name>` in a `query` filter) to narrow to one. See
+[MCP reference](./mcp.md) for the full breakdown.
 
 Then use the workspace-specific tools:
 

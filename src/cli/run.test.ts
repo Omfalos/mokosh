@@ -29,11 +29,13 @@ vi.mock("./graph-loader", () => ({
   buildGraph: buildGraphMock,
 }));
 
-const { applyConfigMock, configToGraphOptionsMock, createWorkspaceGraphMock } = vi.hoisted(() => ({
-  applyConfigMock: vi.fn(),
-  configToGraphOptionsMock: vi.fn(() => ({})),
-  createWorkspaceGraphMock: vi.fn(),
-}));
+const { applyConfigMock, configToGraphOptionsMock, createWorkspaceGraphMock, detectMonorepoMock } =
+  vi.hoisted(() => ({
+    applyConfigMock: vi.fn(),
+    configToGraphOptionsMock: vi.fn(() => ({})),
+    createWorkspaceGraphMock: vi.fn(),
+    detectMonorepoMock: vi.fn(),
+  }));
 vi.mock("../index", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../index")>();
   return {
@@ -41,8 +43,16 @@ vi.mock("../index", async (importOriginal) => {
     applyConfig: applyConfigMock,
     configToGraphOptions: configToGraphOptionsMock,
     createWorkspaceGraph: createWorkspaceGraphMock,
+    detectMonorepo: detectMonorepoMock,
   };
 });
+const NO_MONOREPO = {
+  type: "none",
+  types: [],
+  root: "/tmp/project",
+  packages: [],
+  packageMap: new Map(),
+};
 
 const { watchAndRunMock } = vi.hoisted(() => ({ watchAndRunMock: vi.fn() }));
 vi.mock("./watch", () => ({ watchAndRun: watchAndRunMock }));
@@ -158,6 +168,7 @@ function makeParsedArgs(overrides: Partial<ParsedArgs> = {}): ParsedArgs {
     includeGenerated: false,
     includeSameFile: false,
     includeSvgMarkup: false,
+    includeDocs: false,
     duplicateScope: undefined,
     findRiskHotspots: false,
     maxCoveragePct: undefined,
@@ -210,6 +221,7 @@ function setup(
   resolveConfigMock.mockReturnValue({ ...defaultResolvedConfig, ...configOverrides });
   loadGraphFromCacheMock.mockReturnValue(null);
   buildGraphMock.mockResolvedValue(new Graph(new Map()));
+  detectMonorepoMock.mockReturnValue(NO_MONOREPO);
   return parsed;
 }
 
@@ -223,6 +235,7 @@ describe("run()", { tags: ["run", "runner"] }, () => {
     buildGraphMock.mockReset();
     applyConfigMock.mockReset();
     createWorkspaceGraphMock.mockReset();
+    detectMonorepoMock.mockReset();
     watchAndRunMock.mockReset();
     runInitSkillMock.mockReset();
     runInitConfigMock.mockReset();
@@ -335,6 +348,27 @@ describe("run()", { tags: ["run", "runner"] }, () => {
         expect.stringContaining("--watch is not supported with --workspace-packages"),
       );
       expect(createWorkspaceGraphMock).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("monorepo auto-detect", () => {
+    it("flattens the whole workspace and dispatches --query without requiring --package", async () => {
+      setup({ query: "category:logic" });
+      detectMonorepoMock.mockReturnValue({ ...NO_MONOREPO, type: "pnpm" });
+      const flatGraph = new Graph(new Map());
+      const packageOf = new Map([["packages/a/src/x.ts", "@org/a"]]);
+      createWorkspaceGraphMock.mockResolvedValue({
+        flatten: () => ({ graph: flatGraph, packageOf }),
+        packages: new Map(),
+        getPackageForFile: () => undefined,
+      });
+
+      await run();
+
+      expect(createWorkspaceGraphMock).toHaveBeenCalledWith("/tmp/project", {});
+      expect(runGraphOutput).toHaveBeenCalledWith(
+        expect.objectContaining({ graph: flatGraph, packageOf }),
+      );
     });
   });
 

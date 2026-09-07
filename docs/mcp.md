@@ -44,11 +44,11 @@ The server holds an **in-process graph cache** keyed by project root. This means
 
 `find_unused`, `detect_features`, and `query` can optionally build their own graph if `entryPoints` are supplied, bypassing the cache requirement.
 
-**Monorepo**: pass `entryPoints: []` to `analyze` to trigger workspace auto-detection. This returns the package *layout* immediately; the per-package dependency graphs are built lazily on the first workspace-aware tool call that needs edges (pass `eager: true` to `analyze` to build them all up front). `get_workspace_packages` answers from the repo layout alone and needs no `analyze` at all; `get_workspace_affected` is cross-package blast-radius analysis. Every other tool works on a workspace root too, resolving against the right package's own graph rather than one merged whole-repo graph:
-- File-scoped tools (`get_dependencies`, `get_dependents`, `get_affected`, `get_callers`) resolve the owning package automatically from the `file` argument — no extra param needed.
-- Whole-graph tools (`query`, `find_unused`, `find_duplicates`, `find_complex_functions`, `find_risk_hotspots`, `list_tags`, `find_uncovered`, `check_doc_drift`, `find_symbol`, `get_api_surface`, `apply_tags`, `detect_features`) take an optional `package` argument — pass it to scope to one package, or omit it to run across every package and concatenate the results (each item tagged with its `package` when more than one was queried). Note: cross-package import edges are dropped from a fanned-out `query`'s `importsFiles` output, since each package's node set only includes its own files — use `get_workspace_affected` to see cross-package relationships.
-- Single-graph tools (`get_type_graph`, `get_call_graph`, `get_feature_graph`) return one graph-shaped result and can't merge across packages, so `package` is required once there's more than one.
-- `propose_tags`/`propose_affected_tests` group `changedFiles` by owning package internally (no `package` param) since one changeset commonly spans packages.
+**Monorepo**: pass `entryPoints: []` to `analyze` to trigger workspace auto-detection. This returns the package *layout* immediately; the per-package dependency graphs are built lazily on the first workspace-aware tool call that needs edges (pass `eager: true` to `analyze` to build them all up front). `get_workspace_packages` answers from the repo layout alone and needs no `analyze` at all. Every other tool works on a workspace root too:
+- Whole-workspace tools (`query`, `get_affected`, `get_dependents`, `get_callers`, `get_dependencies`, `get_type_graph`, `get_call_graph`, `get_feature_graph`) run against the **flattened whole-workspace graph** (`WorkspaceGraph.flatten()` — every package's own nodes in one namespace, cross-package edges intact). Blast radius, call graphs and queries span package boundaries; `sort`/`limit` rank globally; each result node carries its owning `package`. Pass the optional `package` argument (or a `package:<name>` clause in a `query` filter) to narrow to one package. `get_workspace_affected` still exists but `get_affected` now covers the same cross-package ground.
+- Fan-out tools (`find_duplicates`, `find_complex_functions`, `find_risk_hotspots`, `list_tags`, `find_uncovered`, `check_doc_drift`, `find_symbol`, `get_module_responsibility`, `detect_features`) run per package and concatenate, applying any global `sort`/`limit` after the merge; each item is tagged with its `package` when more than one was queried. `package` narrows to one.
+- `get_api_surface` runs one report per package (entry points from each package's own manifest/detector), returning a capped per-package breakdown plus `skipped` for packages with no entry point; `package` returns one package's full surface. See its section below.
+- Per-package by design: `find_unused` (entry-point reachability differs per package) and `apply_tags`/`propose_tags`/`propose_affected_tests` (they write per-package tag files, and a changeset commonly spans packages).
 
 For very large monorepos, scope the build with `analyze({ entryPoints: [], packages: ["core", "api"] })`. See [Monorepo Support](./monorepo.md).
 
@@ -121,7 +121,7 @@ One-hop incoming edges — files that directly import a given file.
 | `file` | `string` | yes | File path relative to `root` |
 | `withMeta` | `boolean` | no | Include `category` and `exports` per result (default: `false`) |
 
-**Returns:** `{ file, dependents: { path, symbols? }[] }`. With `withMeta: true`, each entry is `{ path, symbols?, category, exports }`.
+**Returns:** `{ file, dependents: { path, symbols? }[] }`. With `withMeta: true`, each entry is `{ path, symbols?, category, exports }`. On a monorepo root the traversal runs against the flattened whole-workspace graph, so importers in other packages are included and each entry also carries its `package`.
 
 ---
 
@@ -138,7 +138,7 @@ Full incoming traversal — every file whose behaviour could change if `file` ch
 | `changedSymbols` | `string[]` | no | Restrict blast-radius to files that import at least one of these symbols. Omit to treat the whole file as changed |
 | `withMeta` | `boolean` | no | Return each affected file as `{ path, category, exports }` instead of a bare path string (default: `false`) |
 
-**Returns:** `{ file, affected: string[], count: number }`. With `withMeta: true`, `affected` is `{ path, category, exports }[]` instead of bare strings.
+**Returns:** `{ file, affected: string[], count: number }`. With `withMeta: true`, `affected` is `{ path, category, exports, package? }[]` instead of bare strings. On a monorepo root the traversal runs against the flattened whole-workspace graph, so cross-package blast radius is fully transitive — `get_workspace_affected` covers the same ground.
 
 ---
 
@@ -379,13 +379,15 @@ Filters the graph by category, tag, path, coverage, complexity, or any other nod
 | `entryPoints` | `string[]` | no | Entry points to build the graph from. Omit to reuse the cached graph |
 | `mermaid` | `boolean` | no | Return a `graph TD` Mermaid string instead of JSON (default: `false`) |
 | `slim` | `boolean` | no | **Compact response mode (default: `true`).** Returns `importsFiles` (flat path list), export names, and meaningful tags only — no edge objects, no mtime/size. Pass `false` only when full edge metadata is needed. |
+| `package` | `string` | no | Monorepo root only — scope the query to one workspace package (equivalent to a `package:<name>` filter clause). Omit to query the whole flattened workspace. |
 
-**Returns:** filtered `SerializedGraph` JSON (or Mermaid string).
+**Returns:** filtered `SerializedGraph` JSON (or Mermaid string). On a monorepo root the filter runs once against the flattened whole-workspace graph, so `sort`/`limit` rank globally, cross-package import edges are retained, and each node carries its owning `package`.
 
 Additional filter keys beyond the [Query Language Guide](./query.md) base set:
 
 | Key | Example |
 |-----|---------|
+| `package:<name>` | `package:@org/app`, `package:!@org/legacy` (monorepo roots only) |
 | `minCoverage:<pct>` | `minCoverage:80` |
 | `maxCoverage:<pct>` | `maxCoverage:50` |
 | `minExportUsage:<ratio>` | `minExportUsage:0.5` |
@@ -433,8 +435,9 @@ Type-level relationships for the project. Without a type name, returns an invent
 |---|---|---|---|
 | `root` | `string` | yes | |
 | `type` | `string` | no | Exact exported name of the type to look up (e.g. `FileNode`). Omit for the full type inventory |
+| `package` | `string` | no | Monorepo root only — scope to one workspace package. Omit to span the whole flattened workspace. |
 
-**Requires:** a prior `analyze` call for the same `root`.
+**Requires:** a prior `analyze` call for the same `root`. On a monorepo root this runs against the flattened whole-workspace graph, so cross-package type relationships are included.
 
 ---
 
@@ -460,8 +463,9 @@ Groups files by domain: returns which files each feature hub (high-import orches
 |---|---|---|---|
 | `root` | `string` | yes | |
 | `minOutDegree` | `number` | no | Minimum internal imports a file must have to qualify as a feature hub (default: `5`) |
+| `package` | `string` | no | Monorepo root only — scope to one workspace package. Omit to span the whole flattened workspace. |
 
-**Requires:** a prior `analyze` call for the same `root`.
+**Requires:** a prior `analyze` call for the same `root`. On a monorepo root this runs against the flattened whole-workspace graph, so features can span packages.
 
 ---
 
@@ -473,8 +477,9 @@ Look up callers and callees for a named function. Returns the file that defines 
 |---|---|---|---|
 | `root` | `string` | yes | |
 | `function` | `string` | yes | Exact name of the function to look up (e.g. `parseFile`) |
+| `package` | `string` | no | Monorepo root only — scope to one workspace package. Omit to span the whole flattened workspace. |
 
-**Requires:** a prior `analyze` call for the same `root`.
+**Requires:** a prior `analyze` call for the same `root`. On a monorepo root this runs against the flattened whole-workspace graph, so cross-package callers/callees are included.
 
 ---
 
@@ -505,10 +510,18 @@ returns an empty result, indistinguishable from a typo.
 
 Builds the API surface report for a project. Expands `export *` chains so every symbol accessible to consumers is listed (not just those directly declared in the entry file). Each export is resolved to its defining file and tagged with a kind (`function`/`class`/`interface`/`type`/`enum`/`const`). The graph is partitioned into `internalFiles` (implementation reachable from entry points), `unreachableFromEntry` (non-test files not reachable from any entry point — may be separate consumers like CLI/MCP, config, or dead code), and `testFiles` (test suite). Supports multiple public entry points for libraries with sub-path exports.
 
+**Entry-point detection** when `entryPoints` is omitted:
+- **JS/TS**: every `exports` sub-path target (`.`, `./client`, …), then `main`, then `src/index.*`.
+- **Go / Python / JVM** (no `package.json`): every non-test source file is an entry point — for these the "surface" is all exported symbols in the module. Python prefers the shallowest `__init__.py` files when present. Such surfaces carry a large `entryPointCount` with a capped `entryPoints` sample (`entryPointsTruncated: true`); an empty `unreachableFromEntry` alongside a big count means "every file is an entry", not "nothing is separate".
+
+**Monorepo root**: one surface per workspace package, using the entry points the `WorkspaceGraph` already resolved per package (each from its *own* `package.json` / detector). A package with no resolvable entry point is listed in `skipped` (the call never fails as a whole). Unless a single `package` is requested, each package's `publicExports` is capped (`maxExportsPerPackage`, default 50; exact `publicExportCount` alongside) and the file partitions are returned as counts — response shape `{ packages: [...], skipped: [...], truncated }`.
+
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `root` | `string` | yes | |
-| `entryPoints` | `string[]` | no | Project-relative paths of public entry points (e.g. `['src/index.ts', 'src/utils.ts']`). Omit to auto-detect from `package.json` `exports`/`main`/`module` fields |
+| `entryPoints` | `string[]` | no | Project-relative paths of public entry points. Omit to auto-detect (see above) |
+| `package` | `string` | no | Monorepo: return the full surface for just this package instead of the capped per-package breakdown |
+| `maxExportsPerPackage` | `number` | no | Monorepo, no `package`: cap each package's `publicExports` list (default 50) |
 
 **Requires:** a prior `analyze` call for the same `root`.
 

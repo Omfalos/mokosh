@@ -80,18 +80,28 @@ export class Graph {
     const visited = new Set<string>();
     const maxDepth = options.maxDepth ?? Infinity;
 
-    const walk = (currentPath: string, depth: number, parentPath: string | null) => {
-      if (depth > maxDepth || visited.has(currentPath)) return;
-      const node = this.nodes.get(currentPath);
-      if (!node) return;
-      visited.add(currentPath);
-      if (visitor(node, depth, parentPath) === false) return;
-      for (const neighbor of getNeighbors(currentPath)) {
-        walk(neighbor, depth + 1, currentPath);
-      }
-    };
+    // Explicit stack rather than recursion: an incoming traversal over a large or
+    // flattened-workspace graph can follow a reverse-dependency chain thousands of
+    // hops deep, which would blow the call stack. Neighbours are pushed in reverse
+    // so they pop in order — pre-order visit sequence is identical to the recursive
+    // form, including "return false prunes this node's neighbours".
+    const stack: Array<{ path: string; depth: number; parent: string | null }> = [
+      { path: startPath, depth: 0, parent: null },
+    ];
 
-    walk(startPath, 0, null);
+    while (stack.length > 0) {
+      const frame = stack.pop() as { path: string; depth: number; parent: string | null };
+      const { path: currentPath, depth, parent } = frame;
+      if (depth > maxDepth || visited.has(currentPath)) continue;
+      const node = this.nodes.get(currentPath);
+      if (!node) continue;
+      visited.add(currentPath);
+      if (visitor(node, depth, parent) === false) continue;
+      const neighbors = getNeighbors(currentPath);
+      for (let i = neighbors.length - 1; i >= 0; i--) {
+        stack.push({ path: neighbors[i] as string, depth: depth + 1, parent: currentPath });
+      }
+    }
   }
 
   /**

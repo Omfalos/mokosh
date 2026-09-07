@@ -13,6 +13,10 @@ export interface NodeQuery {
   /** AND match — all entries must be present (use `tag:a+b` syntax in query strings). */
   allTags?: string[];
   path?: string;
+  /** Exact match on the node's owning workspace package name. Prefix with `"!"` to negate.
+   *  Only meaningful when a `packageOf` lookup is supplied to `filterGraph`/`matchNode`
+   *  (i.e. querying a flattened workspace graph); ignored otherwise. */
+  package?: string;
   isExternal?: boolean;
   /** Substring match on `imp.toPath` — node must import a file whose path contains this string. */
   importsFile?: string;

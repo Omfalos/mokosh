@@ -92,6 +92,21 @@ describe("parseQuery", { tags: ["parseQuery", "parser"] }, () => {
     });
   });
 
+  describe("package", () => {
+    test("parses plain value", () => {
+      expect(parseQuery("package:@org/app")).toEqual({ package: "@org/app" });
+    });
+    test("parses negated value", () => {
+      expect(parseQuery("package:!@org/app")).toEqual({ package: "!@org/app" });
+    });
+    test("combines with other keys", () => {
+      expect(parseQuery("package:@org/app,category:logic")).toEqual({
+        package: "@org/app",
+        category: "logic",
+      });
+    });
+  });
+
   describe("external", () => {
     test("'true' sets isExternal to true", () => {
       expect(parseQuery("external:true")).toEqual({ isExternal: true });

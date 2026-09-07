@@ -127,22 +127,23 @@ async function runWorkspaceMode(
 }
 
 /**
- * @description Resolves which package's `Graph` a command should run against when `rootDir` is a
- *   monorepo and no explicit entry points were given (mirrors the MCP server's `resolveGraphForFile`/
- *   `resolveGraphs`, but narrower: this CLI is a one-shot process whose commands `console.log`
- *   their own output directly, so — unlike the MCP tools — there's no natural place to fan out
- *   across every package and merge results when neither `--package` nor `--file` is given; that
- *   case is a hard error here instead, asking the caller to pick one explicitly.
- * @param {ParsedArgs} parsed - The fully parsed CLI arguments; `--package` wins over `--file`.
+ * @description Resolves the `Graph` a command should run against when `rootDir` is a monorepo and
+ *   no explicit entry points were given. By default the whole workspace is flattened into one
+ *   graph (`WorkspaceGraph.flatten()`) so every command — whole-graph (`--query`,
+ *   `--find-complex-functions`, …) and file-scoped (`--affected`, `--callers`, …) alike — runs
+ *   across all packages with cross-package edges intact, mirroring the MCP server. `--package`
+ *   narrows to a single package's own graph.
+ * @param {ParsedArgs} parsed - The fully parsed CLI arguments.
  * @param {ResolvedConfig} config - Resolved config, used for graph-build options.
  * @param {string} rootDir - Absolute monorepo root.
- * @returns {Promise<Graph>} The resolved package's `Graph`.
+ * @returns {Promise<{ graph: Graph; packageOf: Map<string, string> }>} The graph to query and,
+ *   for the flattened case, its path → package-name lookup (empty when scoped to one package).
  */
 async function resolveMonorepoPackageGraph(
   parsed: ParsedArgs,
   config: ResolvedConfig,
   rootDir: string,
-): Promise<Graph> {
+): Promise<{ graph: Graph; packageOf: Map<string, string> }> {
   const workspaceGraph = await createWorkspaceGraph(
     rootDir,
     configToGraphOptions(config.rawConfig),
@@ -156,23 +157,15 @@ async function resolveMonorepoPackageGraph(
       );
       process.exit(1);
     }
-    return entry.graph;
+    return { graph: entry.graph, packageOf: new Map() };
   }
 
-  if (parsed.file) {
-    const pkg = workspaceGraph.getPackageForFile(parsed.file);
-    const entry = pkg && workspaceGraph.packages.get(pkg.name);
-    if (!entry) {
-      console.error(`Error: no workspace package owns "${parsed.file}".`);
-      process.exit(1);
-    }
-    return entry.graph;
+  if (parsed.file && !workspaceGraph.getPackageForFile(parsed.file)) {
+    console.error(`Error: no workspace package owns "${parsed.file}".`);
+    process.exit(1);
   }
 
-  console.error(
-    "Error: this is a monorepo; pass --package <name> (see --workspace-packages for the list) or --file <path>.",
-  );
-  process.exit(1);
+  return workspaceGraph.flatten();
 }
 
 /**
@@ -325,6 +318,7 @@ export async function run(): Promise<void> {
     resolvedEntryPoints.length === 0 && detectMonorepo(rootDir).type !== "none";
 
   let graph: Graph;
+  let packageOf = new Map<string, string>();
 
   if (isMonorepoAutoDetect) {
     if (parsed.watch) {
@@ -333,7 +327,7 @@ export async function run(): Promise<void> {
       );
       process.exit(1);
     }
-    graph = await resolveMonorepoPackageGraph(parsed, config, rootDir);
+    ({ graph, packageOf } = await resolveMonorepoPackageGraph(parsed, config, rootDir));
   } else {
     graph = loadGraphFromCache(resolvedCachePath) ?? new Graph(new Map());
 
@@ -360,6 +354,7 @@ export async function run(): Promise<void> {
 
   const ctx: CommandContext = {
     graph,
+    packageOf,
     rootDir,
     cachePath: resolvedCachePath,
     entryPoints: resolvedEntryPoints.map((entryPath) => entryPath.replace(`${rootDir}/`, "")),
@@ -390,6 +385,7 @@ export async function run(): Promise<void> {
     includeGenerated: parsed.includeGenerated,
     includeSameFile: parsed.includeSameFile,
     includeSvgMarkup: parsed.includeSvgMarkup,
+    includeDocs: parsed.includeDocs,
     duplicateScope: parsed.duplicateScope,
     maxCoveragePct: parsed.maxCoveragePct,
     minChurn: parsed.minChurn,

@@ -197,6 +197,141 @@ describe("getAffectedAcrossPackages", {
   });
 });
 
+// ─── summarizeAffectedAcrossPackages ─────────────────────────────────────────
+
+describe("summarizeAffectedAcrossPackages", {
+  tags: ["FileNode", "Graph", "WorkspaceGraph", "WorkspacePackage", "workspace-model"],
+}, () => {
+  // shared package where helper.ts and two more files all import utils.ts,
+  // plus app/page.ts importing shared across the package boundary.
+  function makeWide(): WorkspaceGraph {
+    const utils = makeNode({ path: "packages/shared/src/utils.ts" });
+    const dependents = ["helper", "b", "c", "d"].map((name) =>
+      makeNode({
+        path: `packages/shared/src/${name}.ts`,
+        imports: [
+          {
+            fromPath: `packages/shared/src/${name}.ts`,
+            toPath: "packages/shared/src/utils.ts",
+            rawSpecifier: "./utils",
+            isStyle: false,
+            type: "static",
+          },
+        ],
+      }),
+    );
+    const appPage = makeNode({
+      path: "packages/app/src/page.ts",
+      imports: [
+        {
+          fromPath: "packages/app/src/page.ts",
+          toPath: "packages/shared/src/utils.ts",
+          rawSpecifier: "@org/shared",
+          isStyle: false,
+          type: "static",
+          isWorkspace: true,
+          workspacePackage: "@org/shared",
+        },
+      ],
+    });
+    const wg = new WorkspaceGraph("/mono", "pnpm");
+    wg.addPackage(makePkg("@org/shared", "packages/shared"), makeGraph([utils, ...dependents]));
+    wg.addPackage(makePkg("@org/app", "packages/app"), makeGraph([appPage]));
+    return wg;
+  }
+
+  test("groups the blast radius by package, sorted by count desc", () => {
+    const summary = makeWide().summarizeAffectedAcrossPackages("packages/shared/src/utils.ts");
+    expect(summary.totalAffected).toBe(5);
+    expect(summary.packageCount).toBe(2);
+    expect(summary.byPackage[0]?.package).toBe("@org/shared");
+    expect(summary.byPackage[0]?.count).toBe(4);
+    expect(summary.byPackage[1]?.package).toBe("@org/app");
+  });
+
+  test("caps each package's sample and reports the remainder + truncated flag", () => {
+    const summary = makeWide().summarizeAffectedAcrossPackages("packages/shared/src/utils.ts", {
+      maxFilesPerPackage: 2,
+    });
+    const shared = summary.byPackage.find((g) => g.package === "@org/shared");
+    expect(shared?.sample).toHaveLength(2);
+    expect(shared?.more).toBe(2);
+    expect(summary.truncated).toBe(true);
+  });
+
+  test("maxFilesPerPackage: 0 returns counts only, no samples", () => {
+    const summary = makeWide().summarizeAffectedAcrossPackages("packages/shared/src/utils.ts", {
+      maxFilesPerPackage: 0,
+    });
+    expect(summary.byPackage.every((g) => g.sample.length === 0)).toBe(true);
+    expect(summary.truncated).toBe(true);
+  });
+
+  test("zero totals for an unknown file", () => {
+    const summary = makeWide().summarizeAffectedAcrossPackages("nope/x.ts");
+    expect(summary).toMatchObject({
+      totalAffected: 0,
+      packageCount: 0,
+      byPackage: [],
+      truncated: false,
+    });
+  });
+});
+
+// ─── flatten ─────────────────────────────────────────────────────────────────
+
+describe("flatten", {
+  tags: ["FileNode", "Graph", "WorkspaceGraph", "WorkspacePackage", "workspace-model"],
+}, () => {
+  test("merges every package's own nodes into one namespace with a packageOf lookup", () => {
+    const wg = makeTwoPackageWorkspace();
+    const { graph, packageOf } = wg.flatten();
+
+    expect([...graph.nodes.keys()].sort()).toEqual([
+      "packages/app/src/page.ts",
+      "packages/shared/src/utils.ts",
+    ]);
+    expect(packageOf.get("packages/shared/src/utils.ts")).toBe("@org/shared");
+    expect(packageOf.get("packages/app/src/page.ts")).toBe("@org/app");
+  });
+
+  test("drops borrowed cross-package nodes so a shared file is not double-counted", () => {
+    const wg = makeTwoPackageWorkspace();
+    // Simulate the app package graph carrying a borrowed copy of the shared file.
+    const appEntry = wg.packages.get("@org/app");
+    appEntry?.graph.nodes.set(
+      "packages/shared/src/utils.ts",
+      makeNode({ path: "packages/shared/src/utils.ts", size: 999 }),
+    );
+
+    const { graph, packageOf } = wg.flatten();
+    // Only one node for the shared file, owned by @org/shared (not the borrowed size:999 copy).
+    expect(graph.nodes.get("packages/shared/src/utils.ts")?.size).toBe(0);
+    expect(packageOf.get("packages/shared/src/utils.ts")).toBe("@org/shared");
+  });
+
+  test("keeps cross-package import edges traversable", () => {
+    const wg = makeTwoPackageWorkspace();
+    const { graph } = wg.flatten();
+
+    const reached: string[] = [];
+    graph.traverse(
+      "packages/shared/src/utils.ts",
+      (node) => {
+        reached.push(node.path);
+        return true;
+      },
+      { direction: "incoming" },
+    );
+    expect(reached).toContain("packages/app/src/page.ts");
+  });
+
+  test("is memoized — repeated calls return the same instance", () => {
+    const wg = makeTwoPackageWorkspace();
+    expect(wg.flatten()).toBe(wg.flatten());
+  });
+});
+
 // ─── annotateCrossPackageEdges ───────────────────────────────────────────────
 
 describe("annotateCrossPackageEdges", {

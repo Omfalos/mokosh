@@ -14,18 +14,18 @@
  *  graph and concatenates results when `package` is omitted. */
 const FAN_OUT_PACKAGE_PROPERTY = { type: "string" } as const;
 
-/** Shared `package` schema property for a tool that returns one graph-shaped (non-list) result
- *  and so can't merge across packages — `package` is required once a workspace has more than one. */
+/** Shared `package` schema property for a tool that runs against the flattened whole-workspace
+ *  graph on a monorepo root — `package` optionally narrows it to one package. */
 const SINGLE_PACKAGE_PROPERTY = {
   type: "string",
-  description: "Monorepo: package name; required if there's more than one.",
+  description: "Monorepo: narrow to one package (else whole workspace).",
 } as const;
 
 export const TOOL_DEFINITIONS = [
   {
     name: "analyze",
     description:
-      "Build the dependency graph for a project from entry points. Returns a summary of node count, categories, and cycles. Must be called before get_dependencies, get_dependents, get_affected, or propose_tags. Pass an empty entryPoints array to auto-detect a monorepo (pnpm/npm/yarn/Nx/Turborepo/Gradle/sbt): this returns the package layout immediately and builds per-package graphs lazily on the first get_workspace_affected call — pass eager:true to build them all up front. Other tools then resolve per file, or take package (get_workspace_packages).",
+      "Build the dependency graph for a project from entry points. Returns a summary of node count, categories, and cycles. Must be called before get_dependencies, get_dependents, get_affected, or propose_tags. Pass an empty entryPoints array to auto-detect a monorepo (pnpm/npm/yarn/Nx/Turborepo/Gradle/sbt): this returns the package layout immediately and builds per-package graphs lazily on the first workspace-aware tool call — pass eager:true to build them all up front. Whole-graph tools then run against the flattened workspace; pass package to narrow.",
     inputSchema: {
       type: "object",
       properties: {
@@ -100,7 +100,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "get_affected",
     description:
-      "Get all files transitively affected if a given file changes — full incoming traversal upward. Use before a refactor to understand blast radius. See docs/mcp.md for details on the testsOnly, cached, changedSymbols, and withMeta options.",
+      "Get all files transitively affected if a given file changes — full incoming traversal upward. Use before a refactor to understand blast radius. On a monorepo root, blast radius is fully transitive across packages. See docs/mcp.md for the testsOnly, cached, changedSymbols, and withMeta options.",
     inputSchema: {
       type: "object",
       properties: {
@@ -383,6 +383,11 @@ export const TOOL_DEFINITIONS = [
           description:
             "Test-file duplicates (default 'src'): 'src' drops clusters touching a test file; 'tests' returns only substantive shared test logic; 'all' returns everything. Tagged signals:['test'].",
         },
+        includeDocs: {
+          type: "boolean",
+          description:
+            "Include markdown-family matches (default: false) — mirrored prose docs (README <-> *.mdx). Tagged signals:['docs'].",
+        },
         package: FAN_OUT_PACKAGE_PROPERTY,
       },
       required: ["root"],
@@ -447,7 +452,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "query",
     description:
-      "Filter the graph by category, tag, path, or other node metadata. Returns matching nodes as JSON or a Mermaid diagram. If entryPoints is omitted the cached graph from a prior 'analyze' call is used. See docs/mcp.md for the full query DSL reference.",
+      "Filter the graph by category, tag, path, or other node metadata. Returns matching nodes as JSON or a Mermaid diagram. If entryPoints is omitted the cached graph from a prior 'analyze' call is used. On a monorepo root: runs against the flattened workspace (global sort/limit, cross-package edges, per-node package); package:<name> narrows. See docs/mcp.md for the full query DSL reference.",
     inputSchema: {
       type: "object",
       properties: {
@@ -461,7 +466,7 @@ export const TOOL_DEFINITIONS = [
         filter: {
           type: "string",
           description:
-            "Query string e.g. 'category:logic' or 'category:logic,tag:auth'. Supports: category, type, tag, path, external, importsFile, importedBy, minImports, maxImports, minSize, maxSize, hasDocstring, minCoverage, maxCoverage, minExportUsage, maxExportUsage, minComplexity, maxComplexity, minCognitiveComplexity, maxCognitiveComplexity, minCommits, maxCommits, isDocumented, isStale, lastAuthor. OR logic: any(key:val|key:val) matches if any single-key clause holds, ANDed with the rest of the query. sort: size|imports|commitCount90d|exportUsage|complexity|cognitiveComplexity, with sortDir: asc|desc (default desc). limit: N.",
+            "Query string e.g. 'category:logic' or 'category:logic,tag:auth'. Supports: category, type, tag, path, package, external, importsFile, importedBy, minImports, maxImports, minSize, maxSize, hasDocstring, minCoverage, maxCoverage, minExportUsage, maxExportUsage, minComplexity, maxComplexity, minCognitiveComplexity, maxCognitiveComplexity, minCommits, maxCommits, isDocumented, isStale, lastAuthor. OR logic: any(key:val|key:val) matches if any single-key clause holds, ANDed with the rest of the query. sort: size|imports|commitCount90d|exportUsage|complexity|cognitiveComplexity, with sortDir: asc|desc (default desc). limit: N.",
         },
         mermaid: { type: "boolean", description: "Return a Mermaid diagram (default: false)" },
         slim: {
@@ -471,8 +476,7 @@ export const TOOL_DEFINITIONS = [
         },
         package: {
           type: "string",
-          description:
-            "Monorepo: package name; omit to merge every package, except with mermaid: true, which requires it if there's more than one.",
+          description: "Monorepo: narrow to one package (same as a package:<name> filter clause).",
         },
       },
       required: ["root", "filter"],
@@ -493,7 +497,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "get_workspace_affected",
     description:
-      "Cross-package blast-radius analysis. Returns every file that could be affected if a given file changes, annotated with the package it belongs to. Requires a prior analyze() call with empty entryPoints on a monorepo root.",
+      "Cross-package blast-radius analysis: files affected if a given file changes, grouped by owning package with each package's sample list capped (counts stay exact). For the full uncapped list call get_affected on the same file. Requires a prior analyze() with empty entryPoints on a monorepo root.",
     inputSchema: {
       type: "object",
       properties: {
@@ -502,6 +506,10 @@ export const TOOL_DEFINITIONS = [
           type: "string",
           description:
             "Monorepo-root-relative path of the changed file (e.g. 'packages/shared/src/utils.ts')",
+        },
+        maxFilesPerPackage: {
+          type: "number",
+          description: "Cap each package's sample list (default 10; 0 = counts only).",
         },
       },
       required: ["root", "file"],
@@ -602,7 +610,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "get_api_surface",
     description:
-      "Build the API surface report for a project: every exported symbol resolved to its defining file and kind, partitioned into internalFiles, unreachableFromEntry, and testFiles. Requires a prior analyze() call. When entryPoints is omitted, auto-detects from package.json exports/main/module. See docs/mcp.md for the export* expansion and partition semantics.",
+      "Build the API surface report for a project: every exported symbol resolved to its defining file and kind, partitioned into internalFiles, unreachableFromEntry, and testFiles. Requires a prior analyze() call. Entry points auto-detect when omitted: JS/TS from package.json exports/main; Go/Python/JVM from every non-test source file. On a monorepo root with no `package`, returns one capped summary per package plus `skipped` (packages with no entry point). See docs/mcp.md.",
     inputSchema: {
       type: "object",
       properties: {
@@ -611,9 +619,14 @@ export const TOOL_DEFINITIONS = [
           type: "array",
           items: { type: "string" },
           description:
-            "Project-relative paths of public entry points (e.g. ['src/index.ts', 'src/utils.ts']). Omit to auto-detect from package.json exports / main / module fields.",
+            "Project-relative paths of public entry points. Omit to auto-detect from package.json exports / main / module.",
         },
         package: FAN_OUT_PACKAGE_PROPERTY,
+        maxExportsPerPackage: {
+          type: "number",
+          description:
+            "Monorepo, no `package`: cap each package's publicExports list (default 50).",
+        },
       },
       required: ["root"],
     },

@@ -98,6 +98,46 @@ describe("resolveEntryPoints", {
     const result = resolveEntryPoints(path.join(root, "pkg"), {});
     expect(result[0]).toContain("src/index.ts");
   });
+
+  test("keeps every existing exports sub-path, not just '.'", () => {
+    write("pkg/src/index.ts", "");
+    write("pkg/src/client.ts", "");
+    write("pkg/src/server.ts", "");
+    const result = resolveEntryPoints(path.join(root, "pkg"), {
+      exports: {
+        ".": "./src/index.ts",
+        "./client": { import: "./src/client.ts" },
+        "./server": "./src/server.ts",
+      },
+    });
+    expect(result.map((p) => path.basename(p)).sort()).toEqual([
+      "client.ts",
+      "index.ts",
+      "server.ts",
+    ]);
+  });
+
+  test("ignores non-module exports targets (package.json, css, .d.ts)", () => {
+    write("pkg/src/index.ts", "");
+    const result = resolveEntryPoints(path.join(root, "pkg"), {
+      exports: {
+        ".": { types: "./dist/index.d.ts", import: "./src/index.ts" },
+        "./package.json": "./package.json",
+        "./styles": "./src/styles.css",
+      },
+    });
+    expect(result).toHaveLength(1);
+    expect(result[0]).toContain("src/index.ts");
+  });
+
+  test("drops candidates that do not exist on disk", () => {
+    write("pkg/src/index.ts", "");
+    const result = resolveEntryPoints(path.join(root, "pkg"), {
+      exports: { ".": "./src/index.ts", "./missing": "./src/missing.ts" },
+    });
+    expect(result).toHaveLength(1);
+    expect(result[0]).toContain("src/index.ts");
+  });
 });
 
 // ─── resolveGlobPatterns ──────────────────────────────────────────────────────

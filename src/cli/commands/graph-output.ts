@@ -18,12 +18,12 @@ import type { CommandContext } from "./types";
  * @param {CommandContext} ctx - Command context carrying the built graph, an optional query string, and the mermaid/slim output flags.
  */
 export async function run(ctx: CommandContext): Promise<void> {
-  const { graph, queryStr, mermaidOutput, slim } = ctx;
+  const { graph, packageOf, queryStr, mermaidOutput, slim } = ctx;
   let serialized = graph.serialize();
 
   if (queryStr) {
     const query = parseQuery(queryStr);
-    serialized = filterGraph(serialized, query);
+    serialized = filterGraph(serialized, query, { packageOf });
   }
 
   if (mermaidOutput) {

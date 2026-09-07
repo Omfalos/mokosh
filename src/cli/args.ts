@@ -60,6 +60,7 @@ export interface ParsedArgs {
   includeGenerated: boolean;
   includeSameFile: boolean;
   includeSvgMarkup: boolean;
+  includeDocs: boolean;
   duplicateScope: "src" | "tests" | "all" | undefined;
   findRiskHotspots: boolean;
   maxCoveragePct: number | undefined;
@@ -181,6 +182,7 @@ export const OPTIONS = {
   "include-generated": { type: "boolean" },
   "include-same-file": { type: "boolean" },
   "include-svg-markup": { type: "boolean" },
+  "include-docs": { type: "boolean" },
   scope: { type: "string" },
   "find-risk-hotspots": { type: "boolean" },
   "max-coverage-pct": { type: "string" },
@@ -430,6 +432,7 @@ export function parseArgs(cliTokens: string[]): ParsedArgs {
     includeGenerated: (values["include-generated"] as boolean) ?? false,
     includeSameFile: (values["include-same-file"] as boolean) ?? false,
     includeSvgMarkup: (values["include-svg-markup"] as boolean) ?? false,
+    includeDocs: (values["include-docs"] as boolean) ?? false,
     duplicateScope: parseDuplicateScope(values.scope),
     maxCoveragePct: parseOptionalInt(values["max-coverage-pct"]),
     minChurn: parseOptionalInt(values["min-churn"]),

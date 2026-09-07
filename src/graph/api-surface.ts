@@ -1,7 +1,8 @@
 /** Detects entry-point files and builds an API surface describing all public exports reachable from them. */
 import fs from "node:fs";
 import path from "node:path";
-import type { ExportedSymbol } from "../types/node";
+import type { ExportedSymbol, FileNode } from "../types/node";
+import type { FileType } from "../types/parse";
 import type { Graph } from "./model";
 
 /**
@@ -245,7 +246,7 @@ export function detectAllEntryPoints(graph: Graph, root: string): string[] {
     }
   }
 
-  // Last resort: well-known candidates
+  // Well-known JS/TS candidates
   if (found.length === 0) {
     for (const candidate of ["src/index.ts", "src/index.js", "index.ts", "index.js"]) {
       if (graph.nodes.has(candidate)) {
@@ -255,7 +256,64 @@ export function detectAllEntryPoints(graph: Graph, root: string): string[] {
     }
   }
 
+  // Non-JS projects have no package.json convention — fall back to a per-language heuristic.
+  if (found.length === 0) return detectNonJsEntryPoints(graph);
+
   return found;
+}
+
+const JVM_TYPES = new Set<FileType>(["java", "kotlin", "scala", "groovy"]);
+
+/** Path-based test detection, for languages/layouts the category classifier may not cover
+ *  (notably Go's `*_test.go` convention). */
+function looksLikeTest(relPath: string): boolean {
+  return (
+    relPath.endsWith("_test.go") ||
+    /(^|\/)(test|tests|__tests__|testdata)\//.test(relPath) ||
+    /[._-](test|spec)\.[^/]+$/.test(relPath)
+  );
+}
+
+/**
+ * @description Entry-point heuristic for non-JS projects, which have no `package.json`
+ *   `exports`/`main` to read. The "public API" of a Go/Python/JVM module is the set of exported
+ *   symbols across its source files, so every non-test source file is treated as an entry point:
+ *   - **Python**: the shallowest `__init__.py` files (package roots) if any exist, else every module.
+ *   - **Go**: every non-`*_test.go` file.
+ *   - **JVM** (java/kotlin/scala/groovy): every non-test source file — covers a single-repo JVM
+ *     project not detected as a Gradle/sbt workspace.
+ *   The first language with matching nodes wins; a genuinely polyglot repo is analysed one
+ *   language at a time via its own `analyze`/query anyway.
+ * @param {Graph} graph - The built dependency graph.
+ * @returns {string[]} Project-relative entry-point paths, sorted; empty if no non-JS source is present.
+ */
+function detectNonJsEntryPoints(graph: Graph): string[] {
+  const nodes = [...graph.nodes.values()];
+  const sourcesOf = (match: (type: FileType) => boolean): FileNode[] =>
+    nodes.filter(
+      (node) => match(node.type) && node.category !== "test" && !looksLikeTest(node.path),
+    );
+
+  const python = sourcesOf((type) => type === "python");
+  if (python.length > 0) {
+    const inits = python.filter((node) => node.path.replace(/^.*\//, "") === "__init__.py");
+    if (inits.length > 0) {
+      const minDepth = Math.min(...inits.map((node) => node.path.split("/").length));
+      return inits
+        .filter((node) => node.path.split("/").length === minDepth)
+        .map((node) => node.path)
+        .sort();
+    }
+    return python.map((node) => node.path).sort();
+  }
+
+  const go = sourcesOf((type) => type === "go");
+  if (go.length > 0) return go.map((node) => node.path).sort();
+
+  const jvm = sourcesOf((type) => JVM_TYPES.has(type));
+  if (jvm.length > 0) return jvm.map((node) => node.path).sort();
+
+  return [];
 }
 
 /**

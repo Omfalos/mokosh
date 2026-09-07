@@ -104,6 +104,10 @@ export interface MokoshConfig {
      *  usually an authored clone. Matches are always tagged `signals: ["svg-markup"]` regardless
      *  of this setting. */
     includeSvgMarkup?: boolean;
+    /** When true, include matches in the `markdown` family (default false) — mirrored prose
+     *  docs (README ↔ *.mdx) are not code duplication. Matches are always tagged
+     *  `signals: ["docs"]` regardless. */
+    includeDocs?: boolean;
     /** Which duplicates to surface, by test-file involvement (default `"src"`). `"src"` drops
      *  every cluster with a test-file occurrence; `"tests"` returns only substantive test
      *  clusters (shared setup/mocks/assertions, not render/snapshot skeletons); `"all"` returns

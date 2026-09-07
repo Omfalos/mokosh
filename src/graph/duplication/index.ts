@@ -141,6 +141,20 @@ export interface FindDuplicatesOptions {
    *  `signals: ["svg-markup"]` regardless. Mirrors `includeSameFile`'s default-off/opt-in shape.
    *  See `svg-markup.ts`. */
   includeSvgMarkup?: boolean | undefined;
+  /** When false (default), skip matches in the `markdown` family — prose docs (`README.md` ↔
+   *  `*.mdx`, `*.md` ↔ `*.md`) that mirror each other are not code duplication, and their
+   *  fenced code blocks tokenize densely enough to top the score-ranked list. Set true to see
+   *  them anyway; they're always tagged `signals: ["docs"]` regardless. Mirrors
+   *  `includeSameFile`'s default-off/opt-in shape. */
+  includeDocs?: boolean | undefined;
+  /** Minimum logic-token score (keywords + operators in the verified span — see
+   *  {@link significantTokenCount}) for a `kind: "block"` match to be reported. Default `0`
+   *  (off): every match is still returned, but `groups` and `clusters` are now *ranked* by score
+   *  regardless. A positive value drops boilerplate-shaped blocks — a Flow `type Props`, a JSX
+   *  icon-component wrapper, a schema object literal all score in the single digits; a real
+   *  30-line function scores 25–40. Never filters `kind: "definition"` groups (already
+   *  content-verified). See docs/adr-019-logic-token-scoring.md. */
+  minScore?: number | undefined;
   /** Which duplicates to surface, by whether test files are involved (default `"src"`). A group
    *  with any occurrence in a test file (`__tests__/`, `__mocks__/`, `*.test.*`, `*.spec.*`,
    *  `__snapshots__/`) is always tagged `signals: ["test"]`; this option decides which of those
@@ -221,7 +235,8 @@ function isUnderIgnoredDir(relPath: string, ignoreDirs: readonly string[]): bool
  *   occurrence is in one file, `"generated"` when any occurrence is in a file scanned only
  *   because `includeGenerated: true`, `"svg-markup"` when every occurrence's source span reads as
  *   inline SVG / SVG-shaped JSX markup (see {@link isSvgMarkupSpan}), `"test"` when any occurrence
- *   is in a test file (see {@link TEST_PATH}). Merged with any signal the
+ *   is in a test file (see {@link TEST_PATH}), `"docs"` when the group is in the `markdown`
+ *   family. Merged with any signal the
  *   group's own extractor already set (e.g. `style-vars.ts`'s `"value-drift"`) rather than
  *   replacing it.
  *
@@ -245,6 +260,9 @@ function withSignals(
   if (new Set(group.occurrences.map((occ) => occ.file)).size === 1) signals.push("same-file");
   if (group.occurrences.some((occ) => generatedPaths.has(occ.file))) signals.push("generated");
   if (group.occurrences.some((occ) => TEST_PATH.test(occ.file))) signals.push("test");
+  // The whole `markdown` family: prose docs (README ↔ *.mdx, *.md ↔ *.md) aren't code
+  // duplication. Matching never crosses a family boundary, so this is all occurrences.
+  if (group.family === "markdown") signals.push("docs");
   if (
     group.occurrences.length > 0 &&
     group.occurrences.every((occ) => {
@@ -349,7 +367,9 @@ export async function findDuplicates(
     includeGenerated = false,
     includeSameFile = false,
     includeSvgMarkup = false,
+    includeDocs = false,
     scope = "src",
+    minScore = 0,
     ignoreGlobs = [],
     parallelTokenizing = true,
     tokenCache,
@@ -524,13 +544,25 @@ export async function findDuplicates(
       groups.push(withSignals({ ...group, family: "js" }, generatedPaths, sourceByFile));
     }
 
-    // Same-file and svg-markup matches are always computed and tagged above — excluded here, by
-    // default, the same way generated files are: a file's own naturally repetitive shape and
-    // two-different-icons-share-a-skeleton, respectively, rather than actionable copy-paste.
-    // Recoverable via includeSameFile / includeSvgMarkup. See their doc comments.
+    // Same-file, svg-markup and docs (markdown-family) matches are always computed and tagged
+    // above — excluded here by default, the same way generated files are: a file's own
+    // repetitive shape, two icons sharing a skeleton, and mirrored prose docs, respectively —
+    // none actionable copy-paste. Recoverable via includeSameFile / includeSvgMarkup /
+    // includeDocs. See their doc comments. `minScore` additionally drops block matches with too
+    // few logic-bearing tokens (Flow `type Props` blocks, icon-component wrappers) — never
+    // applied to `kind: "definition"` groups, which are already content-verified. Default 0 =
+    // off; see the option's doc.
     const visibleGroups = groups.filter((group) => {
       if (!includeSameFile && group.signals?.includes("same-file")) return false;
       if (!includeSvgMarkup && group.signals?.includes("svg-markup")) return false;
+      if (!includeDocs && group.signals?.includes("docs")) return false;
+      if (
+        minScore > 0 &&
+        (group.kind ?? "block") === "block" &&
+        (group.score ?? group.tokens) < minScore
+      ) {
+        return false;
+      }
       return true;
     });
 
@@ -547,12 +579,26 @@ export async function findDuplicates(
     const scopedClusters = allClusters.filter((cluster) => clusterInScope(cluster, scope));
     const survivingGroups = new Set(scopedClusters.flatMap((cluster) => cluster.groups));
 
+    // Rank by logic-token score, then line span — so a large low-information block (a Markdown
+    // copy, a JSX icon wrapper) no longer tops the list over denser real duplication. Applied to
+    // both outputs: `groups` by its own score, `clusters` by their highest-scoring member.
+    // `kind: "definition"` groups carry no score; rank them by their line span (`tokens` there is
+    // a member/field count for `type`/`objectLiteral` but a tree size for `jsxElement`, so it's
+    // not a comparable axis). See docs/adr-019-logic-token-scoring.md.
+    const groupScore = (group: DuplicateGroup) => group.score ?? group.lines;
+
     return {
       groups: visibleGroups
         .filter((group) => survivingGroups.has(group))
-        .sort((a, b) => b.lines - a.lines)
+        .sort((a, b) => groupScore(b) - groupScore(a) || b.lines - a.lines)
         .slice(0, limit),
-      clusters: scopedClusters.slice(0, limit),
+      clusters: scopedClusters
+        .sort(
+          (a, b) =>
+            Math.max(...b.groups.map(groupScore)) - Math.max(...a.groups.map(groupScore)) ||
+            b.longestMatch - a.longestMatch,
+        )
+        .slice(0, limit),
     };
   } finally {
     if (pool) await pool.destroy();

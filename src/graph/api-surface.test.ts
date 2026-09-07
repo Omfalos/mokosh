@@ -554,4 +554,55 @@ describe("detectAllEntryPoints", {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
   });
+
+  describe("non-JS fallback (no package.json)", () => {
+    const noPkgJson = (graph: Graph) => {
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "api-surface-test-"));
+      try {
+        return detectAllEntryPoints(graph, tmpDir);
+      } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
+    };
+
+    test("Go: every non-_test.go source file", () => {
+      const graph = makeGraph([
+        makeNode("cmd/app/main.go", { type: "go" }),
+        makeNode("internal/svc/svc.go", { type: "go" }),
+        makeNode("internal/svc/svc_test.go", { type: "go", category: "test" }),
+      ]);
+      expect(noPkgJson(graph)).toEqual(["cmd/app/main.go", "internal/svc/svc.go"]);
+    });
+
+    test("Python: shallowest __init__.py files when present", () => {
+      const graph = makeGraph([
+        makeNode("pkg/__init__.py", { type: "python" }),
+        makeNode("pkg/sub/__init__.py", { type: "python" }),
+        makeNode("pkg/sub/mod.py", { type: "python" }),
+      ]);
+      expect(noPkgJson(graph)).toEqual(["pkg/__init__.py"]);
+    });
+
+    test("Python: all modules when there is no __init__.py", () => {
+      const graph = makeGraph([
+        makeNode("a.py", { type: "python" }),
+        makeNode("b.py", { type: "python" }),
+        makeNode("b_test.py", { type: "python", category: "test" }),
+      ]);
+      expect(noPkgJson(graph)).toEqual(["a.py", "b.py"]);
+    });
+
+    test("JVM: every non-test source file", () => {
+      const graph = makeGraph([
+        makeNode("src/main/kotlin/App.kt", { type: "kotlin" }),
+        makeNode("src/main/java/Svc.java", { type: "java" }),
+        makeNode("src/test/java/SvcTest.java", { type: "java", category: "test" }),
+      ]);
+      expect(noPkgJson(graph)).toEqual(["src/main/java/Svc.java", "src/main/kotlin/App.kt"]);
+    });
+
+    test("still empty for a JS/TS graph with no resolvable entry", () => {
+      expect(noPkgJson(makeGraph([makeNode("lib/main.ts")]))).toHaveLength(0);
+    });
+  });
 });

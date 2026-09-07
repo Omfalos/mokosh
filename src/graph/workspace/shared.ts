@@ -35,46 +35,71 @@ export function buildPackage(monorepoRoot: string, pkgRoot: string): WorkspacePa
   };
 }
 
+/** Matches a runnable JS/TS module extension (`.js .mjs .cjs .jsx .ts .tsx .mts .cts`), so
+ *  `exports` targets like `./package.json`, `./styles.css`, or `.d.ts` type stubs never become
+ *  entry points. */
+const ENTRY_MODULE_EXT = /\.[mc]?[jt]sx?$/;
+
 /**
- * @description Derives entry point absolute paths from a package's `package.json`.
- *   Tries `exports["."]`, `main`, and common conventions (`src/index.ts`, etc.) in that order.
- *   Returns the first existing file, or the first candidate as a fallback when nothing exists on disk.
+ * @description Pulls every leaf path string out of one `package.json` `exports` value — a bare
+ *   string, or a conditions object (possibly nested, e.g.
+ *   `{ node: { import: "./x.mjs" }, default: "./x.cjs" }`). `types` conditions and `.d.ts`
+ *   targets are skipped.
+ * @param {unknown} value - One `exports` value (a sub-path's target, or the whole `exports` string).
+ * @param {(rel: string) => void} add - Called with each accepted relative target.
+ */
+function collectExportTargets(value: unknown, add: (rel: string) => void): void {
+  if (typeof value === "string") {
+    if (ENTRY_MODULE_EXT.test(value) && !value.endsWith(".d.ts")) add(value);
+    return;
+  }
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    for (const [condition, nested] of Object.entries(value as Record<string, unknown>)) {
+      if (condition === "types") continue;
+      collectExportTargets(nested, add);
+    }
+  }
+}
+
+/**
+ * @description Derives entry point absolute paths from a package's `package.json`. Collects
+ *   every `exports` sub-path target (`.`, `./client`, `./server`, …), then `main`, then common
+ *   conventions (`src/index.ts`, etc.). Returns **all** candidates that exist on disk — so a
+ *   multi-entry package gets a complete graph walk and API surface, not just its `.` entry. If
+ *   nothing exists yet (pre-build), returns the first candidate as a seed.
  * @param {string} pkgRoot - Absolute path to the package directory.
  * @param {{ main?: string; exports?: unknown }} pkgJson - Parsed `package.json` object.
- * @returns {string[]} A single-element array containing the resolved entry point absolute path.
+ * @returns {string[]} Resolved entry point absolute paths, in priority order, de-duplicated.
  */
 export function resolveEntryPoints(
   pkgRoot: string,
   pkgJson: { main?: string; exports?: unknown },
 ): string[] {
   const candidates: string[] = [];
+  const seen = new Set<string>();
+  const add = (rel: string): void => {
+    const abs = path.join(pkgRoot, rel);
+    if (!seen.has(abs)) {
+      seen.add(abs);
+      candidates.push(abs);
+    }
+  };
 
-  if (pkgJson.exports) {
-    const exp = pkgJson.exports;
-    if (typeof exp === "string") {
-      candidates.push(path.join(pkgRoot, exp));
-    } else if (typeof exp === "object" && exp !== null) {
-      const dot = (exp as Record<string, unknown>)["."];
-      if (typeof dot === "string") {
-        candidates.push(path.join(pkgRoot, dot));
-      } else if (typeof dot === "object" && dot !== null) {
-        const src =
-          (dot as Record<string, unknown>).import ??
-          (dot as Record<string, unknown>).require ??
-          (dot as Record<string, unknown>).default;
-        if (typeof src === "string") candidates.push(path.join(pkgRoot, src));
-      }
+  const exp = pkgJson.exports;
+  if (typeof exp === "string") {
+    collectExportTargets(exp, add);
+  } else if (exp && typeof exp === "object" && !Array.isArray(exp)) {
+    for (const target of Object.values(exp as Record<string, unknown>)) {
+      collectExportTargets(target, add);
     }
   }
 
-  if (pkgJson.main) candidates.push(path.join(pkgRoot, pkgJson.main));
+  if (pkgJson.main) add(pkgJson.main);
 
-  for (const c of ["src/index.ts", "src/index.tsx", "index.ts", "index.tsx", "index.js"]) {
-    candidates.push(path.join(pkgRoot, c));
-  }
+  for (const c of ["src/index.ts", "src/index.tsx", "index.ts", "index.tsx", "index.js"]) add(c);
 
   const existing = candidates.filter(isFile);
-  return existing.length > 0 ? existing.slice(0, 1) : candidates.slice(0, 1);
+  return existing.length > 0 ? existing : candidates.slice(0, 1);
 }
 
 /**

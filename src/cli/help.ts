@@ -23,9 +23,9 @@ Options:
                                by count descending (use with --plain for a bare name list)
   --callers                   List files whose exported functions call into --file
   --file <path>               Target file for --callers/--dependencies/--dependents/--affected/--workspace-affected
-  --package <name>            On a monorepo root (with no entry points given): which package to
-                                query. Required unless --file already implies one (see
-                                --workspace-packages for the list of names)
+  --package <name>            On a monorepo root (with no entry points given): narrow every
+                                command to this one package. Omit to run across the whole
+                                flattened workspace (see --workspace-packages for the names)
   --check-cycles              Check for circular dependencies; exits non-zero if found (CI gate)
   --check-doc-drift           Flag markdown docs whose referenced files changed more recently
                                than the doc itself; exits non-zero if found (CI gate; requires
@@ -81,6 +81,8 @@ MCP parity (mirrors the MCP server's tools for use when MCP is unavailable):
   --include-svg-markup         Include matches whose occurrences are all inline SVG / SVG-shaped
                                 JSX markup (default: excluded — two different icons share a
                                 literal-normalized skeleton); use with --find-duplicates
+  --include-docs               Include markdown-family matches (default: excluded — mirrored
+                                prose docs, README ↔ *.mdx); use with --find-duplicates
   --scope <src|tests|all>      Which duplicates to surface by test-file involvement (default:
                                 src — drops test clusters). tests = only substantive shared
                                 test-logic clusters; all = everything. Use with --find-duplicates
@@ -115,12 +117,11 @@ Notes:
   --config files may be .js/.cjs and are executed for CLI convenience (allowJs: true); the MCP
     server only loads JSON config (allowJs: false) for security. This is intentional.
   --workspace-packages/--workspace-affected require explicit opt-in and build a WorkspaceGraph
-    directly. Every other command, given no entry points on a detected monorepo root, resolves
-    against one package's Graph via --package or --file (whichever implies the package) instead
-    of erroring or scanning the whole repo as one graph; pass --entry explicitly to opt back into
-    the old whole-repo-from-these-entry-points behavior. Unlike the MCP server's equivalent tools,
-    this CLI cannot fan out and merge across every package when neither is given — it's a one-shot
-    process whose commands print their own output directly — so that case is a hard error here.
+    directly. Every other command, given no entry points on a detected monorepo root, runs against
+    the whole workspace flattened into one Graph (WorkspaceGraph.flatten() — every package's own
+    nodes in one namespace, cross-package edges intact), so blast radius, call graphs and --query
+    span package boundaries and results report each node's package. Pass --package <name> to narrow
+    to one package, or --entry explicitly for whole-repo-from-these-entry-points behavior.
 `;
 
 /** Reference for all supported --query filter keys, shown with --query-help. */
@@ -146,6 +147,11 @@ FILTERING
 
   path:<substr>          File path contains substring. Negate with !.
                          Examples: path:src/api   path:!__tests__
+
+  package:<value>        Exact match on the owning workspace package name. Negate with !.
+                         Monorepo roots only — on a monorepo, --query runs across the whole
+                         workspace and every node reports its package; elsewhere this is a no-op.
+                         Examples: package:@org/app   package:!@org/legacy
 
   external:<bool>        true = node has at least one external (node_modules) import.
                          Example: external:true
