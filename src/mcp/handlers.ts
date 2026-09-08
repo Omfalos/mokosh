@@ -49,6 +49,15 @@ import type { SessionState } from "./cache";
 import type { TextResponse } from "./utils";
 import { text } from "./utils";
 
+/** Floor for how many duplicate matches `find_duplicates` keeps per package before the
+ *  cross-package global sort (used when it exceeds `limit * 4`). Bounds per-package retention
+ *  without truncating so aggressively that the global ranking loses real top hits. */
+const FIND_DUPLICATES_PER_PACKAGE_CAP = 500;
+
+/** Byte ceiling for the serialized `find_duplicates` response. Past this the group/cluster lists
+ *  are halved until the payload fits and the result is flagged `truncated`. */
+const FIND_DUPLICATES_MAX_PAYLOAD_BYTES = 1_000_000;
+
 // ---------------------------------------------------------------------------
 // Argument types — one per tool, matching the schemas defined in tools.ts
 // ---------------------------------------------------------------------------
@@ -802,43 +811,68 @@ export async function handleFindDuplicates(
   const config = cache.getConfig(root);
   const ignoreDirs = args.ignoreDirs ?? [...DEFAULT_IGNORE_DIRS, ...(config?.ignoreDirs ?? [])];
   const tokenCache = await cache.getDuplicationTokenCache(root);
-  // Duplicate detection never crosses a package boundary (each package graph is scanned
-  // independently), so — same reasoning as find_complex_functions — take every match per
-  // package and sort+limit once globally rather than truncating each package to `limit` first.
-  const perPackage = await Promise.all(
-    graphs.map(({ graph, package: pkgName }) =>
-      findDuplicates(graph, root, {
-        minLines,
-        ignoreLiterals,
-        maxPunctuationRatio,
-        limit: multi ? Infinity : limit,
-        ignoreDirs,
-        includeGenerated: args.includeGenerated ?? config?.duplication?.includeGenerated ?? false,
-        includeSameFile: args.includeSameFile ?? config?.duplication?.includeSameFile ?? false,
-        includeSvgMarkup: args.includeSvgMarkup ?? config?.duplication?.includeSvgMarkup ?? false,
-        includeDocs: args.includeDocs ?? config?.duplication?.includeDocs ?? false,
-        scope: args.scope ?? config?.duplication?.scope,
-        ignoreGlobs: config?.duplication?.ignoreGlobs ?? [],
-        tokenCache,
-      }).then(({ groups, clusters }) => ({
-        groups: tagPackage(groups, pkgName, multi),
-        clusters: tagPackage(clusters, pkgName, multi),
-      })),
-    ),
-  );
+  // Scan packages one at a time, not via Promise.all: each findDuplicates call spins up its own
+  // tokenizing worker pool and builds a full suffix array + LCP arrays per language family, so N
+  // concurrent scans on a large monorepo hold N of those live at once and exhaust the heap. The
+  // shared token cache makes vendored code re-scanned across packages cheap on the 2nd..Nth pass.
+  // Each package is still allowed more than `limit` matches (so the cross-package global sort
+  // below stays accurate) but a finite cap, not Infinity — a single package can otherwise retain
+  // tens of thousands of DuplicateGroup objects.
+  const perPackageCap = multi ? Math.max(limit * 4, FIND_DUPLICATES_PER_PACKAGE_CAP) : limit;
+  type DupScan = Awaited<ReturnType<typeof findDuplicates>>;
+  const perPackage: Array<{ groups: DupScan["groups"]; clusters: DupScan["clusters"] }> = [];
+  for (const { graph, package: pkgName } of graphs) {
+    const { groups, clusters } = await findDuplicates(graph, root, {
+      minLines,
+      ignoreLiterals,
+      maxPunctuationRatio,
+      limit: perPackageCap,
+      ignoreDirs,
+      includeGenerated: args.includeGenerated ?? config?.duplication?.includeGenerated ?? false,
+      includeSameFile: args.includeSameFile ?? config?.duplication?.includeSameFile ?? false,
+      includeSvgMarkup: args.includeSvgMarkup ?? config?.duplication?.includeSvgMarkup ?? false,
+      includeDocs: args.includeDocs ?? config?.duplication?.includeDocs ?? false,
+      scope: args.scope ?? config?.duplication?.scope,
+      ignoreGlobs: config?.duplication?.ignoreGlobs ?? [],
+      tokenCache,
+    });
+    perPackage.push({
+      groups: tagPackage(groups, pkgName, multi),
+      clusters: tagPackage(clusters, pkgName, multi),
+    });
+  }
   cache.flushDuplicationTokenCache(root);
-  const groups = perPackage
+  let groups = perPackage
     .flatMap((result) => result.groups)
     .sort((a, b) => b.lines - a.lines)
     .slice(0, limit);
   // Clusters never cross a package boundary either (each package's own findDuplicates call
   // already clustered within its own group set) — re-sort+re-limit across packages the same way
   // groups are, rather than truncating each package's clusters to `limit` first.
-  const clusters = perPackage
+  let clusters = perPackage
     .flatMap((result) => result.clusters)
     .sort((a, b) => b.longestMatch - a.longestMatch || b.matchCount - a.matchCount)
     .slice(0, limit);
-  return text({ minLines, groups, count: groups.length, clusters });
+
+  // A result with thousands of large groups can itself be megabytes of JSON — enough to spike
+  // heap on the final serialize. Trim both lists until the payload fits, flagging `truncated`.
+  let truncated = false;
+  while (
+    (groups.length > 1 || clusters.length > 1) &&
+    JSON.stringify({ minLines, groups, count: groups.length, clusters }).length >
+      FIND_DUPLICATES_MAX_PAYLOAD_BYTES
+  ) {
+    groups = groups.slice(0, Math.max(1, Math.floor(groups.length / 2)));
+    clusters = clusters.slice(0, Math.max(1, Math.floor(clusters.length / 2)));
+    truncated = true;
+  }
+  return text({
+    minLines,
+    groups,
+    count: groups.length,
+    clusters,
+    ...(truncated && { truncated }),
+  });
 }
 
 /**

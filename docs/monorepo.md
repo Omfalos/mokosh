@@ -62,10 +62,13 @@ The per-package dependency graphs are built lazily on the first workspace-aware 
 needs edges — so `analyze([])` stays fast even on a large JVM monorepo. Pass `eager: true` to build every
 package graph up front and get the `{ nodeCount, categories, cycles }` payload instead.
 
-Once built, the workspace graph is persisted to `mokosh-cache/workspace-graph.json` and keyed by
-a digest of every source file's mtime+size — a later session against an unchanged repo hydrates
-it from disk instead of rebuilding. A file edit invalidates only its own package on the next
-rebuild (the rest are reused incrementally).
+Once built, the workspace graph is persisted under `mokosh-cache/workspace/` as a small
+`manifest.json` ("the map file") plus one `<package>.json` per package. Each package file is
+parsed on its own, so a later session hydrating an unchanged repo never has to `JSON.parse` the
+whole workspace in one shot (a 190 MB+ single blob used to OOM the MCP server). The manifest
+carries a per-package source digest plus a root digest for files under no package; on hydrate
+every digest must still match — any stale, oversized (>48 MB serialized), or missing package
+discards the whole cache and triggers a full rebuild.
 
 **Very large monorepos:** scope the build to a subset with
 `analyze({ entryPoints: [], packages: ["core", "api"] })`. Prune generated source trees from the

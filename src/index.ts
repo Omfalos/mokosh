@@ -11,8 +11,12 @@ export {
   DEFAULT_EXTENSIONS,
   DEFAULT_GRAPH_CACHE_FILE,
   DEFAULT_IGNORE_DIRS,
+  DEFAULT_WORKSPACE_CACHE_SUBDIR,
   DEFAULT_WORKSPACE_GRAPH_CACHE_FILE,
+  MAX_PACKAGE_CACHE_BYTES,
   type ScanOptions,
+  WORKSPACE_CACHE_VERSION,
+  WORKSPACE_MANIFEST_FILE,
 } from "./const";
 
 // Coverage
@@ -216,6 +220,7 @@ import {
   GraphBuilder,
   type MonorepoLayout,
   type ParallelParsingOption,
+  packageOwnsFile,
   WorkspaceGraph,
   type WorkspacePackage,
 } from "./graph";
@@ -323,16 +328,59 @@ export function computeWorkspaceSourceDigest(rootDir: string): {
   const files = getAllProjectFiles(rootDir);
   const hash = crypto.createHash("sha256");
   for (const rel of [...files].sort()) {
-    let line = `${rel}\0?\0?`;
-    try {
-      const stat = fs.statSync(path.join(rootDir, rel));
-      line = `${rel}\0${stat.mtimeMs}\0${stat.size}`;
-    } catch {
-      // Unreadable/racing file — fold a stable placeholder in rather than throwing.
-    }
-    hash.update(`${line}\n`);
+    hash.update(`${sourceDigestLine(rootDir, rel)}\n`);
   }
   return { digest: hash.digest("hex"), files };
+}
+
+/** One `path\0mtimeMs\0size` line for `rel` (a `?`-filled placeholder if it can't be stat'd),
+ *  the unit `computeWorkspaceSourceDigest` and `computeWorkspacePackageDigests` both hash. */
+function sourceDigestLine(rootDir: string, rel: string): string {
+  try {
+    const stat = fs.statSync(path.join(rootDir, rel));
+    return `${rel}\0${stat.mtimeMs}\0${stat.size}`;
+  } catch {
+    // Unreadable/racing file — fold a stable placeholder in rather than throwing.
+    return `${rel}\0?\0?`;
+  }
+}
+
+/**
+ * @description Buckets the monorepo's source files by owning package and digests each bucket
+ *   independently — plus a `rootDigest` over files owned by no package (top-level configs,
+ *   lockfiles, root docs). Lets the workspace disk cache (`src/graph/workspace/disk-cache.ts`)
+ *   tell which individual packages are still current, instead of one whole-tree digest that any
+ *   single edit invalidates.
+ * @param rootDir - Absolute monorepo root.
+ * @param packages - Packages to bucket into; each needs `name` and `relativeRoot`.
+ * @param files - A pre-computed `getAllProjectFiles(rootDir)` result (e.g. from
+ *   `computeWorkspaceSourceDigest`), reused so the tree is walked only once.
+ * @returns `rootDigest` and a `packageDigests` map keyed by package name (every package in
+ *   `packages` gets an entry, even if it owns no files).
+ */
+export function computeWorkspacePackageDigests(
+  rootDir: string,
+  packages: ReadonlyArray<Pick<WorkspacePackage, "name" | "relativeRoot">>,
+  files: string[],
+): { rootDigest: string; packageDigests: Map<string, string> } {
+  // Longest relativeRoot first so a nested package claims a file before its ancestor.
+  const mostSpecificFirst = [...packages].sort(
+    (a, b) => b.relativeRoot.length - a.relativeRoot.length,
+  );
+  const buckets = new Map<string, string[]>(packages.map((pkg) => [pkg.name, []]));
+  const rootBucket: string[] = [];
+  for (const rel of files) {
+    const owner = mostSpecificFirst.find((pkg) => packageOwnsFile(rel, pkg));
+    (owner ? (buckets.get(owner.name) as string[]) : rootBucket).push(rel);
+  }
+  const digestOf = (rels: string[]): string => {
+    const hash = crypto.createHash("sha256");
+    for (const rel of [...rels].sort()) hash.update(`${sourceDigestLine(rootDir, rel)}\n`);
+    return hash.digest("hex");
+  };
+  const packageDigests = new Map<string, string>();
+  for (const [name, rels] of buckets) packageDigests.set(name, digestOf(rels));
+  return { rootDigest: digestOf(rootBucket), packageDigests };
 }
 
 /**

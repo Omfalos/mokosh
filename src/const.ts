@@ -12,11 +12,34 @@ export const DEFAULT_DUPLICATION_TOKEN_CACHE_FILE = "duplication-tokens.json";
  *  seed a session's first `analyze` call so it reuses unchanged nodes instead of parsing cold. */
 export const DEFAULT_GRAPH_CACHE_FILE = "graph.json";
 
-/** Filename for the disk-persisted *workspace* (monorepo) graph cache within `DEFAULT_CACHE_DIR`.
- *  Written by the MCP server (`src/mcp/cache.ts`) after a `createWorkspaceGraph` build and hydrated
- *  on the next session's first workspace query when the source-file digest still matches — so
- *  repeat sessions against an unchanged monorepo skip the full per-package rebuild. */
+/** Legacy filename for the single-blob disk-persisted *workspace* (monorepo) graph cache within
+ *  `DEFAULT_CACHE_DIR`. Superseded by `DEFAULT_WORKSPACE_CACHE_SUBDIR` (a manifest plus one file
+ *  per package) — retained only so `src/graph/workspace/disk-cache.ts` can unlink a stale copy
+ *  left by an older mokosh. A 190 MB+ single file here was `JSON.parse`d whole and OOM-killed the
+ *  MCP server; see the manifest layout below. */
 export const DEFAULT_WORKSPACE_GRAPH_CACHE_FILE = "workspace-graph.json";
+
+/** Subdirectory of `DEFAULT_CACHE_DIR` holding the workspace graph cache as a `manifest.json`
+ *  ("the map file") plus one `<pkg-slug>.json` per package. Each package file is parsed on its
+ *  own, so peak memory on hydrate is bounded by the largest single package rather than the whole
+ *  serialized workspace. Written/read by `src/graph/workspace/disk-cache.ts`, driven from
+ *  `src/mcp/cache.ts`. */
+export const DEFAULT_WORKSPACE_CACHE_SUBDIR = "workspace";
+
+/** Filename of the workspace cache manifest within `DEFAULT_WORKSPACE_CACHE_SUBDIR`: the small
+ *  index that carries the layout, the root (non-package-owned) source digest, and one entry per
+ *  package (name, relative root, entry points, per-package digest, node count, cache filename). */
+export const WORKSPACE_MANIFEST_FILE = "manifest.json";
+
+/** Schema version stamped into the workspace cache manifest. A mismatch on read discards the
+ *  whole cache (full rebuild) — bump this whenever the serialized `FileNode` shape or the
+ *  manifest structure changes incompatibly. */
+export const WORKSPACE_CACHE_VERSION = 1;
+
+/** A single package whose serialized node array exceeds this is not written to the workspace
+ *  cache (and never read back) — that package always rebuilds. Keeps any one per-package
+ *  `JSON.parse` on hydrate within a safe memory envelope. */
+export const MAX_PACKAGE_CACHE_BYTES = 48 * 1024 * 1024;
 
 /** Subdirectory of `DEFAULT_CACHE_DIR` holding one JSON file per commit sha — graphs built for
  *  the "other" ref in a `compareBranches` call (`src/graph/branch-graph-cache.ts`). Keyed by sha

@@ -134,6 +134,7 @@ describe("SessionState", {
       // `changeImpactCaches` is keyed by root regardless of single-package vs. workspace mode —
       // `ensureFreshWorkspace` clears it defensively on every dirty rebuild so a root can never
       // serve a stale entry left over from before it was re-analyzed, whichever mode wrote it.
+      fs.writeFileSync(path.join(root, "src", "a.ts"), "export const a = 1;");
       const before = makeWorkspaceGraph(root, [makeNode("src/a.ts")]);
       const after = makeWorkspaceGraph(root, [
         makeNode("src/a.ts"),
@@ -150,6 +151,9 @@ describe("SessionState", {
       const staleEntry = { impact: new Map(), graphHash: "stale" };
       changeImpactCaches.set(root, staleEntry);
 
+      // A real source edit so `ensureFreshWorkspace` sees the digest actually move (an incidental
+      // watcher event that changes nothing is deliberately short-circuited to avoid a rebuild).
+      fs.writeFileSync(path.join(root, "src", "b.ts"), "import './a';\nexport const b = 2;");
       markDirty(state, root);
       await state.ensureFreshWorkspace(root);
 
@@ -202,7 +206,9 @@ describe("SessionState", {
 
       const session1 = new SessionState();
       await session1.getOrBuildWorkspace(root);
-      expect(fs.existsSync(path.join(root, "mokosh-cache", "workspace-graph.json"))).toBe(true);
+      expect(fs.existsSync(path.join(root, "mokosh-cache", "workspace", "manifest.json"))).toBe(
+        true,
+      );
 
       vi.mocked(createWorkspaceGraph).mockClear();
       const session2 = new SessionState();
