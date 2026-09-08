@@ -692,6 +692,13 @@ describe("handleFindDuplicates", {
       getConfig: vi.fn().mockReturnValue(config),
       getDuplicationTokenCache: vi.fn().mockResolvedValue(new Map()),
       flushDuplicationTokenCache: vi.fn(),
+      duplicationResultCachePath: vi.fn((_root: string, pkg?: string) =>
+        path.join(
+          root,
+          "mokosh-cache",
+          pkg ? `duplication-result-${pkg}.json` : "duplication-result.json",
+        ),
+      ),
     } as unknown as SessionState;
   }
 
@@ -725,7 +732,11 @@ describe("handleFindDuplicates", {
     const graph = Graph.deserialize({ nodes: [makeNode("a.ts"), makeNode("b.ts")] });
 
     const data = parse(
-      await handleFindDuplicates(makeDuplicatesCache(graph), { root, minLines: 4 }),
+      await handleFindDuplicates(makeDuplicatesCache(graph), {
+        root,
+        minLines: 4,
+        view: "groups",
+      }),
     ) as { minLines: number; groups: Array<{ occurrences: unknown[] }>; count: number };
 
     expect(data.minLines).toBe(4);
@@ -733,7 +744,7 @@ describe("handleFindDuplicates", {
     expect(data.groups[0]?.occurrences).toHaveLength(2);
   });
 
-  test("slim response (default) shapes groups compactly and leads with a summary", async () => {
+  test("default response leads with a summary + slim cluster preview + hint, no groups", async () => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), "mokosh-handlers-duplicates-"));
     fs.writeFileSync(path.join(root, "a.ts"), DUPLICATED_BLOCK);
     fs.writeFileSync(path.join(root, "b.ts"), DUPLICATED_BLOCK.replace(/items/g, "orders"));
@@ -743,15 +754,20 @@ describe("handleFindDuplicates", {
       await handleFindDuplicates(makeDuplicatesCache(graph), { root, minLines: 4 }),
     ) as {
       summary: { matched: number; byFamily: Record<string, number>; largestLines: number };
-      groups: Array<{ lines: number; occurrences: string[] }>;
+      groups?: unknown;
+      hint?: string;
+      clusters: Array<{ longestMatchAt: string[] }>;
     };
 
     expect(data.summary.matched).toBeGreaterThan(0);
     expect(data.summary.largestLines).toBeGreaterThan(0);
     expect(data.summary.byFamily.js).toBeGreaterThan(0);
-    // slim occurrences are "path:start-end" strings, not objects
-    expect(typeof data.groups[0]?.occurrences[0]).toBe("string");
-    expect(data.groups[0]?.occurrences[0]).toMatch(/^[ab]\.ts:\d+-\d+$/);
+    // Summary-first: no `groups` list on the default view, and a `hint` pointing at `filter`.
+    expect(data.groups).toBeUndefined();
+    expect(data.hint).toMatch(/filter/);
+    // Each slim cluster carries the longest match's span as "path:start-end" strings.
+    expect(typeof data.clusters[0]?.longestMatchAt[0]).toBe("string");
+    expect(data.clusters[0]?.longestMatchAt[0]).toMatch(/^[ab]\.ts:\d+-\d+$/);
   });
 
   test("filter narrows the result and errors on an unknown key", async () => {
@@ -775,6 +791,7 @@ describe("handleFindDuplicates", {
         root,
         minLines: 4,
         filter: "path:lib/",
+        view: "groups",
       }),
     ) as { groups: Array<{ occurrences: string[] }> };
     expect(anyLib.groups.length).toBeGreaterThan(0);
@@ -786,6 +803,7 @@ describe("handleFindDuplicates", {
         root,
         minLines: 4,
         filter: "allPaths:lib/",
+        view: "groups",
       }),
     ) as { groups: Array<{ occurrences: string[] }> };
     expect(allLib.groups.every((g) => g.occurrences.every((o) => o.startsWith("lib/")))).toBe(true);
@@ -806,9 +824,10 @@ describe("handleFindDuplicates", {
 
     const data = parse(
       await handleFindDuplicates(makeDuplicatesCache(graph), { root, minLines: 3 }),
-    ) as { count: number };
+    ) as { summary: { matched: number }; clusters: unknown[] };
 
-    expect(data.count).toBe(0);
+    expect(data.summary.matched).toBe(0);
+    expect(data.clusters).toHaveLength(0);
   });
 
   test("merges this root's configured ignoreDirs with the defaults", async () => {
@@ -825,9 +844,9 @@ describe("handleFindDuplicates", {
         root,
         minLines: 4,
       }),
-    ) as { count: number };
+    ) as { summary: { matched: number } };
 
-    expect(data.count).toBe(0);
+    expect(data.summary.matched).toBe(0);
   });
 
   test("an explicit ignoreDirs argument overrides the config default", async () => {
@@ -845,9 +864,62 @@ describe("handleFindDuplicates", {
         minLines: 4,
         ignoreDirs: [],
       }),
-    ) as { count: number };
+    ) as { summary: { matched: number } };
 
-    expect(data.count).toBeGreaterThan(0);
+    expect(data.summary.matched).toBeGreaterThan(0);
+  });
+
+  test("view:'groups' returns raw spans and no clusters; view:'full' returns both", async () => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), "mokosh-handlers-duplicates-"));
+    fs.writeFileSync(path.join(root, "a.ts"), DUPLICATED_BLOCK);
+    fs.writeFileSync(path.join(root, "b.ts"), DUPLICATED_BLOCK.replace(/items/g, "orders"));
+    const graph = Graph.deserialize({ nodes: [makeNode("a.ts"), makeNode("b.ts")] });
+
+    const groupsView = parse(
+      await handleFindDuplicates(makeDuplicatesCache(graph), { root, minLines: 4, view: "groups" }),
+    ) as { groups: unknown[]; clusters?: unknown; hint?: string; count: number };
+    expect(groupsView.groups.length).toBeGreaterThan(0);
+    expect(groupsView.count).toBe(groupsView.groups.length);
+    expect(groupsView.clusters).toBeUndefined();
+    expect(groupsView.hint).toBeUndefined(); // hint is bare-default only
+
+    const fullView = parse(
+      await handleFindDuplicates(makeDuplicatesCache(graph), { root, minLines: 4, view: "full" }),
+    ) as { groups: unknown[]; clusters: unknown[]; summary: { clusteredGroups: number } };
+    expect(Array.isArray(fullView.groups)).toBe(true);
+    expect(Array.isArray(fullView.clusters)).toBe(true);
+    expect(typeof fullView.summary.clusteredGroups).toBe("number");
+  });
+
+  test("result cache: a repeat call with nothing changed serves from disk without re-scanning", async () => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), "mokosh-handlers-duplicates-"));
+    fs.writeFileSync(path.join(root, "a.ts"), DUPLICATED_BLOCK);
+    fs.writeFileSync(path.join(root, "b.ts"), DUPLICATED_BLOCK.replace(/items/g, "orders"));
+    const graph = Graph.deserialize({ nodes: [makeNode("a.ts"), makeNode("b.ts")] });
+
+    const first = parse(
+      await handleFindDuplicates(makeDuplicatesCache(graph), { root, minLines: 4 }),
+    ) as { summary: { matched: number } };
+    expect(first.summary.matched).toBeGreaterThan(0);
+    const resultCachePath = path.join(root, "mokosh-cache", "duplication-result.json");
+    expect(fs.existsSync(resultCachePath)).toBe(true);
+
+    // Remove the sources (and any token cache) so only a result-cache hit can still answer.
+    fs.rmSync(path.join(root, "a.ts"));
+    fs.rmSync(path.join(root, "b.ts"));
+    fs.rmSync(path.join(root, "mokosh-cache", "duplication-tokens.json"), { force: true });
+
+    const second = parse(
+      await handleFindDuplicates(makeDuplicatesCache(graph), { root, minLines: 4 }),
+    ) as { summary: { matched: number } };
+    expect(second.summary.matched).toBe(first.summary.matched);
+
+    // A param change (different minLines) must NOT hit the stale entry — sources are gone, so
+    // the scan now finds nothing.
+    const third = parse(
+      await handleFindDuplicates(makeDuplicatesCache(graph), { root, minLines: 3 }),
+    ) as { summary: { matched: number } };
+    expect(third.summary.matched).toBe(0);
   });
 
   describe("disk-persisted token cache", () => {
@@ -855,6 +927,11 @@ describe("handleFindDuplicates", {
       const cache = new SessionState();
       vi.spyOn(cache, "ensureFresh").mockResolvedValue(graph);
       vi.spyOn(cache, "getConfig").mockReturnValue(undefined);
+      // Point the result cache at a per-call unique path so it never hits — these tests are
+      // specifically about the *token* cache, and a result-cache hit would mask it.
+      vi.spyOn(cache, "duplicationResultCachePath").mockImplementation(() =>
+        path.join(root, "mokosh-cache", `no-result-cache-${Math.random()}.json`),
+      );
       return cache;
     }
 
@@ -865,7 +942,7 @@ describe("handleFindDuplicates", {
       const graph = Graph.deserialize({ nodes: [makeNode("a.ts"), makeNode("b.ts")] });
 
       const data = parse(
-        await handleFindDuplicates(realSessionState(graph), { root, minLines: 4 }),
+        await handleFindDuplicates(realSessionState(graph), { root, minLines: 4, view: "groups" }),
       ) as { count: number };
       expect(data.count).toBeGreaterThan(0);
 
@@ -879,7 +956,7 @@ describe("handleFindDuplicates", {
       fs.rmSync(path.join(root, "a.ts"));
       fs.rmSync(path.join(root, "b.ts"));
       const secondSessionData = parse(
-        await handleFindDuplicates(realSessionState(graph), { root, minLines: 4 }),
+        await handleFindDuplicates(realSessionState(graph), { root, minLines: 4, view: "groups" }),
       ) as { count: number };
       expect(secondSessionData.count).toBe(data.count);
     });
@@ -894,7 +971,7 @@ describe("handleFindDuplicates", {
       const graph = Graph.deserialize({ nodes: [makeNode("a.ts"), makeNode("b.ts")] });
 
       const data = parse(
-        await handleFindDuplicates(realSessionState(graph), { root, minLines: 4 }),
+        await handleFindDuplicates(realSessionState(graph), { root, minLines: 4, view: "groups" }),
       ) as { count: number };
 
       expect(data.count).toBeGreaterThan(0);

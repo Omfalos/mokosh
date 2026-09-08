@@ -1,4 +1,5 @@
 /** Session-scoped graph cache keyed by root directory, shared across MCP tool calls in one session. */
+import crypto from "node:crypto";
 import fs, { type FSWatcher } from "node:fs";
 import path from "node:path";
 import type { MokoshConfig } from "../config";
@@ -11,6 +12,7 @@ import {
   createImportMap,
   createWorkspaceGraph,
   DEFAULT_CACHE_DIR,
+  DEFAULT_DUPLICATION_RESULT_CACHE_FILE,
   DEFAULT_DUPLICATION_TOKEN_CACHE_FILE,
   DEFAULT_GRAPH_CACHE_FILE,
   type DuplicationTokenCache,
@@ -32,6 +34,24 @@ import { IGNORE_WATCH } from "../watch-ignore";
  *  against the same root warm each other's cache. */
 function duplicationTokenCachePath(root: string): string {
   return path.join(root, DEFAULT_CACHE_DIR, DEFAULT_DUPLICATION_TOKEN_CACHE_FILE);
+}
+
+/** Where the disk-persisted `find_duplicates` *result* cache for `root` lives — the full
+ *  `{ groups, clusters }` from the last scan, digest-gated (see
+ *  `src/graph/duplication/result-cache-store.ts`). Honors the same `mokosh.config.*` `cachePath`
+ *  override as the graph cache. On a monorepo, pass `pkgName` for a per-package file so one
+ *  package's edits don't invalidate every other package's cached result. */
+function resolveDuplicationResultCachePath(
+  root: string,
+  config: MokoshConfig | undefined,
+  pkgName?: string,
+): string {
+  const dir = config?.cachePath
+    ? path.dirname(path.resolve(root, config.cachePath))
+    : path.join(root, DEFAULT_CACHE_DIR);
+  if (!pkgName) return path.join(dir, DEFAULT_DUPLICATION_RESULT_CACHE_FILE);
+  const slug = crypto.createHash("sha1").update(pkgName).digest("hex").slice(0, 8);
+  return path.join(dir, `duplication-result-${slug}.json`);
 }
 
 /** Where the CLI's disk-persisted graph cache for `root` lives, honoring the same
@@ -620,6 +640,20 @@ export class SessionState {
     } catch (err) {
       process.stderr.write(`Warning: failed to persist duplication token cache: ${err}\n`);
     }
+  }
+
+  /**
+   * @description Absolute path to `root`'s disk-persisted `find_duplicates` *result* cache — the
+   *   full `{ groups, clusters }` from the last scan, digest-gated (see
+   *   `src/graph/duplication/result-cache-store.ts`). Pass `pkgName` on a monorepo to get a
+   *   per-package file. Honors the same `mokosh.config.*` `cachePath` override the graph cache
+   *   does. This only resolves the path — `handleFindDuplicates` owns the load/save.
+   * @param root - Absolute project root path.
+   * @param pkgName - Workspace package name, when the scan is scoped to one package.
+   * @returns The path the result cache for this `(root, package)` should be read from / written to.
+   */
+  duplicationResultCachePath(root: string, pkgName?: string): string {
+    return resolveDuplicationResultCachePath(root, this.configs.get(root), pkgName);
   }
 
   /**

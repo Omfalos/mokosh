@@ -7,6 +7,13 @@ export const DEFAULT_CACHE_DIR = "mokosh-cache";
 /** Filename for the disk-persisted `find_duplicates` token cache within `DEFAULT_CACHE_DIR`. */
 export const DEFAULT_DUPLICATION_TOKEN_CACHE_FILE = "duplication-tokens.json";
 
+/** Filename for the disk-persisted `find_duplicates` *result* cache within `DEFAULT_CACHE_DIR`
+ *  (or, on a monorepo, `<pkg-slug>-duplication-result.json` per package). Holds the full
+ *  `{ groups, clusters }` from the last scan, keyed by a digest of every in-scope file's
+ *  mtime/size plus the output-affecting scan params — a match lets a repeat call skip the scan
+ *  entirely. See `src/graph/duplication/result-cache-store.ts`. */
+export const DEFAULT_DUPLICATION_RESULT_CACHE_FILE = "duplication-result.json";
+
 /** Filename for the disk-persisted graph cache within `DEFAULT_CACHE_DIR`. Written by the CLI
  *  (`src/cli/graph-loader.ts`) after every build; read by the MCP server (`src/mcp/cache.ts`) to
  *  seed a session's first `analyze` call so it reuses unchanged nodes instead of parsing cold. */

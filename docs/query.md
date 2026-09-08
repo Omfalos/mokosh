@@ -115,6 +115,11 @@ shape; string values take a leading `!` for negation. Parsed by `parseDupQuery`,
 `matchDupGroup`. An unknown key or malformed clause **throws** (unlike the node query DSL, which
 silently ignores unknown keys) so a typo fails loudly instead of returning nothing.
 
+The MCP tool is **summary-first**: with no `filter` and no `view` it returns just `summary` +
+a small `clusters` preview + a `hint`. A `filter` returns `summary` + the matching `clusters`;
+add `view: "groups"` for the raw per-span `groups`, or `view: "full"` for both. (The CLI
+`--find-duplicates` command still prints the full `summary` + `groups` + `clusters`.)
+
 | Key | Meaning |
 |---|---|
 | `path:<substr>` / `path:!<substr>` | at least one / no occurrence's path contains this |

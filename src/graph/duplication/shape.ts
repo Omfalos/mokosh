@@ -34,6 +34,38 @@ export interface DuplicatesSummary {
   bySignal: Record<string, number>;
   /** Largest `lines` value among the matched groups. */
   largestLines: number;
+  /** Only set on a `view: "full"` response: how many groups were dropped from the returned
+   *  `groups` list because a returned multi-member cluster already represents them (see
+   *  {@link dedupeGroupsAgainstClusters}). */
+  clusteredGroups?: number;
+}
+
+/** Order-independent exact-span identity for one group — its sorted `"file:start-end"`
+ *  occurrence strings joined. Two groups with the same identity are the same reported match. */
+function groupIdentity(group: DuplicateGroup): string {
+  return [...slimOccurrences(group)].sort().join("|");
+}
+
+/**
+ * @description Drops from `groups` every group that is a member of a multi-member cluster in
+ *   `clusters` — that cluster already represents it (with a better signal: per-file `coverage`),
+ *   so returning both is redundant. Groups whose file pair matched only once (no multi-member
+ *   cluster) are kept. Used only for the `view: "full"` response, the one path that returns both
+ *   lists.
+ * @param {readonly DuplicateGroup[]} groups - The ordered, pre-`limit` group list.
+ * @param {readonly DuplicateCluster[]} clusters - The clusters that will be returned alongside.
+ * @returns {DuplicateGroup[]} `groups` minus the ones folded into a returned multi-member cluster.
+ */
+export function dedupeGroupsAgainstClusters(
+  groups: readonly DuplicateGroup[],
+  clusters: readonly DuplicateCluster[],
+): DuplicateGroup[] {
+  const clustered = new Set<string>();
+  for (const cluster of clusters) {
+    if (cluster.matchCount < 2) continue;
+    for (const member of cluster.groups) clustered.add(groupIdentity(member));
+  }
+  return groups.filter((group) => !clustered.has(groupIdentity(group)));
 }
 
 /**
@@ -91,17 +123,22 @@ export function slimDupGroup(group: DuplicateGroup): Record<string, unknown> {
 }
 
 /**
- * @description Slim per-cluster projection: the file set, match count, best-verified size and
- *   per-file coverage — without the nested member-group bodies.
- * @param {DuplicateCluster} cluster - A built cluster.
+ * @description Slim per-cluster projection: the file set, match count, best-verified size,
+ *   per-file coverage, and the `"path:start-end"` span of the cluster's longest match — without
+ *   the nested member-group bodies. `longestMatchAt` is what makes a slim cluster actionable on
+ *   its own: it answers "where do I look" without the caller also pulling the `groups` list.
+ * @param {DuplicateCluster} cluster - A built cluster. `cluster.groups` is largest-`lines`-first
+ *   (see `buildDuplicateClusters`), so `groups[0]` is the longest match.
  * @returns {Record<string, unknown>} The compact object.
  */
 export function slimDupCluster(cluster: DuplicateCluster): Record<string, unknown> {
   const pkg = (cluster as { package?: string }).package;
+  const longest = cluster.groups[0];
   return {
     files: cluster.files,
     matchCount: cluster.matchCount,
     longestMatch: cluster.longestMatch,
+    ...(longest !== undefined && { longestMatchAt: slimOccurrences(longest) }),
     coverage: cluster.coverage,
     ...(pkg !== undefined && { package: pkg }),
   };

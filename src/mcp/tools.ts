@@ -333,70 +333,71 @@ export const TOOL_DEFINITIONS = [
   {
     name: "find_duplicates",
     description:
-      'Find duplicated code blocks, largest-first — also kind:"definition" groups + clusters (file set + coverage %). Response leads with `summary`; narrow with `filter`; `slim` (default true) compacts. Requires analyze(). See docs/mcp.md.',
+      "Find duplicated code, largest-first. Summary-first: default = `summary` + `clusters` preview + `hint`, no `groups`. Narrow with `filter`; `view` adds groups. Requires analyze().",
     inputSchema: {
       type: "object",
       properties: {
         root: { type: "string", description: "Absolute path to the project root" },
         minLines: {
           type: "number",
-          description: "Minimum duplicated block size in lines to report (default: 6)",
+          description: "Min duplicated block size in lines (default 6)",
         },
         ignoreLiterals: {
           type: "boolean",
-          description:
-            "Normalize string/number literals so only structural shape matches (default true); false = exact text.",
+          description: "Normalize string/number literals (default true); false = exact text.",
         },
         maxPunctuationRatio: {
           type: "number",
-          description:
-            "Max fraction of a block that may be object/array punctuation (default 0.5); 1 disables.",
+          description: "Max object/array-punctuation fraction (default 0.5); 1 disables.",
         },
         ignoreDirs: {
           type: "array",
           items: { type: "string" },
           description:
-            "Directory names to exclude, any path segment (default: DEFAULT_IGNORE_DIRS + config). [] disables.",
+            "Directory names to exclude (default: DEFAULT_IGNORE_DIRS + config). [] disables.",
         },
         limit: {
           type: "number",
-          description: "Max duplicate blocks to return, largest-first (default: 50)",
+          description: "Max clusters/groups returned (default 20); ignored for the summary view.",
         },
         includeGenerated: {
           type: "boolean",
-          description:
-            "Scan generated/vendored files too (default false). Tagged signals:['generated'].",
+          description: "Scan generated/vendored files too (default false). signals:['generated'].",
         },
         includeSameFile: {
           type: "boolean",
-          description:
-            "Include single-file matches (default false) — usually a file's own repetition. signals:['same-file'].",
+          description: "Include single-file matches (default false). signals:['same-file'].",
         },
         includeSvgMarkup: {
           type: "boolean",
           description:
-            "Include inline-SVG/JSX-markup matches (default false) — icons sharing a skeleton. signals:['svg-markup'].",
+            "Include inline-SVG/JSX-markup matches (default false). signals:['svg-markup'].",
         },
         scope: {
           type: "string",
           enum: ["src", "tests", "all"],
           description:
-            "Test-file dups (default 'src'): 'src' drops test clusters, 'tests' only substantive shared test logic, 'all' all.",
+            "Test-file dups (default 'src'): 'src' drops test clusters, 'tests' only substantive test logic, 'all' keeps all.",
         },
         includeDocs: {
           type: "boolean",
-          description:
-            "Include markdown-family matches (default false) — mirrored prose docs. signals:['docs'].",
+          description: "Include markdown-family matches (default false). signals:['docs'].",
         },
         filter: {
           type: "string",
           description:
-            "key:value filter, AND across keys: path, allPaths, family, type, kind, defKind, minLines/maxLines, minScore/maxScore, minOccurrences, crossFile, signal ('!' negates), sort, sortDir, limit. See docs/query.md.",
+            "key:value result filter (AND across keys): path, allPaths, family, type, kind, defKind, min/maxLines, min/maxScore, minOccurrences, crossFile, signal ('!' negates), sort, sortDir, limit. See docs/query.md.",
+        },
+        view: {
+          type: "string",
+          enum: ["summary", "groups", "full"],
+          description:
+            "'summary' (default): clusters preview + hint, no groups. 'groups': raw spans, no clusters. 'full': both, groups de-duped vs clusters.",
         },
         slim: {
           type: "boolean",
           description:
-            "Compact response (default true): terse groups, 'path:start-end' occurrences, no cluster bodies. false = full.",
+            "Compact response (default true): terse groups, 'path:start-end' occurrences, clusters carry longestMatchAt not group bodies. false = full.",
         },
         package: FAN_OUT_PACKAGE_PROPERTY,
       },

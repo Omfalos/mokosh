@@ -73,8 +73,19 @@ export type ParallelTokenizingOption = boolean | { minFiles?: number; maxThreads
 export type { DuplicateCluster, DuplicateClusterFileCoverage } from "./clusters";
 export type { DuplicateFamily } from "./families";
 export { hasGeneratedMarker, isGeneratedPath } from "./generated";
+export type {
+  CachedDuplicationResult,
+  DuplicationResultParams,
+} from "./result-cache-store";
+export {
+  duplicationDigest,
+  duplicationResultCacheKey,
+  loadDuplicationResult,
+  saveDuplicationResult,
+} from "./result-cache-store";
 export {
   type DuplicatesSummary,
+  dedupeGroupsAgainstClusters,
   slimDupCluster,
   slimDupGroup,
   slimOccurrences,

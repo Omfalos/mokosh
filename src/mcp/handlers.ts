@@ -14,8 +14,13 @@ import {
   createWorkspaceGraph,
   DEFAULT_IGNORE_DIRS,
   type DuplicateQuery,
+  type DuplicatesSummary,
+  type DuplicationResultParams,
+  dedupeGroupsAgainstClusters,
   detectAllEntryPoints,
   detectFeatures,
+  duplicationDigest,
+  duplicationResultCacheKey,
   filterGraph,
   findComplexFunctions,
   findDuplicates,
@@ -33,6 +38,7 @@ import {
   hasGitTimestampData,
   languageSupportNote,
   loadCoverageMap,
+  loadDuplicationResult,
   loadMokoshConfig,
   MermaidExporter,
   type PublicExport,
@@ -43,6 +49,7 @@ import {
   queryCallGraph,
   queryChangeImpact,
   queryTypeGraph,
+  saveDuplicationResult,
   slimDupCluster,
   slimDupGroup,
   slimSerialize,
@@ -60,9 +67,15 @@ import { text } from "./utils";
  *  without truncating so aggressively that the global ranking loses real top hits. */
 const FIND_DUPLICATES_PER_PACKAGE_CAP = 500;
 
-/** Byte ceiling for the serialized `find_duplicates` response. Past this the group/cluster lists
- *  are halved until the payload fits and the result is flagged `truncated`. */
-const FIND_DUPLICATES_MAX_PAYLOAD_BYTES = 1_000_000;
+/** Byte ceiling for the serialized `find_duplicates` response (~30K tokens). Past this the
+ *  group/cluster lists are halved until the payload fits and the result is flagged `truncated`.
+ *  A hard backstop only — the response is summary-first and low-limit by default, so this
+ *  rarely engages. */
+const FIND_DUPLICATES_MAX_PAYLOAD_BYTES = 120_000;
+
+/** Cluster count in the default (no `filter`, no `view`) `find_duplicates` response — a fixed,
+ *  cheap triage ceiling independent of repo size. Narrow with `filter` for more. */
+const FIND_DUPLICATES_PREVIEW_LIMIT = 8;
 
 // ---------------------------------------------------------------------------
 // Argument types — one per tool, matching the schemas defined in tools.ts
@@ -157,9 +170,14 @@ export type FindDuplicatesArgs = {
   scope?: "src" | "tests" | "all";
   /** `key:value` result filter — see `src/query/dup-parser.ts` / `DuplicateQuery`. */
   filter?: string;
+  /** Which lists the response carries. `"summary"` (default) → `summary` + a small `clusters`
+   *  preview + a `hint`, no `groups`; a `filter` with no `view` → `summary` + matching
+   *  `clusters` only. `"groups"` → `summary` + raw `groups` (the per-span shape), no `clusters`.
+   *  `"full"` → both, with `groups` de-duped against the returned multi-member clusters. */
+  view?: "summary" | "groups" | "full";
   /** Compact response shape (default true): per-group `{ lines, score, family, kind, defKind,
-   *  occurrences: ["path:start-end"], signals }` and per-cluster metadata without nested group
-   *  bodies. `false` returns the full objects. */
+   *  occurrences: ["path:start-end"], signals }` and per-cluster metadata (incl. `longestMatchAt`)
+   *  without nested group bodies. `false` returns the full objects. */
   slim?: boolean;
   package?: string;
 };
@@ -772,46 +790,53 @@ export async function handleFindRiskHotspots(
   });
 }
 
+/** The one-line drill-in nudge carried on a default (summary) `find_duplicates` response —
+ *  turns the `summary` counts into concrete next-call suggestions so the `filter` / `view` path
+ *  actually gets used instead of the caller re-requesting the whole list. */
+function buildDuplicatesHint(summary: DuplicatesSummary): string {
+  const dirCount = Object.keys(summary.byTopDir).length;
+  const families = Object.keys(summary.byFamily).filter((family) => family !== "other");
+  const familyEg = families.length > 1 ? ` or filter:"family:${families[0]},sort:score"` : "";
+  return (
+    `${summary.matched} duplicate group${summary.matched === 1 ? "" : "s"} across ` +
+    `${dirCount} ${dirCount === 1 ? "dir" : "dirs"}; showing the top clusters. ` +
+    `Narrow with filter, e.g. filter:"path:src,minScore:15"${familyEg}. ` +
+    `Pass view:"groups" for raw spans or view:"full" for both lists.`
+  );
+}
+
 /**
- * @description Scans every file in the graph for cross-file (and within-file) duplicated code,
- *   returning the resulting blocks largest-first. Token-based rather than AST-based, so it
- *   covers every language mokosh parses, not just the ones with per-function AST support. Lock
- *   files and files under an ignored directory are excluded even when the graph itself contains
- *   them — `graph.nodes` isn't ignore-rule-filtered for files reached via a resolved reference
- *   rather than the initial FS walk (e.g. a Markdown doc's code-span reference to a build
- *   artifact). Matching runs on a suffix array over the whole candidate token stream
- *   (docs/adr-015-suffix-array-duplicate-detection.md) rather than pairwise comparison, so
- *   results are exact and complete regardless of how repetitive the repo is — no truncation or
- *   skipped-match caveat to report back to the caller.
+ * @description Scans every file in the graph for cross-file (and within-file) duplicated code.
+ *   Token-based rather than AST-based, so it covers every language mokosh parses. Matching runs
+ *   on a suffix array over the whole candidate token stream
+ *   (docs/adr-015-suffix-array-duplicate-detection.md) — exact and complete regardless of how
+ *   repetitive the repo is.
+ *
+ *   **Summary-first response.** With no `filter` and no `view` the response is just `summary` +
+ *   a small `clusters` preview (`FIND_DUPLICATES_PREVIEW_LIMIT`) + a `hint` — no `groups`, since
+ *   every group in a multi-member cluster is redundant with it. Pass a `filter` for `summary` +
+ *   matching `clusters`; `view: "groups"` for the raw per-span `groups`; `view: "full"` for both
+ *   (with `groups` de-duped against the returned clusters). Each slim cluster carries
+ *   `longestMatchAt` — the `"path:start-end"` span of its biggest match — so it is actionable
+ *   without the `groups` list.
+ *
+ *   **Result cache.** When no `filter` is given, the full pre-`limit` `{ groups, clusters }` is
+ *   read from / written to `mokosh-cache/duplication-result.json` (per package on a monorepo),
+ *   keyed by a digest of every graph node's mtime/size plus the output-affecting scan params
+ *   (`src/graph/duplication/result-cache-store.ts`). An unchanged repo skips the scan entirely;
+ *   any file edit, add, remove, or param change forces a recompute. A `filter` run always
+ *   scans (it is the explicit drill-in path).
  * @param cache - Session state holding the cached graph and, if `analyze` set one, this root's
- *   config (read for its `ignoreDirs`).
- * @param args - `root` selects the graph; `minLines` is the minimum block size to report
- *   (default 6); `ignoreLiterals` toggles Type-2 vs Type-1 matching (default true);
- *   `maxPunctuationRatio` gates out blocks that are mostly object/array-literal structural
- *   punctuation rather than substantive shared logic (default 0.5; set 1 to disable);
- *   `ignoreDirs` overrides which directory names are excluded (default: `DEFAULT_IGNORE_DIRS`
- *   merged with this root's configured `ignoreDirs`, if any); `includeSameFile` includes matches
- *   where every occurrence is in one file (default false — mostly a file's own repetitive shape,
- *   not actionable copy-paste, so excluded by default the same way `includeGenerated` is);
- *   `includeSvgMarkup` includes matches whose occurrences are all inline SVG / SVG-shaped JSX
- *   markup (default false — a block match between two different icons sharing a literal-normalized
- *   skeleton, or a `defKind: "jsxElement"` match on a shared `<defs>`/`<filter>` block); `scope`
- *   filters clusters by test-file involvement (`"src"` default drops test clusters, `"tests"`
- *   keeps only substantive ones, `"all"` keeps everything); `filter` is a `key:value` DSL string
- *   (`src/query/dup-parser.ts` / `DuplicateQuery` — `path`/`allPaths`/`family`/`type`/`kind`/
- *   `defKind`/`minLines`/`maxLines`/`minScore`/`maxScore`/`minOccurrences`/`crossFile`/`signal`,
- *   plus `sort`/`sortDir`/`limit`) that narrows the result server-side; `slim` (default true)
- *   returns compact groups/clusters; `limit` caps the number of results returned (default 50).
- *   Reuses `cache`'s per-root token cache (see `SessionState.getDuplicationTokenCache`) so files
- *   unchanged (by mtime/size) since a prior call in this session skip re-tokenizing entirely.
- * @returns TextResponse with `{ minLines, filter?, summary, groups, count, clusters, truncated? }`.
- *   `summary` (`{ matched, byFamily, byTopDir, bySignal, largestLines }`) is a triage-first view
- *   of the whole post-`filter` set — read it, then issue a targeted `filter` call. `clusters`
- *   buckets `groups` by exact file set, each with per-file duplication `coverage`, so a real
- *   duplication fragmented into many non-nested matches between the same files reads as one entry
- *   with a % figure instead of a bare match count (see `src/graph/duplication/clusters.ts`). In
- *   slim mode each group is `{ lines, score?, family?, kind?, defKind?, signals?, occurrences:
- *   ["path:start-end"] }` and each cluster drops its nested member-group bodies.
+ *   config (read for `ignoreDirs` / `duplication.*`).
+ * @param args - `root` selects the graph; `minLines` (default 6), `ignoreLiterals` (default
+ *   true), `maxPunctuationRatio` (default 0.5), `ignoreDirs`, `includeGenerated`,
+ *   `includeSameFile`, `includeSvgMarkup`, `includeDocs`, `scope` tune the scan; `filter` is the
+ *   `key:value` DSL (`src/query/dup-parser.ts`); `view` (`"summary"` default | `"groups"` |
+ *   `"full"`) picks which lists come back; `slim` (default true) compacts each item; `limit`
+ *   caps the non-preview lists (default 20).
+ * @returns TextResponse with `{ minLines, filter?, summary, clusters?, groups?, count?, hint?,
+ *   truncated? }`. `summary` (`{ matched, byFamily, byTopDir, bySignal, largestLines,
+ *   clusteredGroups? }`) is the whole post-`filter`, pre-`limit` view.
  */
 export async function handleFindDuplicates(
   cache: SessionState,
@@ -822,7 +847,7 @@ export async function handleFindDuplicates(
     minLines = 6,
     ignoreLiterals = true,
     maxPunctuationRatio = 0.5,
-    limit = 50,
+    limit = 20,
     filter,
     slim = true,
     package: pkg,
@@ -835,45 +860,87 @@ export async function handleFindDuplicates(
   const multi = graphs.length > 1;
   const config = cache.getConfig(root);
   const ignoreDirs = args.ignoreDirs ?? [...DEFAULT_IGNORE_DIRS, ...(config?.ignoreDirs ?? [])];
-  const tokenCache = await cache.getDuplicationTokenCache(root);
   // Scan packages one at a time, not via Promise.all: each findDuplicates call spins up its own
   // tokenizing worker pool and builds a full suffix array + LCP arrays per language family, so N
-  // concurrent scans on a large monorepo hold N of those live at once and exhaust the heap. The
-  // shared token cache makes vendored code re-scanned across packages cheap on the 2nd..Nth pass.
-  // Each package is still allowed more than the response limit (so the cross-package global sort
-  // below stays accurate) but a finite cap, not Infinity — a single package can otherwise retain
-  // tens of thousands of DuplicateGroup objects. A `filter` widens the per-package cap even for a
-  // single-package repo: a DSL `sort:occurrences` reorders the set, so top-N-by-score from the
-  // core scan isn't enough to pick the final top N.
+  // concurrent scans on a large monorepo hold N of those live at once and exhaust the heap.
+  // Each package is capped above the response limit (so the cross-package global sort below and
+  // the cached "full" result stay accurate) but finite — a single package can otherwise retain
+  // tens of thousands of DuplicateGroup objects.
   const perPackageCap =
     multi || dupQuery
       ? Math.max(effectiveLimit * 4, FIND_DUPLICATES_PER_PACKAGE_CAP)
-      : effectiveLimit;
+      : Math.max(effectiveLimit, FIND_DUPLICATES_PER_PACKAGE_CAP);
+  // Resolve every output-affecting knob once — both the scan call and the result-cache key read
+  // from these, so they can never drift.
+  const scanOpts = {
+    includeGenerated: args.includeGenerated ?? config?.duplication?.includeGenerated ?? false,
+    includeSameFile: args.includeSameFile ?? config?.duplication?.includeSameFile ?? false,
+    includeSvgMarkup: args.includeSvgMarkup ?? config?.duplication?.includeSvgMarkup ?? false,
+    includeDocs: args.includeDocs ?? config?.duplication?.includeDocs ?? false,
+    scope: args.scope ?? config?.duplication?.scope,
+    ignoreGlobs: config?.duplication?.ignoreGlobs ?? [],
+  };
+  const resultParams: DuplicationResultParams = {
+    minLines,
+    ignoreLiterals,
+    maxPunctuationRatio,
+    limit: perPackageCap,
+    scope: scanOpts.scope,
+    includeGenerated: scanOpts.includeGenerated,
+    includeSameFile: scanOpts.includeSameFile,
+    includeSvgMarkup: scanOpts.includeSvgMarkup,
+    includeDocs: scanOpts.includeDocs,
+    ignoreDirs,
+    ignoreGlobs: scanOpts.ignoreGlobs,
+  };
+  const paramsKey = duplicationResultCacheKey(resultParams);
+  // The result cache only holds an unfiltered scan — a `filter` run always re-scans (predicate
+  // keys are applied inside `findDuplicates`, pre-clustering).
+  const useResultCache = filter === undefined;
+
+  const tokenCache = await cache.getDuplicationTokenCache(root);
   type DupScan = Awaited<ReturnType<typeof findDuplicates>>;
   const perPackage: Array<{ groups: DupScan["groups"]; clusters: DupScan["clusters"] }> = [];
+  let didScan = false;
   for (const { graph, package: pkgName } of graphs) {
+    const resultCachePath = cache.duplicationResultCachePath(root, multi ? pkgName : undefined);
+    const digest = useResultCache ? duplicationDigest(graph.nodes.values()) : "";
+    const cached = useResultCache
+      ? loadDuplicationResult(resultCachePath, digest, paramsKey)
+      : null;
+    if (cached) {
+      perPackage.push({
+        groups: tagPackage(cached.groups, pkgName, multi),
+        clusters: tagPackage(cached.clusters, pkgName, multi),
+      });
+      continue;
+    }
+    didScan = true;
     const { groups, clusters } = await findDuplicates(graph, root, {
       minLines,
       ignoreLiterals,
       maxPunctuationRatio,
       limit: perPackageCap,
       ignoreDirs,
-      includeGenerated: args.includeGenerated ?? config?.duplication?.includeGenerated ?? false,
-      includeSameFile: args.includeSameFile ?? config?.duplication?.includeSameFile ?? false,
-      includeSvgMarkup: args.includeSvgMarkup ?? config?.duplication?.includeSvgMarkup ?? false,
-      includeDocs: args.includeDocs ?? config?.duplication?.includeDocs ?? false,
-      scope: args.scope ?? config?.duplication?.scope,
-      ignoreGlobs: config?.duplication?.ignoreGlobs ?? [],
+      includeGenerated: scanOpts.includeGenerated,
+      includeSameFile: scanOpts.includeSameFile,
+      includeSvgMarkup: scanOpts.includeSvgMarkup,
+      includeDocs: scanOpts.includeDocs,
+      scope: scanOpts.scope,
+      ignoreGlobs: scanOpts.ignoreGlobs,
       // Predicate keys only — the DSL's sort/limit are applied after the per-package merge below.
       ...(filter !== undefined && { filter }),
       tokenCache,
     });
+    if (useResultCache) {
+      saveDuplicationResult(resultCachePath, digest, paramsKey, groups, clusters);
+    }
     perPackage.push({
       groups: tagPackage(groups, pkgName, multi),
       clusters: tagPackage(clusters, pkgName, multi),
     });
   }
-  cache.flushDuplicationTokenCache(root);
+  if (didScan) cache.flushDuplicationTokenCache(root);
 
   const mergedGroups = perPackage.flatMap((result) => result.groups);
   // Summary is computed from the full merged, post-`filter`, pre-`limit` set — a lower bound on a
@@ -885,38 +952,62 @@ export async function handleFindDuplicates(
   const orderedGroups = dupQuery?.sort
     ? sortLimitDupGroups(mergedGroups, dupQuery)
     : [...mergedGroups].sort((a, b) => b.lines - a.lines);
-  // Clusters never cross a package boundary either (each package's own findDuplicates call
-  // already clustered within its own group set) — re-sort+re-limit across packages the same way
-  // groups are, rather than truncating each package's clusters first.
   const orderedClusters = perPackage
     .flatMap((result) => result.clusters)
     .sort((a, b) => b.longestMatch - a.longestMatch || b.matchCount - a.matchCount);
 
-  let groups = orderedGroups.slice(0, effectiveLimit);
-  let clusters = orderedClusters.slice(0, effectiveLimit);
+  const view = args.view ?? "summary";
+  // The bare default: no `filter`, no explicit `view`. Only this shape gets the cluster preview
+  // cap and the `hint`.
+  const bareDefault = filter === undefined && args.view === undefined;
+  const wantGroups = view === "groups" || view === "full";
+  const wantClusters = view !== "groups";
 
-  // A result with thousands of large groups can itself be megabytes of JSON — enough to spike
-  // heap on the final serialize. Trim both lists (measuring the shape actually emitted) until the
-  // payload fits, flagging `truncated`.
+  const clusterCap = bareDefault ? FIND_DUPLICATES_PREVIEW_LIMIT : effectiveLimit;
+  let clusters = wantClusters ? orderedClusters.slice(0, clusterCap) : [];
+
+  let groups: typeof orderedGroups = [];
+  let clusteredGroups: number | undefined;
+  if (wantGroups) {
+    if (view === "full") {
+      // The only path returning both lists — drop groups already covered by a returned
+      // multi-member cluster so the two lists don't restate each other.
+      const deduped = dedupeGroupsAgainstClusters(orderedGroups, clusters);
+      clusteredGroups = orderedGroups.length - deduped.length;
+      groups = deduped.slice(0, effectiveLimit);
+    } else {
+      groups = orderedGroups.slice(0, effectiveLimit);
+    }
+  }
+  const responseSummary: DuplicatesSummary =
+    clusteredGroups !== undefined ? { ...summary, clusteredGroups } : summary;
+
+  // A result with thousands of large groups can itself be megabytes of JSON. Trim whichever
+  // lists are present (measuring the shape actually emitted) until the payload fits.
   const shapeGroups = () => (slim ? groups.map(slimDupGroup) : groups);
   const shapeClusters = () => (slim ? clusters.map(slimDupCluster) : clusters);
   let truncated = false;
   while (
     (groups.length > 1 || clusters.length > 1) &&
-    JSON.stringify({ minLines, summary, groups: shapeGroups(), clusters: shapeClusters() }).length >
-      FIND_DUPLICATES_MAX_PAYLOAD_BYTES
+    JSON.stringify({
+      minLines,
+      summary: responseSummary,
+      groups: shapeGroups(),
+      clusters: shapeClusters(),
+    }).length > FIND_DUPLICATES_MAX_PAYLOAD_BYTES
   ) {
     groups = groups.slice(0, Math.max(1, Math.floor(groups.length / 2)));
     clusters = clusters.slice(0, Math.max(1, Math.floor(clusters.length / 2)));
     truncated = true;
   }
+
   return text({
     minLines,
     ...(filter !== undefined && { filter }),
-    summary,
-    groups: shapeGroups(),
-    count: groups.length,
-    clusters: shapeClusters(),
+    summary: responseSummary,
+    ...(wantClusters && { clusters: shapeClusters() }),
+    ...(wantGroups && { groups: shapeGroups(), count: groups.length }),
+    ...(bareDefault && { hint: buildDuplicatesHint(summary) }),
     ...(truncated && { truncated }),
   });
 }

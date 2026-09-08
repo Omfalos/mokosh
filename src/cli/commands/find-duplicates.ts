@@ -1,11 +1,17 @@
 /** CLI command: lists duplicated code blocks across the project, mirroring the MCP find_duplicates tool. */
 import path from "node:path";
 import {
+  DEFAULT_DUPLICATION_RESULT_CACHE_FILE,
   DEFAULT_DUPLICATION_TOKEN_CACHE_FILE,
   DEFAULT_IGNORE_DIRS,
+  type DuplicationResultParams,
+  duplicationDigest,
+  duplicationResultCacheKey,
   findDuplicates,
+  loadDuplicationResult,
   loadTokenCacheFromDisk,
   parseDupQuery,
+  saveDuplicationResult,
   saveTokenCacheToDisk,
   slimDupCluster,
   slimDupGroup,
@@ -28,7 +34,10 @@ import type { CommandContext } from "./types";
  *   Tokenized files are cached to disk alongside the graph cache (`<cache dir>/duplication-tokens.json`,
  *   next to `graph.json`) so only the *first* run against a repo tokenizes everything cold;
  *   subsequent runs (including `--watch` re-triggers) only re-tokenize files whose `mtime`/`size`
- *   changed.
+ *   changed. On top of that, an unfiltered run's full `{ groups, clusters }` is cached to
+ *   `<cache dir>/duplication-result.json`, keyed by a digest of every graph node's `mtime`/`size`
+ *   plus the scan params — a repeat run with nothing changed skips the scan entirely. A
+ *   `--dup-query` run always re-scans. Shared with the MCP server.
  *   Also prints `clusters` — the same groups bucketed by exact file set (with per-file
  *   duplication coverage %), so N separate non-nested matches between the same two files read as
  *   one entry instead of N rows (see docs/known_issues/09-duplicate-clone-family-noise.md).
@@ -75,7 +84,8 @@ export async function run(ctx: CommandContext): Promise<void> {
   // With a filter, take every match back from the scan (its own `limit` would truncate before
   // this command can re-sort or summarize) and cap here; without one, let the scan cap.
   const scanLimit = parsedQuery ? Number.MAX_SAFE_INTEGER : limit;
-  const { groups, clusters } = await findDuplicates(graph, rootDir, {
+
+  const scanArgs = {
     minLines,
     limit: scanLimit,
     ignoreDirs,
@@ -85,10 +95,50 @@ export async function run(ctx: CommandContext): Promise<void> {
     includeDocs: includeDocs || ctx.rawConfig.duplication?.includeDocs || false,
     scope: duplicateScope ?? ctx.rawConfig.duplication?.scope,
     ignoreGlobs: ctx.rawConfig.duplication?.ignoreGlobs ?? [],
-    ...(dupQuery !== undefined && { filter: dupQuery }),
-    tokenCache,
-  });
-  saveTokenCacheToDisk(tokenCache, tokenCachePath);
+  };
+  // Result cache: an unfiltered run's full `{ groups, clusters }` is persisted to disk keyed by
+  // a digest of the graph nodes' mtime/size + the scan params, so a repeat run with nothing
+  // changed skips the whole scan. Shared with the MCP server via `mokosh-cache/`. A --dup-query
+  // run always scans (the filter is applied inside findDuplicates, pre-clustering).
+  const resultCachePath = path.join(path.dirname(cachePath), DEFAULT_DUPLICATION_RESULT_CACHE_FILE);
+  // `ignoreLiterals` / `maxPunctuationRatio` aren't passed by this command, so they take
+  // `findDuplicates`' own defaults — mirror those literals here so the key matches the MCP one.
+  const resultParams: DuplicationResultParams = {
+    minLines,
+    ignoreLiterals: true,
+    maxPunctuationRatio: 0.5,
+    // `scanLimit` is `limit` on an unfiltered run; `findDuplicates`' own default is 50.
+    limit: limit ?? 50,
+    scope: scanArgs.scope,
+    includeGenerated: scanArgs.includeGenerated,
+    includeSameFile: scanArgs.includeSameFile,
+    includeSvgMarkup: scanArgs.includeSvgMarkup,
+    includeDocs: scanArgs.includeDocs,
+    ignoreDirs,
+    ignoreGlobs: scanArgs.ignoreGlobs,
+  };
+  const useResultCache = parsedQuery === undefined;
+  const digest = useResultCache ? duplicationDigest(graph.nodes.values()) : "";
+  const paramsKey = useResultCache ? duplicationResultCacheKey(resultParams) : "";
+  const cachedResult = useResultCache
+    ? loadDuplicationResult(resultCachePath, digest, paramsKey)
+    : null;
+
+  let groups: Awaited<ReturnType<typeof findDuplicates>>["groups"];
+  let clusters: Awaited<ReturnType<typeof findDuplicates>>["clusters"];
+  if (cachedResult) {
+    ({ groups, clusters } = cachedResult);
+  } else {
+    ({ groups, clusters } = await findDuplicates(graph, rootDir, {
+      ...scanArgs,
+      ...(dupQuery !== undefined && { filter: dupQuery }),
+      tokenCache,
+    }));
+    saveTokenCacheToDisk(tokenCache, tokenCachePath);
+    if (useResultCache) {
+      saveDuplicationResult(resultCachePath, digest, paramsKey, groups, clusters);
+    }
+  }
 
   // `findDuplicates` already applied the `--dup-query` predicate (pre-clustering). `summary`
   // describes the whole matched set; then the DSL's `sort`/`limit` shape what's printed.

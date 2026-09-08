@@ -161,7 +161,11 @@ Run `mokosh --query-help` for the full reference.
 `find_duplicates` has a **separate** result filter DSL (MCP `filter` arg / CLI `--dup-query`) —
 `path`/`allPaths`/`family`/`type`/`kind`/`defKind`/`minLines`/`minScore`/`minOccurrences`/
 `crossFile`/`signal`, plus `sort`/`limit`. Parsed by `src/query/dup-parser.ts`; unknown keys
-throw. Responses lead with a `summary` block and are `slim` by default. See `docs/query.md`.
+throw. The MCP tool is **summary-first**: the default response is `summary` + an 8-cluster
+preview + a `hint`, no `groups`; pass `filter` for scoped clusters, `view:"groups"` for raw
+spans, `view:"full"` for both. Unfiltered runs are disk-cached
+(`mokosh-cache/duplication-result.json`, digest-invalidated) so a repeat call skips the scan.
+See `docs/query.md`.
 
 ## MCP server
 
