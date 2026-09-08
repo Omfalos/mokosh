@@ -68,10 +68,13 @@ export {
 } from "./graph/compare";
 export {
   type CachedFileTokens,
+  type DuplicateCluster,
+  type DuplicateClusterFileCoverage,
   type DuplicateFamily,
   type DuplicateGroup,
   type DuplicateOccurrence,
   type DuplicateSignal,
+  type DuplicatesSummary,
   type DuplicationTokenCache,
   type FindDuplicatesOptions,
   type FindDuplicatesResult,
@@ -80,6 +83,11 @@ export {
   isGeneratedPath,
   loadTokenCacheFromDisk,
   saveTokenCacheToDisk,
+  slimDupCluster,
+  slimDupGroup,
+  slimOccurrences,
+  summarizeDuplicates,
+  topDir,
 } from "./graph/duplication";
 export {
   detectFeatures,
@@ -95,12 +103,16 @@ export {
 export {
   CALL_EDGE_TYPES,
   EXPORT_TRACKING_TYPES,
+  type FidelityLevel,
   FUNCTION_COMPLEXITY_TYPES,
   getLanguageCoverage,
   IMPORT_SYMBOL_TYPES,
+  LANGUAGE_FIDELITY,
   type LanguageCoverage,
   type LanguageFeature,
+  type LanguageFidelity,
   languageSupportNote,
+  TEST_TAG_STRATEGY_TYPES,
   TYPE_GRAPH_TYPES,
 } from "./graph/language-support";
 // Core graph classes
@@ -181,7 +193,16 @@ export {
 // Parser extension points
 export { registerParser } from "./parser/registry";
 // Query
-export { filterGraph, type NodeQuery, parseQuery } from "./query";
+export {
+  applyDupQuery,
+  type DuplicateQuery,
+  filterGraph,
+  matchDupGroup,
+  type NodeQuery,
+  parseDupQuery,
+  parseQuery,
+  sortLimitDupGroups,
+} from "./query";
 // Tags
 export {
   type ApplyTagsFileResult,

@@ -165,6 +165,8 @@ function makeParsedArgs(overrides: Partial<ParsedArgs> = {}): ParsedArgs {
     limit: undefined,
     findDuplicates: false,
     minDuplicateLines: undefined,
+    dupQuery: undefined,
+    dupSlim: true,
     includeGenerated: false,
     includeSameFile: false,
     includeSvgMarkup: false,

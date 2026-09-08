@@ -42,6 +42,9 @@ import path from "node:path";
 import Piscina from "piscina";
 import { DEFAULT_IGNORE_DIRS } from "../../const";
 import { LOCK_FILE_NAMES } from "../../parser/lockfile";
+import { matchDupGroup } from "../../query/dup-filter";
+import { parseDupQuery } from "../../query/dup-parser";
+import type { DuplicateQuery } from "../../query/types";
 import type { FileType } from "../../types/parse";
 import type { Graph } from "../model";
 import { buildDuplicateClusters, type DuplicateCluster } from "./clusters";
@@ -67,9 +70,17 @@ const DEFAULT_MIN_FILES_FOR_POOL = 20;
  *  tokenizes in-process. */
 export type ParallelTokenizingOption = boolean | { minFiles?: number; maxThreads?: number };
 
-export type { DuplicateCluster } from "./clusters";
+export type { DuplicateCluster, DuplicateClusterFileCoverage } from "./clusters";
 export type { DuplicateFamily } from "./families";
 export { hasGeneratedMarker, isGeneratedPath } from "./generated";
+export {
+  type DuplicatesSummary,
+  slimDupCluster,
+  slimDupGroup,
+  slimOccurrences,
+  summarizeDuplicates,
+  topDir,
+} from "./shape";
 export type { DuplicateGroup, DuplicateOccurrence, DuplicateSignal } from "./shingle";
 export type { StyleSourceFile } from "./style-blocks";
 export type { CachedFileTokens, DuplicationTokenCache } from "./token-cache-store";
@@ -182,6 +193,13 @@ export interface FindDuplicatesOptions {
    *  call's) skip tokenizing entirely. Mutated in place; omit for one-shot callers (e.g. the CLI).
    *  See {@link DuplicationTokenCache} and docs/adr-014-duplicate-detection-scale.md. */
   tokenCache?: DuplicationTokenCache | undefined;
+  /** Optional `key:value` result filter (see `src/query/dup-parser.ts` / `DuplicateQuery`).
+   *  Applied as a per-group predicate *before* clustering, so `clusters` stay consistent with the
+   *  narrowed `groups`. Only the predicate keys act here — the DSL's `sort`/`limit` are the
+   *  caller's to apply (via `sortLimitDupGroups`), since on a monorepo `findDuplicates` runs
+   *  once per package and a global order/cap can only be decided after the per-package results
+   *  merge. A parse error in the string is thrown, not swallowed. */
+  filter?: string | undefined;
 }
 
 export interface FindDuplicatesResult {
@@ -339,9 +357,10 @@ function clusterInScope(
  *   comment); `includeSvgMarkup` likewise controls whether inline-SVG-markup matches are returned
  *   (excluded by default — two different icons share a literal-normalized skeleton); `scope`
  *   filters whole clusters by test-file involvement — `"src"` (default) drops every test cluster,
- *   `"tests"` returns only the substantive ones, `"all"` returns everything; `limit` caps
- *   results; `parallelTokenizing` offloads per-file tokenizing to a worker
- *   pool once the candidate file count is large enough to be worth it. Lock files and
+ *   `"tests"` returns only the substantive ones, `"all"` returns everything; `filter` is an
+ *   optional `key:value` DSL string (see `DuplicateQuery`) applied as a per-group predicate
+ *   before clustering; `limit` caps results; `parallelTokenizing` offloads per-file tokenizing
+ *   to a worker pool once the candidate file count is large enough to be worth it. Lock files and
  *   `type: "unknown"` nodes (non-code assets like `.svg`/`.json` pulled in via an explicit
  *   `import`) are always excluded, independent of `ignoreDirs`.
  * @returns `groups` — duplicate blocks (each tagged with its `family`), two or more occurrences
@@ -373,7 +392,10 @@ export async function findDuplicates(
     ignoreGlobs = [],
     parallelTokenizing = true,
     tokenCache,
+    filter,
   } = options;
+
+  const dupQuery: DuplicateQuery | undefined = filter ? parseDupQuery(filter) : undefined;
 
   const nodes = [...graph.nodes.values()].filter(
     (node) =>
@@ -563,6 +585,9 @@ export async function findDuplicates(
       ) {
         return false;
       }
+      // The `filter` DSL predicate (path/family/type/size/score/occurrences/crossFile/signal) —
+      // applied here, pre-clustering, so `clusters` below reflect the same narrowed set.
+      if (dupQuery && !matchDupGroup(group, dupQuery)) return false;
       return true;
     });
 

@@ -7,9 +7,9 @@ dependencies.
 
 | # | File | Symptom |
 |---|------|---------|
-| 6 | [`06-duplicates-query-language.md`](06-duplicates-query-language.md) | `find_duplicates` output is too large for an LLM to consume; needs a `key:value` query/slim/summary layer |
+| 6 | [`06-duplicates-query-language.md`](06-duplicates-query-language.md) | `find_duplicates` output too large for an LLM. **6a–6c shipped** (`filter` DSL + `slim` + `summary`); 6d (shared shaping layer) and the overlapping-window matcher fix remain |
 | 7 | [`07-per-language-analysis-semantics.md`](07-per-language-analysis-semantics.md) | Analyses treat every language like JS/TS; JVM data shapes, idiom exclusion, and the per-language config surface still go undetected/unbuilt (CSS vars + TS types shipped in phase 1) |
-| 8 | [`08-cross-language-reliability.md`](08-cross-language-reliability.md) | Umbrella: uneven, undocumented feature parity across the 12 supported languages |
+| 8 | [`08-cross-language-reliability.md`](08-cross-language-reliability.md) | Umbrella: uneven feature parity across languages. **Parity matrix shipped** (`docs/language-support.md` + `LANGUAGE_FIDELITY` + `analyze` `fidelity`); conformance harness, per-tool caveats, and the language gap-closing (8c/8d) remain |
 | 9 | [`09-duplicate-clone-family-noise.md`](09-duplicate-clone-family-noise.md) | `find_duplicates` reports one row per LCP-tree node instead of per clone family; connected-component clustering for the remaining non-nested cases still open (dominance filter shipped) |
 
 ## Fixed
@@ -39,8 +39,8 @@ dependencies.
 ## Shared root causes
 
 - **Issues 6 and 7** both touch the `find_duplicates` result shape: issue 5 (fixed) added
-  `signals` per group, issue 7 phase 1 added `kind: "definition"`/`defKind` (both fields already
-  in place, per `family`/`signals`), issue 6 adds the query layer that filters on all of them.
+  `signals` per group, issue 7 phase 1 added `kind: "definition"`/`defKind`, and issue 6 (6a–6c
+  shipped) added the `filter` DSL that selects on all of them plus `slim`/`summary`.
 - **Issue 8** is the umbrella: issue 7 is an instance of "one language's semantics
   weren't handled" (issue 5, fixed, was another; issue 7's CSS/TS slice, also fixed). Its
   conformance harness is what keeps the fixes from regressing.
@@ -52,7 +52,9 @@ dependencies.
 2. ~~**Issue 9** — dominance filter for block-matcher clone-family noise.~~ **Dominance filter
    shipped**; connected-component clustering remains if non-nested cross-file noise still matters
    after a follow-up dogfood pass.
-3. **Issue 6** — the duplicate-results query DSL, on top of issue 5's `signals`, 7's `kind`, and
-   9's (now leaner) group counts.
-4. **Issue 8** — parity matrix + conformance snapshots to lock all of the above in, then the
+3. ~~**Issue 6** — the duplicate-results query DSL, on top of issue 5's `signals`, 7's `kind`, and
+   9's (now leaner) group counts.~~ **6a–6c done** (`filter` DSL + `slim` + `summary`); 6d
+   (shared shaping layer) deferred.
+4. **Issue 8** — ~~parity matrix~~ (**shipped**: `docs/language-support.md` + `LANGUAGE_FIDELITY`
+   + `analyze` `fidelity`) + conformance snapshots to lock all of the above in, then the
    remaining language gaps (Kotlin call edges, Groovy, Lua) and issue 7's remaining languages.

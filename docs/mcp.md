@@ -76,11 +76,15 @@ JVM same-package sibling edges are excluded unless opted back in via `cycleKinds
 
 `languageCoverage` is one entry per language actually present in the repo, reporting what mokosh
 tracks for it: `exportsTracked` (can any tool find the file that defines a symbol?),
-`importSymbolsTracked` (can tools tell which specific named symbols an importer uses?), and
+`importSymbolsTracked` (can tools tell which specific named symbols an importer uses?),
 `callEdgesTracked` (are function-level call edges available, e.g. for `get_call_graph`/`find_symbol`
-precision `"call"`). This is the authoritative, always-current version of the capability notes
-repeated in tool descriptions like `find_symbol`'s — check it once after `analyze` instead of
-discovering degraded precision by trial and error.
+precision `"call"`), and `fidelity` — the full per-axis breakdown (`importResolution`,
+`exportSymbols`, `importSymbols`, `callEdges`, `complexity`, `category`, `duplication`,
+`testTags`), each `"full" | "partial" | "none"`. This is the authoritative, always-current
+version of the capability notes repeated in tool descriptions like `find_symbol`'s — check it
+once after `analyze` instead of discovering degraded precision by trial and error. The whole
+matrix (all languages, with per-language limitations) is in
+[docs/language-support.md](./language-support.md).
 
 ```json
 {
@@ -88,8 +92,15 @@ discovering degraded precision by trial and error.
   "categories": { "logic": 28, "test": 8, "barrel": 4, "config": 2 },
   "cycles": [],
   "languageCoverage": [
-    { "type": "typescript", "fileCount": 38, "exportsTracked": true, "importSymbolsTracked": true, "callEdgesTracked": true },
-    { "type": "python", "fileCount": 4, "exportsTracked": true, "importSymbolsTracked": true, "callEdgesTracked": false }
+    {
+      "type": "typescript", "fileCount": 38,
+      "exportsTracked": true, "importSymbolsTracked": true, "callEdgesTracked": true,
+      "fidelity": {
+        "importResolution": "full", "exportSymbols": "full", "importSymbols": "full",
+        "callEdges": "full", "complexity": "full", "category": "full",
+        "duplication": "partial", "testTags": "full"
+      }
+    }
   ]
 }
 ```
@@ -329,10 +340,17 @@ On top of the two block-matching strategies above, two **declaration-level** det
 | `includeGenerated` | `boolean` | no | Scan generated / vendored files too (default: `false`). Matches involving one are tagged `signals: ["generated"]` |
 | `includeSameFile` | `boolean` | no | Include matches where every occurrence is in one file (default: `false`) — a file's own repetitive structure (a long class with similar methods, a doc table) is usually not actionable copy-paste; found to be the single largest noise class in one dogfooding pass (32%). Always tagged `signals: ["same-file"]` regardless of this flag |
 | `includeSvgMarkup` | `boolean` | no | Include matches whose occurrences are all inline SVG / SVG-shaped JSX markup (default: `false`). Two sources: token-shingle *block* matches where `ignoreLiterals: true` has normalized away the `d=` path data / filter constants that tell two icons apart, so *different* icons match on their shared `<svg>` skeleton; and `defKind: "jsxElement"` matches on an identical `<defs>`/`<filter>` block shared between two icons (boilerplate, not an authored clone). Both are always tagged `signals: ["svg-markup"]` regardless of this flag |
+| `includeDocs` | `boolean` | no | Include `markdown`-family matches (default: `false`) — mirrored prose docs (`README.md` ↔ `*.mdx`). Always tagged `signals: ["docs"]` regardless of this flag |
+| `filter` | `string` | no | `key:value` result filter, AND across keys — see [query.md § find_duplicates filter DSL](./query.md#find_duplicates-filter-dsl). Applied server-side before clustering, so `clusters` narrow with `groups`. An unknown key or malformed clause errors |
+| `slim` | `boolean` | no | Compact response (default: `true`). Each group becomes `{ lines, score?, family?, kind?, defKind?, signals?, occurrences: ["path:start-end"] }` and each cluster drops its nested member-group bodies. Pass `false` for the full objects (duplicated source spans, per-occurrence metadata) |
 
 On large repos, tokenizing is offloaded to a `piscina` worker pool once the candidate file count reaches 20 (same pattern and threshold as `GraphBuilder`'s parse pool, [ADR-010](./adr-010-parallel-parsing.md)), and tokenized files are cached per session (keyed by path + `mtime`/`size`), so repeated `find_duplicates` calls against the same root within one MCP session only re-tokenize files that actually changed — see [ADR-014](./adr-014-duplicate-detection-scale.md). Matching itself runs in O(n log n) / O(n) over the whole candidate token stream regardless of repo repetitiveness — see [ADR-015](./adr-015-suffix-array-duplicate-detection.md).
 
-**Returns:** `{ minLines, groups: Array<{ occurrences: Array<{ file, startLine, endLine, name?, value? }>, lines, tokens, family: "style" | "code", signals?: Array<"same-file" | "generated" | "value-drift" | "svg-markup">, kind?: "block" | "definition", defKind?: "cssVar" | "interface" | "type" | "objectLiteral" | "jsxElement" }>, count: number, clusters: Array<{ files: string[], groups: DuplicateGroup[], matchCount: number, longestMatch: number, coverage: Array<{ file, coveredLines, totalLines?, coveragePct? }> }> }`. Each group has two or more occurrences — every block sharing an identical maximal duplicated run is clustered into one group, so a block duplicated across three files is reported as one three-occurrence group, not three pairs. `signals` (present only when at least one applies) is advisory metadata for filtering: `"same-file"` — every occurrence is in one file (excluded from `groups`/`clusters` by default, see `includeSameFile`); `"generated"` — at least one occurrence is in a file scanned only because `includeGenerated` was set; `"value-drift"` — a `defKind: "cssVar"` group where occurrences disagree on value; `"svg-markup"` — every occurrence is inline SVG / SVG-shaped JSX markup (a `kind: "block"` skeleton match between two different icons, or a `defKind: "jsxElement"` match on a shared `<defs>`/`<filter>` block); excluded from `groups`/`clusters` by default, see `includeSvgMarkup`. `kind` is `"block"` (or absent, for back-compat) for the two matching strategies above, `"definition"` for the four declaration-level detectors — `defKind` is only set on those, and occurrence `name`/`value` are only populated there too (`lines`/`tokens` are repurposed for definition groups: declaration line span, and member/field count).
+**Returns:** `{ minLines, filter?, summary, groups, count, clusters, truncated? }`.
+
+`summary` is a triage-first block computed over the whole post-`filter` set (before `limit`): `{ matched, byFamily: { <family>: count }, byTopDir: { <dir>: count }, bySignal: { <signal>: count }, largestLines }`. Read it, then issue a narrowed `filter` call rather than paging the full list.
+
+In the default **slim** shape each group is `{ lines, score?, family?, kind?, defKind?, signals?, occurrences: ["path:start-end", …] }` and each cluster is `{ files, matchCount, longestMatch, coverage }`. With `slim: false` the full shape is `groups: Array<{ occurrences: Array<{ file, startLine, endLine, name?, value? }>, lines, tokens, score?, family, signals?: Array<"same-file" | "generated" | "value-drift" | "svg-markup" | "test" | "docs">, kind?: "block" | "definition", defKind?: "cssVar" | "interface" | "type" | "objectLiteral" | "jsxElement" }>, clusters: Array<{ files: string[], groups: DuplicateGroup[], matchCount: number, longestMatch: number, coverage: Array<{ file, coveredLines, totalLines?, coveragePct? }> }>`. Each group has two or more occurrences — every block sharing an identical maximal duplicated run is clustered into one group, so a block duplicated across three files is reported as one three-occurrence group, not three pairs. `signals` (present only when at least one applies) is advisory metadata for filtering: `"same-file"` — every occurrence is in one file (excluded from `groups`/`clusters` by default, see `includeSameFile`); `"generated"` — at least one occurrence is in a file scanned only because `includeGenerated` was set; `"value-drift"` — a `defKind: "cssVar"` group where occurrences disagree on value; `"svg-markup"` — every occurrence is inline SVG / SVG-shaped JSX markup (a `kind: "block"` skeleton match between two different icons, or a `defKind: "jsxElement"` match on a shared `<defs>`/`<filter>` block); excluded from `groups`/`clusters` by default, see `includeSvgMarkup`. `kind` is `"block"` (or absent, for back-compat) for the two matching strategies above, `"definition"` for the four declaration-level detectors — `defKind` is only set on those, and occurrence `name`/`value` are only populated there too (`lines`/`tokens` are repurposed for definition groups: declaration line span, and member/field count).
 
 `clusters` buckets `groups` (before `limit` truncation) by *exact* occurrence file set — every group whose occurrences touch the identical set of files merges into one cluster, so a real duplication that fragmented into many non-nested matches between the same two files (a shared prefix that extends differently at different offsets — see [ADR-015's addendum](./adr-015-suffix-array-duplicate-detection.md)) reads as one cluster with `matchCount: N` instead of N separate rows. This is deliberately *not* transitive across partially-overlapping file sets — a group over `{A, B}` and a separate group over `{B, C}` land in two different clusters even though both touch B, specifically to avoid single-linkage "chaining" (one file sharing an incidental block with many otherwise-unrelated files transitively merging all of them into one meaningless supercluster — confirmed on a real repo before this shipped: 803 files collapsed into one "cluster"). No group is dropped to build this — every group also appears inside exactly one cluster. Prefer `clusters` over raw `groups` when the question is "how many distinct duplications are there," not "list every match."
 

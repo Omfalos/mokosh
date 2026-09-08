@@ -1,5 +1,39 @@
 # Issue 8 — Reliability and feature parity are uneven across supported languages
 
+Status: **first slice shipped** (2026-09-08) — the parity matrix (8a doc + `LANGUAGE_FIDELITY`
+table) and per-language `fidelity` in `analyze`'s `languageCoverage` (8b, first half). Umbrella /
+tracking issue. Found dogfooding v0.5.0 (2026-09-03).
+
+## Shipped
+
+- **8a (doc + table, not the conformance harness).** `docs/language-support.md` is the
+  authoritative per-language matrix across 8 axes (import resolution, export symbols, import
+  symbols, call edges, complexity, category, duplication, test tags), each `full | partial |
+  none`, with per-language known-limitations prose + ADR links. `LANGUAGE_FIDELITY` in
+  `src/graph/language-support.ts` is the machine-readable twin; a test keeps the two in exact
+  sync and asserts the four set-backed axes agree cell-for-cell with their `*_TYPES` source of
+  truth (drift guard).
+- **8b (first half).** `getLanguageCoverage` / `analyze`'s `languageCoverage[]` now carry a
+  `fidelity` object (the full 8-axis row) alongside the existing booleans.
+- **Bug found + fixed by the drift guard:** `FUNCTION_COMPLEXITY_TYPES` was missing `java`
+  even though `src/parser/complexity/java.ts` fully populates per-function complexity — added.
+  New `TEST_TAG_STRATEGY_TYPES` set added as the source of truth for the `testTags` axis.
+
+## Not done (issue stays open)
+
+- **8a conformance harness** — `test/conformance/<lang>/` golden `analyze` / `find_duplicates` /
+  `get_call_graph` snapshots per language.
+- **8b second half** — per-tool `caveats: [...]` on *degraded but non-empty* results (today
+  `languageSupportNote` only fires on fully-empty results).
+- **8c** — closing the gaps: Kotlin call edges + complexity (needs a real grammar), JVM
+  import-symbol tracking, Groovy audit, Coffee/LS/Lua complexity + call edges.
+- **8d** — resolver-robustness pass (every `LangResolver` degrades to a dropped edge, never a
+  throw or a phantom node) + the "local package shadows an external dep" audit for Go/Python.
+
+---
+
+## Original write-up
+
 Status: proposed, not started. Umbrella / tracking issue. Found dogfooding v0.5.0
 (2026-09-03).
 

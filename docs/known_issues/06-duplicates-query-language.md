@@ -1,5 +1,42 @@
 # Issue 6 — `find_duplicates` output is too large for an LLM to consume; needs a query layer
 
+Status: **6a–6c shipped** (2026-09-08). Found dogfooding v0.5.0 (2026-09-03).
+
+## Shipped
+
+- **6a — query DSL.** `src/query/dup-parser.ts` (`parseDupQuery` → `DuplicateQuery`) + `src/query/dup-filter.ts`
+  (`matchDupGroup` predicate, `sortLimitDupGroups`, `applyDupQuery`), table-driven like
+  `src/query/parser.ts`. Keys: `path` / `path:!`, `allPaths`, `family`, `type`, `kind`,
+  `defKind`, `minLines`/`maxLines`, `minScore`/`maxScore`, `minOccurrences`, `crossFile:<bool>`,
+  `signal:<name>` / `signal:!<name>` (repeatable), `sort:<lines|score|occurrences>`, `sortDir`,
+  `limit`. Unknown keys / malformed clauses **throw** (deliberately louder than the node DSL).
+  `crossPackage` was **dropped**: `find_duplicates` scans each package independently, so a group
+  never spans packages — the key would always be false. Wired as `filter` on the MCP tool and
+  `--dup-query` on the CLI; `findDuplicates()` gained a `filter?: string` option that applies the
+  predicate *before* clustering so `clusters` narrow with `groups`; `sort`/`limit` from the DSL
+  are applied by the caller after the per-package merge.
+- **6b — slim mode.** `slim` (default **true**) on the MCP tool and the CLI (`--dup-full` opts
+  out). Slim group: `{ lines, score?, family?, kind?, defKind?, signals?, occurrences:
+  ["path:start-end"] }`; slim cluster drops the nested member-group bodies. Shared shaping
+  helpers in `src/graph/duplication/shape.ts` (`slimDupGroup`, `slimDupCluster`,
+  `summarizeDuplicates`) so MCP and CLI render identically.
+- **6c — summary-first response.** Every response leads with
+  `summary: { matched, byFamily, byTopDir, bySignal, largestLines }`, computed over the whole
+  post-`filter`, pre-`limit` set.
+
+## Not done
+
+- **6d — fold into a shared `src/query/` result-shaping layer** for node-results and
+  `get_module_responsibility` too. Deferred; `find_duplicates` has its own `filter`/`slim`/
+  `summary` path for now.
+- The **overlapping-window explosion** below is a matcher fix, tracked separately in
+  `docs/plans/duplication-noise-reduction.md` (items A/E) — the query layer mitigates it
+  (`signal:!same-file` drops the whole cluster) but doesn't resolve it.
+
+---
+
+## Original write-up
+
 Status: proposed, not started. Found dogfooding v0.5.0 (2026-09-03).
 
 ## Symptom

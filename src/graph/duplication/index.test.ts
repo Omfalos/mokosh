@@ -1042,4 +1042,86 @@ describe("findDuplicates", () => {
       expect(included.groups.every((g) => g.family === "markdown")).toBe(true);
     });
   });
+
+  describe("filter option (issue 6)", () => {
+    const block = [
+      "function computeTotal(items) {",
+      "  let sum = 0;",
+      "  for (let i = 0; i < items.length; i++) {",
+      "    sum += items[i].price;",
+      "  }",
+      "  return sum;",
+      "}",
+    ].join("\n");
+    const pyBlock = [
+      "def compute_total(items):",
+      "    total = 0",
+      "    for item in items:",
+      "        total = total + item.price",
+      "    return total",
+    ].join("\n");
+
+    function polyglotGraph() {
+      root = setup({
+        "src/a.ts": block,
+        "src/b.ts": block.replace(/computeTotal/g, "sumUp"),
+        "lib/c.py": pyBlock,
+        "lib/d.py": pyBlock.replace(/compute_total/g, "sum_up"),
+      });
+      return graphFor([
+        ["src/a.ts", "typescript"],
+        ["src/b.ts", "typescript"],
+        ["lib/c.py", "python"],
+        ["lib/d.py", "python"],
+      ]);
+    }
+
+    test("no filter -> same groups as an unfiltered scan", async () => {
+      const graph = polyglotGraph();
+      const opts = { minLines: 3, windowSize: 6 } as const;
+      const base = await findDuplicates(graph, root, opts);
+      const withEmpty = await findDuplicates(graph, root, { ...opts, filter: "" });
+      expect(withEmpty.groups).toEqual(base.groups);
+    });
+
+    test("path: narrows to groups with an occurrence under the path", async () => {
+      const graph = polyglotGraph();
+      const { groups } = await findDuplicates(graph, root, {
+        minLines: 3,
+        windowSize: 6,
+        filter: "path:lib/",
+      });
+      expect(groups.length).toBe(1);
+      expect(groups[0]?.occurrences.every((o) => o.file.startsWith("lib/"))).toBe(true);
+    });
+
+    test("type: keeps only groups whose every occurrence is that FileType", async () => {
+      const graph = polyglotGraph();
+      const { groups } = await findDuplicates(graph, root, {
+        minLines: 3,
+        windowSize: 6,
+        filter: "type:typescript",
+      });
+      expect(groups.length).toBe(1);
+      expect(groups[0]?.occurrences.every((o) => o.file.endsWith(".ts"))).toBe(true);
+    });
+
+    test("minLines: on the filter drops smaller blocks; clusters stay consistent", async () => {
+      const graph = polyglotGraph();
+      const { groups, clusters } = await findDuplicates(graph, root, {
+        minLines: 3,
+        windowSize: 6,
+        filter: "minLines:999",
+      });
+      expect(groups).toHaveLength(0);
+      expect(clusters).toHaveLength(0);
+    });
+
+    test("a malformed filter string throws", async () => {
+      const graph = polyglotGraph();
+      await expect(
+        findDuplicates(graph, root, { minLines: 3, windowSize: 6, filter: "bogus:1" }),
+      ).rejects.toThrow(/unknown key/);
+    });
+  });
 });

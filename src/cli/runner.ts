@@ -382,6 +382,8 @@ export async function run(): Promise<void> {
     slim: parsed.slim,
     testsOnly: parsed.testsOnly,
     minDuplicateLines: parsed.minDuplicateLines,
+    dupQuery: parsed.dupQuery,
+    dupSlim: parsed.dupSlim,
     includeGenerated: parsed.includeGenerated,
     includeSameFile: parsed.includeSameFile,
     includeSvgMarkup: parsed.includeSvgMarkup,

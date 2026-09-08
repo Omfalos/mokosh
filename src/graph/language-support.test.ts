@@ -1,7 +1,16 @@
 import { describe, expect, test } from "vitest";
 import type { FileNode } from "../types/node";
 import type { FileType } from "../types/parse";
-import { getLanguageCoverage, languageSupportNote } from "./language-support";
+import {
+  CALL_EDGE_TYPES,
+  EXPORT_TRACKING_TYPES,
+  FUNCTION_COMPLEXITY_TYPES,
+  getLanguageCoverage,
+  IMPORT_SYMBOL_TYPES,
+  LANGUAGE_FIDELITY,
+  languageSupportNote,
+  TEST_TAG_STRATEGY_TYPES,
+} from "./language-support";
 import { Graph } from "./model";
 
 function makeNode(p: string, type: FileType): FileNode {
@@ -42,6 +51,7 @@ describe("getLanguageCoverage", { tags: ["getLanguageCoverage", "Graph", "FileNo
         exportsTracked: true,
         importSymbolsTracked: true,
         callEdgesTracked: true,
+        fidelity: LANGUAGE_FIDELITY.typescript,
       },
       {
         type: "python",
@@ -49,6 +59,7 @@ describe("getLanguageCoverage", { tags: ["getLanguageCoverage", "Graph", "FileNo
         exportsTracked: true,
         importSymbolsTracked: true,
         callEdgesTracked: true,
+        fidelity: LANGUAGE_FIDELITY.python,
       },
       {
         type: "go",
@@ -56,6 +67,7 @@ describe("getLanguageCoverage", { tags: ["getLanguageCoverage", "Graph", "FileNo
         exportsTracked: true,
         importSymbolsTracked: false,
         callEdgesTracked: true,
+        fidelity: LANGUAGE_FIDELITY.go,
       },
       {
         type: "lua",
@@ -63,6 +75,7 @@ describe("getLanguageCoverage", { tags: ["getLanguageCoverage", "Graph", "FileNo
         exportsTracked: true,
         importSymbolsTracked: false,
         callEdgesTracked: false,
+        fidelity: LANGUAGE_FIDELITY.lua,
       },
     ]);
   });
@@ -152,6 +165,108 @@ describe("getLanguageCoverage", { tags: ["getLanguageCoverage", "Graph", "FileNo
 
   test("returns an empty array for an empty graph", () => {
     expect(getLanguageCoverage(makeGraph([]))).toEqual([]);
+  });
+
+  test("each entry carries the language's full fidelity row", () => {
+    const graph = makeGraph([makeNode("A.kt", "kotlin")]);
+    expect(getLanguageCoverage(graph)[0]?.fidelity).toEqual(LANGUAGE_FIDELITY.kotlin);
+  });
+});
+
+describe("LANGUAGE_FIDELITY", { tags: ["LANGUAGE_FIDELITY", "FileType"] }, () => {
+  const ALL_FILE_TYPES: FileType[] = [
+    "javascript",
+    "typescript",
+    "css",
+    "scss",
+    "less",
+    "stylus",
+    "coffeescript",
+    "livescript",
+    "lua",
+    "gherkin",
+    "python",
+    "go",
+    "java",
+    "kotlin",
+    "scala",
+    "groovy",
+    "markdown",
+    "unknown",
+  ];
+  const AXES = [
+    "importResolution",
+    "exportSymbols",
+    "importSymbols",
+    "callEdges",
+    "complexity",
+    "category",
+    "duplication",
+    "testTags",
+  ] as const;
+
+  test("has an entry for every FileType, and no extras", () => {
+    expect(Object.keys(LANGUAGE_FIDELITY).sort()).toEqual([...ALL_FILE_TYPES].sort());
+  });
+
+  test("every cell is one of full | partial | none", () => {
+    for (const type of ALL_FILE_TYPES) {
+      for (const axis of AXES) {
+        expect(["full", "partial", "none"]).toContain(LANGUAGE_FIDELITY[type][axis]);
+      }
+    }
+  });
+
+  // The four set-backed axes must agree *exactly* with their source-of-truth set — this is the
+  // drift guard: add a parser capability, forget the table, and the matching test fails.
+  test.each([
+    ["exportSymbols", EXPORT_TRACKING_TYPES],
+    ["importSymbols", IMPORT_SYMBOL_TYPES],
+    ["callEdges", CALL_EDGE_TYPES],
+    ["complexity", FUNCTION_COMPLEXITY_TYPES],
+    ["testTags", TEST_TAG_STRATEGY_TYPES],
+  ] as const)("%s is non-'none' iff the language is in its *_TYPES set", (axis, set) => {
+    for (const type of ALL_FILE_TYPES) {
+      const tracked = LANGUAGE_FIDELITY[type][axis] !== "none";
+      expect(tracked).toBe(set.has(type));
+    }
+  });
+
+  test("sentinel judgement cells (guard the hand-maintained axes)", () => {
+    expect(LANGUAGE_FIDELITY.css.duplication).toBe("full"); // structural comparator
+    expect(LANGUAGE_FIDELITY.scss.duplication).toBe("full");
+    expect(LANGUAGE_FIDELITY.typescript.duplication).toBe("partial"); // generic token pipeline
+    expect(LANGUAGE_FIDELITY.java.importResolution).toBe("partial"); // index-based, issue 3
+    expect(LANGUAGE_FIDELITY.kotlin.callEdges).toBe("none");
+    expect(LANGUAGE_FIDELITY.kotlin.complexity).toBe("none");
+    for (const axis of AXES) expect(LANGUAGE_FIDELITY.unknown[axis]).toBe("none");
+  });
+
+  test("matches the table in docs/language-support.md cell-for-cell", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const path = await import("node:path");
+    const md = await readFile(path.join(process.cwd(), "docs", "language-support.md"), "utf8");
+
+    // Data rows of the fidelity matrix: a `-wrapped lowercase language name in the first cell.
+    const fromDoc: Record<string, Record<string, string>> = {};
+    for (const line of md.split("\n")) {
+      if (!/^\|\s*`[a-z]+`\s*\|/.test(line)) continue;
+      const cells = line
+        .split("|")
+        .slice(1, -1)
+        .map((cell) => cell.trim().replace(/`/g, ""));
+      const lang = cells[0];
+      if (!lang) continue;
+      fromDoc[lang] = Object.fromEntries(
+        AXES.map((axis, i) => [axis, cells[i + 1] ?? ""]),
+      ) as Record<string, string>;
+    }
+
+    for (const type of ALL_FILE_TYPES) {
+      expect(fromDoc[type], `docs/language-support.md is missing a row for "${type}"`).toEqual(
+        LANGUAGE_FIDELITY[type] as unknown as Record<string, string>,
+      );
+    }
   });
 });
 

@@ -5,7 +5,12 @@ import {
   DEFAULT_IGNORE_DIRS,
   findDuplicates,
   loadTokenCacheFromDisk,
+  parseDupQuery,
   saveTokenCacheToDisk,
+  slimDupCluster,
+  slimDupGroup,
+  sortLimitDupGroups,
+  summarizeDuplicates,
 } from "../../index";
 import type { CommandContext } from "./types";
 
@@ -33,8 +38,14 @@ import type { CommandContext } from "./types";
  *   likewise excluded — pass `--include-svg-markup` or set `duplication.includeSvgMarkup`.
  *   Test-file duplication is excluded by default too — pass `--scope tests` for only the
  *   substantive shared-test-logic clusters, or `--scope all` for everything.
+ *
+ *   Output leads with a `summary` block (counts by family / top-level dir / signal). `--dup-query
+ *   "key:value,…"` narrows the result the same way the MCP tool's `filter` does. The printed
+ *   groups/clusters are the compact shape by default; pass `--dup-full` for source text and
+ *   per-occurrence metadata.
  * @param {CommandContext} ctx - Shared command context; `ctx.rootDir`, `ctx.scanOptions`,
- *   `ctx.minDuplicateLines`, `ctx.limit`, `ctx.duplicateScope`, and `ctx.cachePath` tune the scan.
+ *   `ctx.minDuplicateLines`, `ctx.limit`, `ctx.duplicateScope`, `ctx.dupQuery`, `ctx.dupSlim`,
+ *   and `ctx.cachePath` tune the scan and its output.
  */
 export async function run(ctx: CommandContext): Promise<void> {
   const {
@@ -47,6 +58,8 @@ export async function run(ctx: CommandContext): Promise<void> {
     includeSvgMarkup,
     includeDocs,
     duplicateScope,
+    dupQuery,
+    dupSlim,
     limit,
     cachePath,
   } = ctx;
@@ -57,9 +70,14 @@ export async function run(ctx: CommandContext): Promise<void> {
   ];
   const tokenCachePath = path.join(path.dirname(cachePath), DEFAULT_DUPLICATION_TOKEN_CACHE_FILE);
   const tokenCache = loadTokenCacheFromDisk(tokenCachePath);
+  // Parse up front so a malformed --dup-query fails before the scan, not after.
+  const parsedQuery = dupQuery ? parseDupQuery(dupQuery) : undefined;
+  // With a filter, take every match back from the scan (its own `limit` would truncate before
+  // this command can re-sort or summarize) and cap here; without one, let the scan cap.
+  const scanLimit = parsedQuery ? Number.MAX_SAFE_INTEGER : limit;
   const { groups, clusters } = await findDuplicates(graph, rootDir, {
     minLines,
-    limit,
+    limit: scanLimit,
     ignoreDirs,
     includeGenerated: includeGenerated || ctx.rawConfig.duplication?.includeGenerated || false,
     includeSameFile: includeSameFile || ctx.rawConfig.duplication?.includeSameFile || false,
@@ -67,8 +85,35 @@ export async function run(ctx: CommandContext): Promise<void> {
     includeDocs: includeDocs || ctx.rawConfig.duplication?.includeDocs || false,
     scope: duplicateScope ?? ctx.rawConfig.duplication?.scope,
     ignoreGlobs: ctx.rawConfig.duplication?.ignoreGlobs ?? [],
+    ...(dupQuery !== undefined && { filter: dupQuery }),
     tokenCache,
   });
   saveTokenCacheToDisk(tokenCache, tokenCachePath);
-  console.log(JSON.stringify({ minLines, groups, count: groups.length, clusters }, null, 2));
+
+  // `findDuplicates` already applied the `--dup-query` predicate (pre-clustering). `summary`
+  // describes the whole matched set; then the DSL's `sort`/`limit` shape what's printed.
+  const summary = summarizeDuplicates(groups);
+  // Match the scan's own default cap (50) when neither --limit nor a DSL `limit:` is given, so a
+  // filtered run stays bounded by default — pass `limit:<big>` in --dup-query to lift it.
+  const effectiveLimit = parsedQuery?.limit ?? limit ?? 50;
+  const orderedGroups = parsedQuery
+    ? sortLimitDupGroups(groups, { ...parsedQuery, limit: effectiveLimit })
+    : groups;
+  const limitedClusters = clusters.slice(0, effectiveLimit);
+  const outGroups = dupSlim ? orderedGroups.map(slimDupGroup) : orderedGroups;
+  const outClusters = dupSlim ? limitedClusters.map(slimDupCluster) : limitedClusters;
+  console.log(
+    JSON.stringify(
+      {
+        minLines,
+        ...(dupQuery !== undefined && { filter: dupQuery }),
+        summary,
+        groups: outGroups,
+        count: outGroups.length,
+        clusters: outClusters,
+      },
+      null,
+      2,
+    ),
+  );
 }

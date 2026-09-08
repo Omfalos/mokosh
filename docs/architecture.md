@@ -55,6 +55,12 @@ Responsibility: analyse a single file and return its imports, exports, tags, and
 - **CoffeeScript, LiveScript, Lua, Gherkin**: Purpose-built parsers in `src/parser/lang/`.
 - **Markdown / MDX** (`src/parser/lang/markdown.ts`): Uses `remark`/`unified` (mdast) to extract file references from links and code spans, powering doc-drift detection. See [ADR-009](adr-009-markdown-parsing.md).
 
+Depth of support varies by language and axis. The authoritative per-language matrix (import
+resolution, exports, call edges, complexity, category, duplication, test tags — each `full` /
+`partial` / `none`) lives in [`docs/language-support.md`](./language-support.md), generated from
+`LANGUAGE_FIDELITY` in `src/graph/language-support.ts` and echoed by `analyze` under
+`languageCoverage[].fidelity`.
+
 ### What the parser extracts
 
 - **Imports**: `ImportEdge[]` with `rawSpecifier`, `type` (static/dynamic/require/re-export), `symbols`, `isExternal`, `isWorkspace`.

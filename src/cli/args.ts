@@ -57,6 +57,10 @@ export interface ParsedArgs {
   limit: number | undefined;
   findDuplicates: boolean;
   minDuplicateLines: number | undefined;
+  /** `--dup-query` — a `key:value` filter DSL string for `--find-duplicates` results. */
+  dupQuery: string | undefined;
+  /** `--dup-full` inverted — `--find-duplicates` prints the compact shape unless `--dup-full`. */
+  dupSlim: boolean;
   includeGenerated: boolean;
   includeSameFile: boolean;
   includeSvgMarkup: boolean;
@@ -179,6 +183,8 @@ export const OPTIONS = {
   limit: { type: "string" },
   "find-duplicates": { type: "boolean" },
   "min-duplicate-lines": { type: "string" },
+  "dup-query": { type: "string" },
+  "dup-full": { type: "boolean" },
   "include-generated": { type: "boolean" },
   "include-same-file": { type: "boolean" },
   "include-svg-markup": { type: "boolean" },
@@ -429,6 +435,8 @@ export function parseArgs(cliTokens: string[]): ParsedArgs {
     complexityThreshold: parseOptionalInt(values["complexity-threshold"]),
     limit: parseOptionalInt(values.limit),
     minDuplicateLines: parseOptionalInt(values["min-duplicate-lines"]),
+    dupQuery: values["dup-query"],
+    dupSlim: !((values["dup-full"] as boolean) ?? false),
     includeGenerated: (values["include-generated"] as boolean) ?? false,
     includeSameFile: (values["include-same-file"] as boolean) ?? false,
     includeSvgMarkup: (values["include-svg-markup"] as boolean) ?? false,

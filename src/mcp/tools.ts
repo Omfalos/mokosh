@@ -333,7 +333,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "find_duplicates",
     description:
-      'Find duplicated code blocks across the project, largest-first. CSS/SCSS/Less matched structurally, other languages tokenized. Also reports kind:"definition" groups and clusters (file set + coverage %). Lock files/ignored dirs excluded. Requires analyze(). See docs/mcp.md.',
+      'Find duplicated code blocks, largest-first — also kind:"definition" groups + clusters (file set + coverage %). Response leads with `summary`; narrow with `filter`; `slim` (default true) compacts. Requires analyze(). See docs/mcp.md.',
     inputSchema: {
       type: "object",
       properties: {
@@ -345,18 +345,18 @@ export const TOOL_DEFINITIONS = [
         ignoreLiterals: {
           type: "boolean",
           description:
-            "Normalize string/number literals too, so only structural shape drives a match (default: true). Set false for exact-text-only matching.",
+            "Normalize string/number literals so only structural shape matches (default true); false = exact text.",
         },
         maxPunctuationRatio: {
           type: "number",
           description:
-            "Max fraction of a block that may be object/array-literal punctuation ({ } : , [ ]) (default: 0.5) — filters schema shape. Set 1 to disable.",
+            "Max fraction of a block that may be object/array punctuation (default 0.5); 1 disables.",
         },
         ignoreDirs: {
           type: "array",
           items: { type: "string" },
           description:
-            "Directory names to exclude, matched against any path segment (default: DEFAULT_IGNORE_DIRS + configured ignoreDirs). Pass [] to disable.",
+            "Directory names to exclude, any path segment (default: DEFAULT_IGNORE_DIRS + config). [] disables.",
         },
         limit: {
           type: "number",
@@ -365,28 +365,38 @@ export const TOOL_DEFINITIONS = [
         includeGenerated: {
           type: "boolean",
           description:
-            "Scan generated / vendored files too (default: false) — protobuf, *.generated.*, @generated files. Tagged signals:['generated'].",
+            "Scan generated/vendored files too (default false). Tagged signals:['generated'].",
         },
         includeSameFile: {
           type: "boolean",
           description:
-            "Include matches where every occurrence is in one file (default: false) — usually its own repetitive shape. Tagged signals:['same-file'].",
+            "Include single-file matches (default false) — usually a file's own repetition. signals:['same-file'].",
         },
         includeSvgMarkup: {
           type: "boolean",
           description:
-            "Include matches that are all inline SVG / JSX markup (default: false) — different icons sharing a normalized skeleton. Tagged signals:['svg-markup'].",
+            "Include inline-SVG/JSX-markup matches (default false) — icons sharing a skeleton. signals:['svg-markup'].",
         },
         scope: {
           type: "string",
           enum: ["src", "tests", "all"],
           description:
-            "Test-file duplicates (default 'src'): 'src' drops clusters touching a test file; 'tests' returns only substantive shared test logic; 'all' returns everything. Tagged signals:['test'].",
+            "Test-file dups (default 'src'): 'src' drops test clusters, 'tests' only substantive shared test logic, 'all' all.",
         },
         includeDocs: {
           type: "boolean",
           description:
-            "Include markdown-family matches (default: false) — mirrored prose docs (README <-> *.mdx). Tagged signals:['docs'].",
+            "Include markdown-family matches (default false) — mirrored prose docs. signals:['docs'].",
+        },
+        filter: {
+          type: "string",
+          description:
+            "key:value filter, AND across keys: path, allPaths, family, type, kind, defKind, minLines/maxLines, minScore/maxScore, minOccurrences, crossFile, signal ('!' negates), sort, sortDir, limit. See docs/query.md.",
+        },
+        slim: {
+          type: "boolean",
+          description:
+            "Compact response (default true): terse groups, 'path:start-end' occurrences, no cluster bodies. false = full.",
         },
         package: FAN_OUT_PACKAGE_PROPERTY,
       },

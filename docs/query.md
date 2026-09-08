@@ -107,6 +107,43 @@ Find the 10 least-churned files with the lowest cognitive complexity:
 npx mokosh --query "sort:cognitiveComplexity,sortDir:asc,limit:10" src/index.ts
 ```
 
+## `find_duplicates` filter DSL
+
+`find_duplicates` (MCP `filter` arg, CLI `--dup-query`) takes a **separate** `key:value` string
+that filters *duplicate-group results*, not graph nodes. Same comma-separated, AND-across-keys
+shape; string values take a leading `!` for negation. Parsed by `parseDupQuery`, applied by
+`matchDupGroup`. An unknown key or malformed clause **throws** (unlike the node query DSL, which
+silently ignores unknown keys) so a typo fails loudly instead of returning nothing.
+
+| Key | Meaning |
+|---|---|
+| `path:<substr>` / `path:!<substr>` | at least one / no occurrence's path contains this |
+| `allPaths:<substr>` | *every* occurrence's path contains this (an entirely-within-one-module dup) |
+| `family:<js\|jvm\|style\|python\|go\|lua\|markdown\|gherkin\|other>` | language family (`!` negates) |
+| `type:<lang>` | every occurrence resolves to this `FileType` (e.g. `typescript`); `!` = none does |
+| `kind:<block\|definition>` | span match vs declaration-level match |
+| `defKind:<cssVar\|interface\|type\|objectLiteral\|jsxElement>` | which declaration a `definition` group matched |
+| `minLines:<N>` / `maxLines:<N>` | block size in lines |
+| `minScore:<N>` / `maxScore:<N>` | logic-token score (falls back to `lines` for `definition` groups) |
+| `minOccurrences:<N>` | repeated at least N times |
+| `crossFile:<bool>` | `true` = occurrences span ≥2 files, `false` = all in one file |
+| `signal:<name>` / `signal:!<name>` | has / lacks a signal (`same-file`, `generated`, `value-drift`, `svg-markup`, `test`, `docs`); repeatable, positives OR-matched |
+| `sort:<lines\|score\|occurrences>` / `sortDir:<asc\|desc>` | ordering (default `desc`) |
+| `limit:<N>` | cap |
+
+```bash
+# TypeScript duplicates outside tests, spanning multiple files, ≥20 lines
+npx mokosh --find-duplicates --dup-query "type:typescript,path:!test,crossFile:true,minLines:20"
+
+# Only the CSS variable drift, most-repeated first
+npx mokosh --find-duplicates --dup-query "defKind:cssVar,signal:value-drift,sort:occurrences"
+```
+
+`crossPackage` is intentionally absent: on a monorepo `find_duplicates` scans each package
+independently, so a duplicate group never spans packages. The predicate is applied *before*
+clustering, so `clusters` narrow together with `groups`. `sort`/`limit` are applied after the
+per-package merge.
+
 ## Node Categories
 
 Mokosh automatically categorizes files based on their content and naming conventions:

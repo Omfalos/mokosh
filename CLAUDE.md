@@ -158,6 +158,11 @@ src/
 
 Run `mokosh --query-help` for the full reference.
 
+`find_duplicates` has a **separate** result filter DSL (MCP `filter` arg / CLI `--dup-query`) —
+`path`/`allPaths`/`family`/`type`/`kind`/`defKind`/`minLines`/`minScore`/`minOccurrences`/
+`crossFile`/`signal`, plus `sort`/`limit`. Parsed by `src/query/dup-parser.ts`; unknown keys
+throw. Responses lead with a `summary` block and are `slim` by default. See `docs/query.md`.
+
 ## MCP server
 
 Always available in this project — configured in `.mcp.json`. **Prefer MCP tools over the CLI** for any dependency query. See `/mokosh` skill for the full tool reference.
@@ -197,6 +202,7 @@ Run `/pre-update` — it calls `get_affected` to show blast radius before any ed
 - `architecture.md` — overall design decisions
 - `mcp.md` — MCP tool reference
 - `query.md` — query DSL in depth
+- `language-support.md` — per-language fidelity matrix (import resolution, call edges, complexity, …); mirrors `LANGUAGE_FIDELITY` in `src/graph/language-support.ts`
 - `traversal.md` — graph traversal semantics
 - `lock-files.md` — lock file parsing
 - `releasing.md` — release process and commit conventions

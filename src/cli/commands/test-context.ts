@@ -32,6 +32,8 @@ export function makeContext(overrides: Partial<CommandContext> & { graph: Graph 
     slim: false,
     testsOnly: false,
     minDuplicateLines: undefined,
+    dupQuery: undefined,
+    dupSlim: true,
     includeGenerated: false,
     includeSameFile: false,
     includeSvgMarkup: false,

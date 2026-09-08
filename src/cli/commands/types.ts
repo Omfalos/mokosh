@@ -39,6 +39,10 @@ export interface CommandContext {
   slim: boolean;
   testsOnly: boolean;
   minDuplicateLines: number | undefined;
+  /** `--dup-query` — `key:value` filter DSL for `--find-duplicates` results. */
+  dupQuery: string | undefined;
+  /** `--find-duplicates` prints the compact shape unless this is false (`--dup-full`). */
+  dupSlim: boolean;
   includeGenerated: boolean;
   includeSameFile: boolean;
   includeSvgMarkup: boolean;

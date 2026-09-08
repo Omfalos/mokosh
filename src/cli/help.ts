@@ -86,6 +86,12 @@ MCP parity (mirrors the MCP server's tools for use when MCP is unavailable):
   --scope <src|tests|all>      Which duplicates to surface by test-file involvement (default:
                                 src — drops test clusters). tests = only substantive shared
                                 test-logic clusters; all = everything. Use with --find-duplicates
+  --dup-query "<k:v,...>"      Filter --find-duplicates results (AND across keys): path / allPaths
+                                / family / type / kind / defKind / minLines / maxLines / minScore
+                                / maxScore / minOccurrences / crossFile / signal, plus sort
+                                (lines|score|occurrences) / sortDir / limit. Unknown keys error.
+  --dup-full                   Print full --find-duplicates groups/clusters (source text +
+                                per-occurrence metadata). Default is the compact shape.
   --find-risk-hotspots         List functions that are complex, undertested, and (if gitStats is
                                 enabled) frequently changed — requires coverageReportPath in config
   --max-coverage-pct <N>       Max file coverage % to include (default: 50, use with --find-risk-hotspots)

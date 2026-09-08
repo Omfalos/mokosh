@@ -156,6 +156,7 @@ describe("handleAnalyze", {
   });
 
   test("includes languageCoverage for languages present in the graph", async () => {
+    const { LANGUAGE_FIDELITY } = await import("../index.js");
     const cache = makeCache();
     const data = parse(await handleAnalyze(cache, { root: ROOT, entryPoints: ["src/a.ts"] })) as {
       languageCoverage: Array<{
@@ -164,6 +165,7 @@ describe("handleAnalyze", {
         exportsTracked: boolean;
         importSymbolsTracked: boolean;
         callEdgesTracked: boolean;
+        fidelity: unknown;
       }>;
     };
 
@@ -174,6 +176,7 @@ describe("handleAnalyze", {
         exportsTracked: true,
         importSymbolsTracked: true,
         callEdgesTracked: true,
+        fidelity: LANGUAGE_FIDELITY.typescript,
       },
     ]);
   });
@@ -728,6 +731,68 @@ describe("handleFindDuplicates", {
     expect(data.minLines).toBe(4);
     expect(data.count).toBeGreaterThan(0);
     expect(data.groups[0]?.occurrences).toHaveLength(2);
+  });
+
+  test("slim response (default) shapes groups compactly and leads with a summary", async () => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), "mokosh-handlers-duplicates-"));
+    fs.writeFileSync(path.join(root, "a.ts"), DUPLICATED_BLOCK);
+    fs.writeFileSync(path.join(root, "b.ts"), DUPLICATED_BLOCK.replace(/items/g, "orders"));
+    const graph = Graph.deserialize({ nodes: [makeNode("a.ts"), makeNode("b.ts")] });
+
+    const data = parse(
+      await handleFindDuplicates(makeDuplicatesCache(graph), { root, minLines: 4 }),
+    ) as {
+      summary: { matched: number; byFamily: Record<string, number>; largestLines: number };
+      groups: Array<{ lines: number; occurrences: string[] }>;
+    };
+
+    expect(data.summary.matched).toBeGreaterThan(0);
+    expect(data.summary.largestLines).toBeGreaterThan(0);
+    expect(data.summary.byFamily.js).toBeGreaterThan(0);
+    // slim occurrences are "path:start-end" strings, not objects
+    expect(typeof data.groups[0]?.occurrences[0]).toBe("string");
+    expect(data.groups[0]?.occurrences[0]).toMatch(/^[ab]\.ts:\d+-\d+$/);
+  });
+
+  test("filter narrows the result and errors on an unknown key", async () => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), "mokosh-handlers-duplicates-"));
+    fs.mkdirSync(path.join(root, "src"));
+    fs.mkdirSync(path.join(root, "lib"));
+    fs.writeFileSync(path.join(root, "src/a.ts"), DUPLICATED_BLOCK);
+    fs.writeFileSync(path.join(root, "src/b.ts"), DUPLICATED_BLOCK.replace(/items/g, "orders"));
+    fs.writeFileSync(path.join(root, "lib/c.ts"), DUPLICATED_BLOCK.replace(/sum/g, "acc"));
+    fs.writeFileSync(
+      path.join(root, "lib/d.ts"),
+      DUPLICATED_BLOCK.replace(/sum/g, "acc").replace(/items/g, "rows"),
+    );
+    const graph = Graph.deserialize({
+      nodes: ["src/a.ts", "src/b.ts", "lib/c.ts", "lib/d.ts"].map((p) => makeNode(p)),
+    });
+
+    // path: = at least one occurrence under the path
+    const anyLib = parse(
+      await handleFindDuplicates(makeDuplicatesCache(graph), {
+        root,
+        minLines: 4,
+        filter: "path:lib/",
+      }),
+    ) as { groups: Array<{ occurrences: string[] }> };
+    expect(anyLib.groups.length).toBeGreaterThan(0);
+    expect(anyLib.groups.every((g) => g.occurrences.some((o) => o.startsWith("lib/")))).toBe(true);
+
+    // allPaths: = every occurrence under the path
+    const allLib = parse(
+      await handleFindDuplicates(makeDuplicatesCache(graph), {
+        root,
+        minLines: 4,
+        filter: "allPaths:lib/",
+      }),
+    ) as { groups: Array<{ occurrences: string[] }> };
+    expect(allLib.groups.every((g) => g.occurrences.every((o) => o.startsWith("lib/")))).toBe(true);
+
+    await expect(
+      handleFindDuplicates(makeDuplicatesCache(graph), { root, minLines: 4, filter: "nope:1" }),
+    ).rejects.toThrow(/unknown key/);
   });
 
   test("always excludes lock files, even when the graph itself contains them", async () => {

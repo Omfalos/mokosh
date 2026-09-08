@@ -66,3 +66,53 @@ export interface NodeQuery {
   /** OR-group: node matches if it satisfies ANY sub-query in this array, ANDed with all other top-level fields on this NodeQuery. Populated by `any(key:val|key:val)` syntax in query strings. */
   any?: NodeQuery[];
 }
+
+/** Sortable axes for `find_duplicates` results (`DuplicateQuery.sort`). */
+export type DupSortField = "lines" | "score" | "occurrences";
+
+/**
+ * Criteria for filtering `find_duplicates` results — the duplicate-group/cluster analogue of
+ * {@link NodeQuery}. Parsed from a `"key:value,key:value"` string by `parseDupQuery`
+ * (AND across keys); applied per group by `matchDupGroup`. String fields support a `"!"` prefix
+ * for negation. A group's occurrences never span more than one language family or `FileType`
+ * (matching never crosses a family boundary), so `family`/`type` are effectively group-level.
+ */
+export interface DuplicateQuery {
+  /** Substring match on occurrence paths — matches when *at least one* occurrence's path
+   *  contains this. `"!substr"` matches when *no* occurrence's path contains it. */
+  path?: string;
+  /** Substring match — matches only when *every* occurrence's path contains this (an
+   *  entirely-within-one-module duplicate). `"!substr"` negates (no occurrence contains it). */
+  allPaths?: string;
+  /** Exact match on the group's `family` (`js`, `jvm`, `style`, `python`, `go`, `lua`,
+   *  `markdown`, `gherkin`, `other`). `"!"` to negate. */
+  family?: string;
+  /** Exact match on the `FileType` shared by every occurrence (derived from each occurrence's
+   *  path). `"!lang"` matches when no occurrence is of that type. */
+  type?: string;
+  /** `"block"` (a span match) or `"definition"` (a declaration-level match). */
+  kind?: string;
+  /** Exact match on a definition group's `defKind` (`cssVar` | `interface` | `type` |
+   *  `objectLiteral` | `jsxElement`). `"!"` to negate. */
+  defKind?: string;
+  /** Minimum / maximum duplicated block size in lines (`DuplicateGroup.lines`). */
+  minLines?: number;
+  maxLines?: number;
+  /** Minimum / maximum logic-token score (`DuplicateGroup.score`, falling back to `lines` for
+   *  definition groups, which carry no score). */
+  minScore?: number;
+  maxScore?: number;
+  /** Minimum number of occurrences (`DuplicateGroup.occurrences.length`). */
+  minOccurrences?: number;
+  /** `true` = occurrences span ≥2 distinct files; `false` = every occurrence is in one file. */
+  crossFile?: boolean;
+  /** OR match across positive entries (`DuplicateSignal` names); `"!name"` entries are
+   *  mandatory exclusions, evaluated independently. */
+  signals?: string[];
+  /** Result ordering for the flat `groups` list. */
+  sort?: DupSortField;
+  /** Direction for `sort`. Defaults to `"desc"`. */
+  sortDir?: "asc" | "desc";
+  /** Cap on the number of results. */
+  limit?: number;
+}
