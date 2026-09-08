@@ -29,11 +29,13 @@ export { type CycleEdgeKind, type FindCyclesOptions, GraphAnalyzer } from "./gra
 // Graph analysis utilities
 export {
   type ApiSurface,
+  type ApiSurfaceSummary,
   buildApiSurface,
   detectAllEntryPoints,
   detectEntryPoint,
   type ExportKind,
   type PublicExport,
+  summarizeApiSurface,
 } from "./graph/api-surface";
 export type { ParallelParsingOption } from "./graph/builder";
 export { queryCallGraph } from "./graph/call-graph";

@@ -2,6 +2,7 @@ import path from "node:path";
 import { DefaultGitProvider } from "../git";
 import {
   type ApiSurface,
+  type ApiSurfaceSummary,
   applyConfig,
   applyTags,
   buildApiSurface,
@@ -54,6 +55,7 @@ import {
   slimDupGroup,
   slimSerialize,
   sortLimitDupGroups,
+  summarizeApiSurface,
   summarizeBranchComparison,
   summarizeDuplicates,
   summarizeWorkspaceLayout,
@@ -221,6 +223,17 @@ export type GetApiSurfaceArgs = {
   entryPoints?: string[];
   package?: string;
   maxExportsPerPackage?: number;
+  /**
+   * Shape of the single-surface response (plain root, or a single requested `package`).
+   * `"summary"` (default) → token-bounded {@link ApiSurfaceSummary}: counts, a capped
+   * `{name,kind}` export sample, `byKind`, and the (short) `unreachableFromEntry` list.
+   * `"exports"` → the summary plus the full `publicExports` array (docs, signatures, definedIn).
+   * `"full"` → the complete {@link ApiSurface} (all export detail + every path list).
+   * Ignored by the compact multi-package breakdown.
+   */
+  view?: "summary" | "exports" | "full";
+  /** `view:"summary"` only: cap the `publicExports` sample (default 30). */
+  maxExports?: number;
 };
 export type ApplyTagsArgs = { root: string; dryRun?: boolean; package?: string };
 
@@ -1361,19 +1374,23 @@ export async function handleFindSymbol(
  * @description Builds the API surface report for a project, expanding `export *` chains so every
  *   symbol accessible to consumers is listed. Partitions the graph into `internalFiles`,
  *   `unreachableFromEntry` (separate consumers or dead-code candidates), and `testFiles`.
- *   On a monorepo root: one surface per workspace package, using the entry points the
- *   `WorkspaceGraph` already resolved per package (no re-reading of `package.json`). A package
- *   with no resolvable entry point is listed in `skipped` rather than failing the whole call.
- *   Unless a single `package` is requested, the response is compact: per-package counts only
- *   (no path lists), each exported symbol reduced to `{ name, kind }`, and the `publicExports`
- *   sample capped at `maxExportsPerPackage` (default 10; `0` = counts only). Use `package` for
- *   one package's full `ApiSurface`.
+ *   `package.json` `bin` targets count as entry points alongside `exports` / `main`.
+ *   The single-surface response (plain root, or a single requested `package`) is **summary-first**:
+ *   `view:"summary"` (default) returns an {@link ApiSurfaceSummary} — counts, a capped
+ *   `{name,kind}` export sample, `byKind`, and the short `unreachableFromEntry` list;
+ *   `view:"exports"` adds the full `publicExports`; `view:"full"` returns the complete
+ *   {@link ApiSurface} with every path list.
+ *   On a monorepo root without `package`: one compact summary per workspace package — per-package
+ *   counts only (no path lists), each exported symbol reduced to `{ name, kind }`, and the
+ *   `publicExports` sample capped at `maxExportsPerPackage` (default 10; `0` = counts only).
  * @param cache - Session state holding the cached graph(s) for `root`.
  * @param args - `root` selects the project; `entryPoints` overrides auto-detection; `package`
- *   scopes to one workspace package (returns its full surface); `maxExportsPerPackage` caps the
- *   per-package `publicExports` sample in the multi-package response (default 10, `0` = counts only).
- * @returns TextResponse: a single `ApiSurface` for a plain root or a single requested package;
- *   otherwise `{ packages: [...compact per-package summaries], skipped, truncated }`.
+ *   scopes to one workspace package; `view` / `maxExports` shape the single-surface response;
+ *   `maxExportsPerPackage` caps the per-package `publicExports` sample in the multi-package
+ *   response (default 10, `0` = counts only).
+ * @returns TextResponse: an {@link ApiSurfaceSummary} (or fuller, per `view`) for a plain root or
+ *   a single requested package; otherwise `{ packages: [...compact per-package summaries],
+ *   skipped, truncated }`.
  */
 /** JVM (and Go, after language-aware detection) treat every source file as an entry point, so a
  *  surface can carry hundreds of them. Echo at most this many back, with the true `entryPointCount`
@@ -1396,14 +1413,39 @@ function echoEntryPoints(eps: string[]): {
   };
 }
 
+/**
+ * Renders one full `ApiSurface` for a single-surface response (plain root or a single requested
+ * `package`), honouring `view`. `"summary"` (default) is a token-bounded projection; `"exports"`
+ * adds the full `publicExports`; `"full"` is the complete surface with every path list.
+ */
+function renderSurface(
+  surface: ApiSurface,
+  view: GetApiSurfaceArgs["view"],
+  maxExports?: number,
+): TextResponse {
+  if (view === "full") {
+    return text({ ...surface, ...echoEntryPoints(surface.entryPoints) });
+  }
+  const summary = summarizeApiSurface(surface, maxExports === undefined ? {} : { maxExports });
+  if (view === "exports") {
+    const { publicExportsTruncated: _drop, ...rest } = summary;
+    return text({
+      ...rest,
+      publicExports: surface.publicExports,
+      hint: `Pass view:"full" for the internalFiles / testFiles path lists.`,
+    });
+  }
+  return text(summary);
+}
+
 export async function handleGetApiSurface(
   cache: SessionState,
   args: GetApiSurfaceArgs,
 ): Promise<TextResponse> {
-  const { root, entryPoints, package: pkg } = args;
+  const { root, entryPoints, package: pkg, view = "summary", maxExports } = args;
   const maxExportsPerPackage = args.maxExportsPerPackage ?? 10;
 
-  // Plain (non-monorepo) root: unchanged single-graph behavior.
+  // Plain (non-monorepo) root.
   if (!cache.isWorkspaceRoot(root)) {
     const graph = await cache.ensureFresh(root);
     const eps = entryPoints?.length ? entryPoints : detectAllEntryPoints(graph, root);
@@ -1412,8 +1454,7 @@ export async function handleGetApiSurface(
         "No entry points found. Pass entryPoints explicitly, or (JS) ensure package.json has a main/exports field.",
       );
     }
-    const surface = buildApiSurface(graph, eps);
-    return text({ ...surface, ...echoEntryPoints(surface.entryPoints) });
+    return renderSurface(buildApiSurface(graph, eps), view, maxExports);
   }
 
   // Monorepo root: one surface per package. Entry points come from the WorkspaceGraph the
@@ -1431,7 +1472,7 @@ export async function handleGetApiSurface(
     return eps.length ? buildApiSurface(graph, eps) : null;
   };
 
-  // A single package was requested → return its full surface.
+  // A single package was requested → return its surface (summary-first, `view`-controlled).
   if (graphs.length === 1) {
     const only = graphs[0];
     if (!only) throw new Error("get_api_surface: no graph resolved for this root.");
@@ -1441,7 +1482,7 @@ export async function handleGetApiSurface(
         `No entry point for package "${only.package}" is present in the analyzed graph. Pass entryPoints explicitly.`,
       );
     }
-    return text({ ...surface, ...echoEntryPoints(surface.entryPoints) });
+    return renderSurface(surface, view, maxExports);
   }
 
   // Every package → capped per-package breakdown; packages with no entry point are listed in

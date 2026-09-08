@@ -3,7 +3,12 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, test } from "vitest";
 import type { FileNode, ImportEdge } from "../types/node";
-import { buildApiSurface, detectAllEntryPoints, detectEntryPoint } from "./api-surface";
+import {
+  buildApiSurface,
+  detectAllEntryPoints,
+  detectEntryPoint,
+  summarizeApiSurface,
+} from "./api-surface";
 import { Graph } from "./model";
 
 function makeNode(p: string, opts: Partial<FileNode> = {}): FileNode {
@@ -555,6 +560,60 @@ describe("detectAllEntryPoints", {
     }
   });
 
+  test("adds package.json bin targets as entry points, after exports", () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "api-surface-test-"));
+    try {
+      fs.writeFileSync(
+        path.join(tmpDir, "package.json"),
+        JSON.stringify({
+          exports: { ".": "./dist/index.js" },
+          bin: { "my-cli": "dist/cli.js", "my-mcp": "dist/mcp.js" },
+        }),
+      );
+      const graph = makeGraph([
+        makeNode("src/index.ts"),
+        makeNode("src/cli.ts"),
+        makeNode("src/mcp.ts"),
+      ]);
+      expect(detectAllEntryPoints(graph, tmpDir)).toEqual([
+        "src/index.ts",
+        "src/cli.ts",
+        "src/mcp.ts",
+      ]);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  test("string bin is a single entry point; used even with no exports", () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "api-surface-test-"));
+    try {
+      fs.writeFileSync(
+        path.join(tmpDir, "package.json"),
+        JSON.stringify({ name: "tool", bin: "./dist/cli.js" }),
+      );
+      const graph = makeGraph([makeNode("src/cli.ts"), makeNode("src/index.ts")]);
+      // bin resolved → the src/index.ts guess is skipped
+      expect(detectAllEntryPoints(graph, tmpDir)).toEqual(["src/cli.ts"]);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  test("bin target not present in the graph is ignored", () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "api-surface-test-"));
+    try {
+      fs.writeFileSync(
+        path.join(tmpDir, "package.json"),
+        JSON.stringify({ exports: { ".": "./dist/index.js" }, bin: { x: "dist/missing.js" } }),
+      );
+      const graph = makeGraph([makeNode("src/index.ts")]);
+      expect(detectAllEntryPoints(graph, tmpDir)).toEqual(["src/index.ts"]);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
   describe("non-JS fallback (no package.json)", () => {
     const noPkgJson = (graph: Graph) => {
       const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "api-surface-test-"));
@@ -604,5 +663,75 @@ describe("detectAllEntryPoints", {
     test("still empty for a JS/TS graph with no resolvable entry", () => {
       expect(noPkgJson(makeGraph([makeNode("lib/main.ts")]))).toHaveLength(0);
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// summarizeApiSurface
+// ---------------------------------------------------------------------------
+
+describe("summarizeApiSurface", {
+  tags: ["api-surface", "buildApiSurface", "summarizeApiSurface", "model", "node"],
+}, () => {
+  function bigSurface() {
+    const exports = Array.from({ length: 40 }, (_, i) => ({
+      name: `sym${String(i).padStart(2, "0")}`,
+      signature: i % 2 === 0 ? `function sym${i}()` : `interface Sym${i}`,
+    }));
+    const unreachable = Array.from({ length: 70 }, (_, i) => makeNode(`src/loose/f${i}.ts`));
+    const graph = makeGraph([
+      makeNode("src/index.ts", {
+        category: "barrel",
+        imports: [reExportEdge("src/index.ts", "src/impl.ts", ["*"])],
+      }),
+      makeNode("src/impl.ts", { exports }),
+      makeNode("src/reached.ts"),
+      makeNode("src/a.test.ts", { category: "test" }),
+      makeNode("src/b.test.ts", { category: "test" }),
+      ...unreachable,
+    ]);
+    // make src/reached.ts reachable
+    graph.nodes.get("src/index.ts")?.imports.push(staticEdge("src/index.ts", "src/reached.ts"));
+    return buildApiSurface(graph, ["src/index.ts"]);
+  }
+
+  test("replaces unbounded lists with counts and caps the export sample", () => {
+    const s = summarizeApiSurface(bigSurface());
+    expect(s.publicExportCount).toBe(40);
+    expect(s.publicExports).toHaveLength(30);
+    expect(s.publicExportsTruncated).toBe(true);
+    expect(s.publicExports[0]).toEqual({ name: "sym00", kind: "function" });
+    expect(s).not.toHaveProperty("internalFiles");
+    expect(s).not.toHaveProperty("testFiles");
+    expect(s.internalFileCount).toBeGreaterThan(0);
+    expect(s.testFileCount).toBe(2);
+  });
+
+  test("byKind histogram covers the full export set", () => {
+    const s = summarizeApiSurface(bigSurface());
+    expect((s.byKind.function ?? 0) + (s.byKind.interface ?? 0)).toBe(40);
+  });
+
+  test("unreachableFromEntry list is kept but capped", () => {
+    const s = summarizeApiSurface(bigSurface());
+    expect(s.unreachableFromEntryCount).toBe(70);
+    expect(s.unreachableFromEntry).toHaveLength(50);
+    expect(s.unreachableFromEntryTruncated).toBe(true);
+  });
+
+  test("maxExports: Infinity keeps every export name and drops the truncated flag", () => {
+    const s = summarizeApiSurface(bigSurface(), { maxExports: Number.POSITIVE_INFINITY });
+    expect(s.publicExports).toHaveLength(40);
+    expect(s.publicExportsTruncated).toBeUndefined();
+  });
+
+  test("small surface sets no truncation flags", () => {
+    const graph = makeGraph([
+      makeNode("src/index.ts", { exports: [{ name: "foo", signature: "function foo()" }] }),
+    ]);
+    const s = summarizeApiSurface(buildApiSurface(graph, ["src/index.ts"]));
+    expect(s.publicExportsTruncated).toBeUndefined();
+    expect(s.unreachableFromEntryTruncated).toBeUndefined();
+    expect(s.entryPointsTruncated).toBeUndefined();
   });
 });

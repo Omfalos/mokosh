@@ -477,13 +477,13 @@ export const TOOL_DEFINITIONS = [
         filter: {
           type: "string",
           description:
-            "Query string e.g. 'category:logic' or 'category:logic,tag:auth'. Supports: category, type, tag, path, package, external, importsFile, importedBy, minImports, maxImports, minSize, maxSize, hasDocstring, minCoverage, maxCoverage, minExportUsage, maxExportUsage, minComplexity, maxComplexity, minCognitiveComplexity, maxCognitiveComplexity, minCommits, maxCommits, isDocumented, isStale, lastAuthor. OR logic: any(key:val|key:val) matches if any single-key clause holds, ANDed with the rest of the query. sort: size|imports|commitCount90d|exportUsage|complexity|cognitiveComplexity, with sortDir: asc|desc (default desc). limit: N.",
+            "Query string e.g. 'category:logic' or 'category:logic,tag:auth'. Keys: category, type, tag, path, package, external, importsFile, importedBy, min/maxImports, min/maxSize, hasDocstring, min/maxCoverage, min/maxExportUsage, min/maxComplexity, min/maxCognitiveComplexity, min/maxCommits, isDocumented, isStale, lastAuthor. OR: any(k:v|k:v). sort: size|imports|commitCount90d|exportUsage|complexity|cognitiveComplexity + sortDir asc|desc. limit: N. Full reference: docs/query.md.",
         },
         mermaid: { type: "boolean", description: "Return a Mermaid diagram (default: false)" },
         slim: {
           type: "boolean",
           description:
-            "Compact response mode (default: true). Returns export names, meaningful tags, and a flat importsFiles path list — no edge objects, no mtime/size. Tags are filtered to kinds comment-marker and import only; function/class/variable/type/library tags are dropped in slim output. Use list_tags to see the full tag inventory, or pass slim: false to get every tag kind on matching nodes.",
+            "Compact response mode (default: true). Export names, meaningful tags (comment-marker + import kinds only), and a flat importsFiles path list — no edge objects, no mtime/size. Pass slim: false for every tag kind and full edge metadata; use list_tags for the full tag inventory.",
         },
         package: {
           type: "string",
@@ -621,7 +621,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "get_api_surface",
     description:
-      "Build the API surface report: every exported symbol resolved to its defining file and kind, partitioned into internalFiles, unreachableFromEntry, testFiles. Requires a prior analyze() call. Entry points auto-detect: JS/TS from package.json; Go/Python/JVM from every non-test source file. Monorepo root, no `package`: a compact per-package breakdown (counts + name/kind samples) plus `skipped`; use `package` for one package's full surface. See docs/mcp.md.",
+      "API surface report: exported symbols resolved to defining file + kind, plus internalFiles / unreachableFromEntry / testFiles partitions. Needs a prior analyze(). Entry points auto-detect from package.json exports + bin + main (JS/TS) or every non-test source file (Go/Python/JVM). Summary-first: view 'summary' (default) is counts + byKind + a capped sample + the short unreachableFromEntry list; 'exports' and 'full' widen it. Monorepo root without `package`: compact per-package breakdown + `skipped`. See docs/mcp.md.",
     inputSchema: {
       type: "object",
       properties: {
@@ -629,14 +629,22 @@ export const TOOL_DEFINITIONS = [
         entryPoints: {
           type: "array",
           items: { type: "string" },
-          description:
-            "Project-relative paths of public entry points. Omit to auto-detect from package.json exports / main / module.",
+          description: "Public entry-point paths. Omit to auto-detect (exports / bin / main).",
         },
         package: FAN_OUT_PACKAGE_PROPERTY,
+        view: {
+          type: "string",
+          enum: ["summary", "exports", "full"],
+          description: "summary (default) | exports (+full publicExports) | full (+path lists).",
+        },
+        maxExports: {
+          type: "number",
+          description: "view 'summary': cap the {name,kind} sample (default 30).",
+        },
         maxExportsPerPackage: {
           type: "number",
           description:
-            "Monorepo, no `package`: cap each package's publicExports sample (default 10; 0 = counts only).",
+            "Monorepo, no `package`: cap each package's sample (default 10; 0 = counts).",
         },
       },
       required: ["root"],

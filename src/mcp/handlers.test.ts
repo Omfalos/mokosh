@@ -1613,6 +1613,98 @@ describe("handleGetWorkspaceAffected", {
   });
 });
 
+describe("handleGetApiSurface (plain root)", {
+  tags: ["SessionState", "handleGetApiSurface", "handlers", "api-surface"],
+}, () => {
+  // Barrel index re-exporting 40 symbols from an impl file, plus 6 loose (unreachable) files.
+  function makePlainCache(): SessionState {
+    const exports = Array.from({ length: 40 }, (_, i) => ({
+      name: `sym${String(i).padStart(2, "0")}`,
+      signature: i % 2 === 0 ? `function sym${i}()` : `interface Sym${i}`,
+    }));
+    const mk = (p: string, extra: Record<string, unknown> = {}) => ({
+      path: p,
+      type: "typescript" as const,
+      category: "logic" as const,
+      imports: [],
+      exports: [],
+      tags: [],
+      mtime: 0,
+      size: 0,
+      ...extra,
+    });
+    const nodes = [
+      mk("src/index.ts", {
+        category: "barrel",
+        imports: [
+          {
+            fromPath: "src/index.ts",
+            toPath: "src/impl.ts",
+            rawSpecifier: "./impl",
+            type: "re-export",
+            isStyle: false,
+            isExternal: false,
+            symbols: ["*"],
+          },
+        ],
+      }),
+      mk("src/impl.ts", { exports }),
+      ...Array.from({ length: 6 }, (_, i) => mk(`src/loose/f${i}.ts`)),
+      mk("src/x.test.ts", { category: "test" }),
+    ];
+    const graph = new Graph(new Map(nodes.map((n) => [n.path, n as never])));
+    return {
+      isWorkspaceRoot: vi.fn().mockReturnValue(false),
+      ensureFresh: vi.fn().mockResolvedValue(graph),
+    } as unknown as SessionState;
+  }
+
+  const withIndex = { root: ROOT, entryPoints: ["src/index.ts"] };
+
+  test("default view is a token-bounded summary — counts, no path lists", async () => {
+    const data = parse(await handleGetApiSurface(makePlainCache(), withIndex)) as Record<
+      string,
+      unknown
+    >;
+    expect(data.publicExportCount).toBe(40);
+    expect(data).not.toHaveProperty("internalFiles");
+    expect(data).not.toHaveProperty("testFiles");
+    expect(data.internalFileCount).toBe(1);
+    expect(data.testFileCount).toBe(1);
+    expect(data.unreachableFromEntryCount).toBe(6);
+    expect(data.unreachableFromEntry).toHaveLength(6);
+    expect(data.byKind).toEqual({ function: 20, interface: 20 });
+    expect(typeof data.hint).toBe("string");
+  });
+
+  test("maxExports caps the summary export sample", async () => {
+    const data = parse(
+      await handleGetApiSurface(makePlainCache(), { ...withIndex, maxExports: 5 }),
+    ) as { publicExports: unknown[]; publicExportsTruncated?: boolean };
+    expect(data.publicExports).toHaveLength(5);
+    expect(data.publicExportsTruncated).toBe(true);
+  });
+
+  test('view:"exports" adds the full publicExports with definedIn/signature', async () => {
+    const data = parse(
+      await handleGetApiSurface(makePlainCache(), { ...withIndex, view: "exports" }),
+    ) as { publicExports: Array<Record<string, unknown>>; internalFiles?: unknown };
+    expect(data.publicExports).toHaveLength(40);
+    expect(data.publicExports[0]).toHaveProperty("definedIn", "src/impl.ts");
+    expect(data.publicExports[0]).toHaveProperty("signature");
+    expect(data).not.toHaveProperty("internalFiles");
+  });
+
+  test('view:"full" returns the complete ApiSurface with every path list', async () => {
+    const data = parse(
+      await handleGetApiSurface(makePlainCache(), { ...withIndex, view: "full" }),
+    ) as { internalFiles: string[]; testFiles: string[]; unreachableFromEntry: string[] };
+    expect(data.internalFiles).toEqual(["src/impl.ts"]);
+    expect(data.testFiles).toEqual(["src/x.test.ts"]);
+    expect(data.unreachableFromEntry).toHaveLength(6);
+  });
+});
+
 describe("handleGetApiSurface (monorepo)", {
   tags: ["SessionState", "WorkspaceGraph", "handleGetApiSurface", "handlers", "api-surface"],
 }, () => {
@@ -1737,15 +1829,37 @@ describe("handleGetApiSurface (monorepo)", {
     expect(keys).toContain("internalFileCount");
   });
 
-  test("a single requested package returns its full ApiSurface", async () => {
+  test("a single requested package returns its surface as a summary by default", async () => {
     const wg = makeApiWorkspace();
     const data = parse(
       await handleGetApiSurface(makeApiCache(wg, "@org/app"), { root: ROOT, package: "@org/app" }),
-    ) as { entryPoints: string[]; entryPointCount: number; publicExports: Array<{ name: string }> };
+    ) as {
+      entryPoints: string[];
+      entryPointCount: number;
+      publicExportCount: number;
+      publicExports: Array<{ name: string }>;
+    } & Record<string, unknown>;
 
     expect(data.entryPoints).toEqual(["packages/app/src/index.ts"]);
     expect(data.entryPointCount).toBe(1);
+    expect(data.publicExportCount).toBe(2);
     expect(data.publicExports.map((e) => e.name).sort()).toEqual(["AppConfig", "startApp"]);
+    expect(data).not.toHaveProperty("internalFiles");
+  });
+
+  test("a single requested package with view:'full' returns the complete ApiSurface", async () => {
+    const wg = makeApiWorkspace();
+    const data = parse(
+      await handleGetApiSurface(makeApiCache(wg, "@org/app"), {
+        root: ROOT,
+        package: "@org/app",
+        view: "full",
+      }),
+    ) as { internalFiles: string[]; testFiles: string[]; unreachableFromEntry: string[] };
+
+    expect(Array.isArray(data.internalFiles)).toBe(true);
+    expect(Array.isArray(data.testFiles)).toBe(true);
+    expect(Array.isArray(data.unreachableFromEntry)).toBe(true);
   });
 
   test("caps the echoed entryPoints list for an all-files-are-entry (JVM-style) package", async () => {

@@ -56,6 +56,90 @@ export interface ApiSurface {
   testFiles: string[];
 }
 
+/**
+ * A compact, token-bounded projection of an {@link ApiSurface}, suitable as the default
+ * response of a "what's the public API?" query. Every unbounded list in `ApiSurface` is
+ * replaced by a count; `publicExports` is reduced to a capped `{ name, kind }` sample plus a
+ * `byKind` histogram over the full set. `unreachableFromEntry` — the one directly actionable
+ * signal (missed entry points / dead code) — keeps its list, capped.
+ */
+export interface ApiSurfaceSummary {
+  /** Entry points, capped (see `entryPointsTruncated`). */
+  entryPoints: string[];
+  /** True number of entry points. */
+  entryPointCount: number;
+  /** Present and `true` when `entryPoints` was truncated. */
+  entryPointsTruncated?: true;
+  /** True number of accessible public exports. */
+  publicExportCount: number;
+  /** Capped `{ name, kind }` sample of the public exports, alphabetical. */
+  publicExports: Array<{ name: string; kind: ExportKind }>;
+  /** Present and `true` when `publicExports` was truncated. */
+  publicExportsTruncated?: true;
+  /** Count of public exports per {@link ExportKind}, over the full (un-capped) set. */
+  byKind: Partial<Record<ExportKind, number>>;
+  /** Number of non-test implementation files reachable from an entry point. */
+  internalFileCount: number;
+  /** Number of non-test files not reachable from any entry point. */
+  unreachableFromEntryCount: number;
+  /** The unreachable non-test files, capped (see `unreachableFromEntryTruncated`). */
+  unreachableFromEntry: string[];
+  /** Present and `true` when `unreachableFromEntry` was truncated. */
+  unreachableFromEntryTruncated?: true;
+  /** Number of unreachable test files. */
+  testFileCount: number;
+  /** How to obtain the full lists this summary omits. */
+  hint: string;
+}
+
+/** Entry-point echo cap, matched to the MCP handler's own limit. */
+const MAX_ENTRY_POINTS_IN_SUMMARY = 25;
+const DEFAULT_MAX_EXPORTS_IN_SUMMARY = 30;
+const DEFAULT_MAX_UNREACHABLE_IN_SUMMARY = 50;
+
+/**
+ * Reduces a full {@link ApiSurface} to a token-bounded {@link ApiSurfaceSummary}.
+ *
+ * @param {ApiSurface} surface - The full surface report from {@link buildApiSurface}.
+ * @param {{ maxExports?: number; maxUnreachable?: number }} [opts] - `maxExports` caps the
+ *   `publicExports` sample (default 30; pass `Infinity` to keep all names); `maxUnreachable`
+ *   caps the `unreachableFromEntry` list (default 50).
+ * @returns {ApiSurfaceSummary} The compact projection.
+ */
+export function summarizeApiSurface(
+  surface: ApiSurface,
+  opts: { maxExports?: number; maxUnreachable?: number } = {},
+): ApiSurfaceSummary {
+  const maxExports = opts.maxExports ?? DEFAULT_MAX_EXPORTS_IN_SUMMARY;
+  const maxUnreachable = opts.maxUnreachable ?? DEFAULT_MAX_UNREACHABLE_IN_SUMMARY;
+
+  const byKind: Partial<Record<ExportKind, number>> = {};
+  for (const exp of surface.publicExports) byKind[exp.kind] = (byKind[exp.kind] ?? 0) + 1;
+
+  const exportSample = surface.publicExports
+    .slice(0, maxExports)
+    .map((exp) => ({ name: exp.name, kind: exp.kind }));
+  const unreachableSample = surface.unreachableFromEntry.slice(0, maxUnreachable);
+
+  const summary: ApiSurfaceSummary = {
+    entryPoints: surface.entryPoints.slice(0, MAX_ENTRY_POINTS_IN_SUMMARY),
+    entryPointCount: surface.entryPoints.length,
+    publicExportCount: surface.publicExports.length,
+    publicExports: exportSample,
+    byKind,
+    internalFileCount: surface.internalFiles.length,
+    unreachableFromEntryCount: surface.unreachableFromEntry.length,
+    unreachableFromEntry: unreachableSample,
+    testFileCount: surface.testFiles.length,
+    hint: `Pass view:"exports" for all ${surface.publicExports.length} exports with docs, signatures and definedIn; view:"full" for that plus the internalFiles / testFiles path lists.`,
+  };
+  if (surface.entryPoints.length > summary.entryPoints.length) summary.entryPointsTruncated = true;
+  if (exportSample.length < surface.publicExports.length) summary.publicExportsTruncated = true;
+  if (unreachableSample.length < surface.unreachableFromEntry.length)
+    summary.unreachableFromEntryTruncated = true;
+  return summary;
+}
+
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
@@ -221,6 +305,7 @@ export function detectAllEntryPoints(graph: Graph, root: string): string[] {
         main?: string;
         module?: string;
         exports?: unknown;
+        bin?: unknown;
       };
 
       // Modern packages: parse exports map (handles conditional exports)
@@ -232,6 +317,22 @@ export function detectAllEntryPoints(graph: Graph, root: string): string[] {
       } else if (typeof pkg.exports === "string") {
         const resolved = tryResolveSrcEquiv(pkg.exports, graph);
         if (resolved) found.push(resolved);
+      }
+
+      // `bin` scripts are real additional entry points (CLI / server binaries). Their transitive
+      // deps are implementation, not dead code — count them so `unreachableFromEntry` stays a
+      // meaningful signal. Additive to `exports`; listed after it so `found[0]` stays the lib root.
+      const binValues =
+        typeof pkg.bin === "string"
+          ? [pkg.bin]
+          : pkg.bin && typeof pkg.bin === "object" && !Array.isArray(pkg.bin)
+            ? Object.values(pkg.bin as Record<string, unknown>).filter(
+                (value): value is string => typeof value === "string",
+              )
+            : [];
+      for (const binValue of binValues) {
+        const resolved = tryResolveSrcEquiv(binValue, graph);
+        if (resolved && !found.includes(resolved)) found.push(resolved);
       }
 
       // Legacy fallbacks: main / module

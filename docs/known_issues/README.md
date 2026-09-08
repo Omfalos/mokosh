@@ -14,6 +14,13 @@ dependencies.
 
 ## Fixed
 
+- **Issue 10** — [`10-api-surface-response-size.md`](10-api-surface-response-size.md) —
+  `get_api_surface` returned a ~14K-token full `ApiSurface` on a single-package repo, and
+  `unreachableFromEntry` mislabelled CLI/MCP code as dead because `bin` wasn't an entry-point
+  source. Fixed: `detectAllEntryPoints` now reads `package.json` `bin`; the single-surface
+  response is summary-first (`summarizeApiSurface` + `view: "summary" | "exports" | "full"`,
+  default `"summary"` ≈ 1K tokens), `view: "full"` restores the old payload.
+
 - **Issues 1 & 2** — monorepo `analyze` / `get_workspace_packages` timeout — fixed in #12.
 - **Issue 3** — JVM monorepo cycle noise (test files inflate the package index) — fixed in #11.
 - **Issue 4** — Java generics drop constructor call edges — fixed in #10.

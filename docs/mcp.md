@@ -47,7 +47,7 @@ The server holds an **in-process graph cache** keyed by project root. This means
 **Monorepo**: pass `entryPoints: []` to `analyze` to trigger workspace auto-detection. This returns the package *layout* immediately; the per-package dependency graphs are built lazily on the first workspace-aware tool call that needs edges (pass `eager: true` to `analyze` to build them all up front). `get_workspace_packages` answers from the repo layout alone and needs no `analyze` at all. Every other tool works on a workspace root too:
 - Whole-workspace tools (`query`, `get_affected`, `get_dependents`, `get_callers`, `get_dependencies`, `get_type_graph`, `get_call_graph`, `get_feature_graph`) run against the **flattened whole-workspace graph** (`WorkspaceGraph.flatten()` — every package's own nodes in one namespace, cross-package edges intact). Blast radius, call graphs and queries span package boundaries; `sort`/`limit` rank globally; each result node carries its owning `package`. Pass the optional `package` argument (or a `package:<name>` clause in a `query` filter) to narrow to one package. `get_workspace_affected` still exists but `get_affected` now covers the same cross-package ground.
 - Fan-out tools (`find_duplicates`, `find_complex_functions`, `find_risk_hotspots`, `list_tags`, `find_uncovered`, `check_doc_drift`, `find_symbol`, `get_module_responsibility`, `detect_features`) run per package and concatenate, applying any global `sort`/`limit` after the merge; each item is tagged with its `package` when more than one was queried. `package` narrows to one.
-- `get_api_surface` runs one report per package (entry points from each package's own manifest/detector), returning a capped per-package breakdown plus `skipped` for packages with no entry point; `package` returns one package's full surface. See its section below.
+- `get_api_surface` runs one report per package (entry points from each package's own manifest/detector), returning a capped per-package breakdown plus `skipped` for packages with no entry point; `package` returns that package's surface (summary-first — `view` opts up to the full lists). See its section below.
 - Per-package by design: `find_unused` (entry-point reachability differs per package) and `apply_tags`/`propose_tags`/`propose_affected_tests` (they write per-package tag files, and a changeset commonly spans packages).
 
 For very large monorepos, scope the build with `analyze({ entryPoints: [], packages: ["core", "api"] })`. See [Monorepo Support](./monorepo.md).
@@ -534,10 +534,20 @@ returns an empty result, indistinguishable from a typo.
 
 ### `get_api_surface`
 
-Builds the API surface report for a project. Expands `export *` chains so every symbol accessible to consumers is listed (not just those directly declared in the entry file). Each export is resolved to its defining file and tagged with a kind (`function`/`class`/`interface`/`type`/`enum`/`const`). The graph is partitioned into `internalFiles` (implementation reachable from entry points), `unreachableFromEntry` (non-test files not reachable from any entry point — may be separate consumers like CLI/MCP, config, or dead code), and `testFiles` (test suite). Supports multiple public entry points for libraries with sub-path exports.
+Builds the API surface report for a project. Expands `export *` chains so every symbol accessible to consumers is listed (not just those directly declared in the entry file). Each export is resolved to its defining file and tagged with a kind (`function`/`class`/`interface`/`type`/`enum`/`const`). The graph is partitioned into `internalFiles` (implementation reachable from entry points), `unreachableFromEntry` (non-test files not reachable from any entry point — may be separate consumers, config, or dead code), and `testFiles` (test suite). Supports multiple public entry points for libraries with sub-path exports.
+
+**The response is summary-first.** By default (`view: "summary"`) the single-surface response — a plain root, or a monorepo root with `package` — is a token-bounded projection: entry-point list, `publicExportCount` + a capped `{ name, kind }` `publicExports` sample + a `byKind` histogram, `internalFileCount` / `testFileCount`, and the (usually short) `unreachableFromEntry` **list** — the one directly actionable signal. Full detail is opt-in:
+
+| `view` | Adds |
+|---|---|
+| `"summary"` (default) | — the compact shape above |
+| `"exports"` | the full `publicExports[]` (every name, with `definedIn`, `doc`, `signature`) |
+| `"full"` | everything — full `publicExports[]` **and** the `internalFiles` / `testFiles` path lists (the pre-0.6 payload) |
+
+`maxExports` caps the `view: "summary"` sample (default 30). On a repo with a broad barrel entry point, `view: "full"` can be ~15K tokens — reach for it only when you need the path lists.
 
 **Entry-point detection** when `entryPoints` is omitted:
-- **JS/TS**: every `exports` sub-path target (`.`, `./client`, …), then `main`, then `src/index.*`.
+- **JS/TS**: every `exports` sub-path target (`.`, `./client`, …), **then every `bin` script** (CLI / server binaries — their transitive deps are implementation, not dead code), then `main` / `module`, then `src/index.*`.
 - **Go / Python / JVM** (no `package.json`): every non-test source file is an entry point — for these the "surface" is all exported symbols in the module. Python prefers the shallowest `__init__.py` files when present. Such surfaces carry a large `entryPointCount` with a capped `entryPoints` sample (`entryPointsTruncated: true`); an empty `unreachableFromEntry` alongside a big count means "every file is an entry", not "nothing is separate".
 
 **Monorepo root**: one surface per workspace package, using the entry points the `WorkspaceGraph` already resolved per package (each from its *own* `package.json` / detector). A package with no resolvable entry point is listed in `skipped` (the call never fails as a whole). Unless a single `package` is requested, the response is deliberately **compact** so a 30+-package monorepo stays under an MCP token cap — response shape `{ packages: [...], skipped: [...], truncated }`, where each `packages[]` entry is:
@@ -549,13 +559,15 @@ Builds the API surface report for a project. Expands `export *` chains so every 
   "internalFileCount": 88, "unreachableFromEntryCount": 3, "testFileCount": 40 }
 ```
 
-No per-package path lists (counts only); each exported symbol is just `name` + `kind`. `maxExportsPerPackage: 0` drops the `publicExports` sample entirely (counts-only mode). For a package's full `ApiSurface` — resolved `definedIn` paths, docs, signatures, the actual file lists — call `get_api_surface` again with `package: "@org/foo"`.
+No per-package path lists (counts only); each exported symbol is just `name` + `kind`. `maxExportsPerPackage: 0` drops the `publicExports` sample entirely (counts-only mode). For one package's surface — resolved `definedIn` paths, docs, signatures — call `get_api_surface` again with `package: "@org/foo"` (add `view: "exports"` / `"full"` for more).
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `root` | `string` | yes | |
 | `entryPoints` | `string[]` | no | Project-relative paths of public entry points. Omit to auto-detect (see above) |
-| `package` | `string` | no | Monorepo: return the full `ApiSurface` for just this package instead of the compact per-package breakdown |
+| `view` | `"summary"` \| `"exports"` \| `"full"` | no | Single-surface response shape (plain root, or a single `package`). Default `"summary"`. See the table above |
+| `maxExports` | `number` | no | `view: "summary"` only: cap the `publicExports` `{name,kind}` sample (default 30) |
+| `package` | `string` | no | Monorepo: return just this package's surface instead of the compact per-package breakdown |
 | `maxExportsPerPackage` | `number` | no | Monorepo, no `package`: cap each package's `publicExports` sample (default 10; `0` = counts only) |
 
 **Requires:** a prior `analyze` call for the same `root`.
