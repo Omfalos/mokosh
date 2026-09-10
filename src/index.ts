@@ -121,6 +121,8 @@ export {
   type LanguageCoverage,
   type LanguageFeature,
   type LanguageFidelity,
+  languageCaveats,
+  languageCaveatsSummary,
   languageSupportNote,
   TEST_TAG_STRATEGY_TYPES,
   TYPE_GRAPH_TYPES,

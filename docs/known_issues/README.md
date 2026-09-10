@@ -9,7 +9,7 @@ dependencies.
 |---|------|---------|
 | 6 | [`06-duplicates-query-language.md`](06-duplicates-query-language.md) | `find_duplicates` output too large for an LLM. **6a–6c shipped** (`filter` DSL + `slim` + `summary`); 6d (shared shaping layer) and the overlapping-window matcher fix remain |
 | 7 | [`07-per-language-analysis-semantics.md`](07-per-language-analysis-semantics.md) | Analyses treat every language like JS/TS; JVM data shapes, idiom exclusion, and the per-language config surface still go undetected/unbuilt (CSS vars + TS types shipped in phase 1) |
-| 8 | [`08-cross-language-reliability.md`](08-cross-language-reliability.md) | Umbrella: uneven feature parity across languages. **Parity matrix shipped** (`docs/language-support.md` + `LANGUAGE_FIDELITY` + `analyze` `fidelity`); conformance harness, per-tool caveats, and the language gap-closing (8c/8d) remain |
+| 8 | [`08-cross-language-reliability.md`](08-cross-language-reliability.md) | Umbrella: uneven feature parity across languages. **8a/8b/8d shipped** (parity matrix + `LANGUAGE_FIDELITY` + `analyze` `fidelity`; `example/full-house/conformance.test.ts` drift guard; per-tool `caveats`; resolver try/catch + robustness tests). Only **8c** — the actual language gaps (Kotlin call edges/complexity, JVM import symbols, Groovy audit, Coffee/LS/Lua) — remains |
 | 9 | [`09-duplicate-clone-family-noise.md`](09-duplicate-clone-family-noise.md) | `find_duplicates` reports one row per LCP-tree node instead of per clone family; connected-component clustering for the remaining non-nested cases still open (dominance filter shipped) |
 
 ## Fixed
@@ -62,6 +62,10 @@ dependencies.
 3. ~~**Issue 6** — the duplicate-results query DSL, on top of issue 5's `signals`, 7's `kind`, and
    9's (now leaner) group counts.~~ **6a–6c done** (`filter` DSL + `slim` + `summary`); 6d
    (shared shaping layer) deferred.
-4. **Issue 8** — ~~parity matrix~~ (**shipped**: `docs/language-support.md` + `LANGUAGE_FIDELITY`
-   + `analyze` `fidelity`) + conformance snapshots to lock all of the above in, then the
-   remaining language gaps (Kotlin call edges, Groovy, Lua) and issue 7's remaining languages.
+4. **Issue 8** — ~~parity matrix~~ + ~~conformance harness~~ + ~~per-tool caveats~~ +
+   ~~resolver-robustness pass~~ (all **shipped**: `docs/language-support.md` + `LANGUAGE_FIDELITY`
+   + `analyze` `fidelity`/`caveats`; `example/full-house/conformance.test.ts`; `languageCaveats`
+   wired into 8 tools; `LangResolver` try/catch + `lang-resolvers/robustness.test.ts`). Remaining:
+   **8c** — the language gaps themselves (Kotlin call edges + complexity, JVM import symbols,
+   Groovy audit, Coffee/LS/Lua, LiveScript export-tracking table fix) and issue 7's remaining
+   languages. The conformance harness now regression-locks each as a baseline change.

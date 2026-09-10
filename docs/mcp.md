@@ -56,6 +56,15 @@ For very large monorepos, scope the build with `analyze({ entryPoints: [], packa
 
 ## Tools
 
+**Fidelity caveats.** Any tool whose result depends on a per-language analysis axis
+(`get_dependencies`, `get_dependents`, `get_callers`, `get_call_graph`, `find_symbol`,
+`find_complex_functions`, `find_risk_hotspots`, `find_duplicates`) may include a `caveats:
+string[]` field — present only when non-empty — naming languages in the graph whose result is
+real but lossy (e.g. Kotlin has no call edges, Java call edges are constructor/static only). This
+is distinct from `note`, which appears only when a result is *entirely empty* because no
+supported-language file is present. The full matrix is in
+[docs/language-support.md](./language-support.md).
+
 ### `analyze`
 
 Build the dependency graph from one or more entry points and cache it for the session.
@@ -68,9 +77,14 @@ Build the dependency graph from one or more entry points and cache it for the se
 | `packages` | `string[]` | no | Monorepo only: restrict the build to these package names or relative roots. |
 | `cycleKinds` | `string[]` | no | Include normally-filtered cycle edge kinds in `cycles`: `"docReference"` (Markdown doc cross-links, [ADR-009](./adr-009-markdown-parsing.md)), `"samePackage"` (JVM same-package siblings). Default: none — `cycles` reports only genuine import cycles. |
 
-**Returns (single-graph builds):** `{ nodeCount, categories, cycles, languageCoverage }`. `cycles`
-is `string[][]` (each an ordered path of file nodes forming a loop); Markdown doc references and
-JVM same-package sibling edges are excluded unless opted back in via `cycleKinds`.
+**Returns (single-graph builds):** `{ nodeCount, categories, cycles, languageCoverage, caveats? }`.
+`cycles` is `string[][]` (each an ordered path of file nodes forming a loop); Markdown doc
+references and JVM same-package sibling edges are excluded unless opted back in via `cycleKinds`.
+`caveats` (present only when non-empty) is a `string[]` of one-line advisories — one per language
+in the repo whose fidelity is degraded on a precision-relevant axis (import resolution, export
+symbols, per-import symbols, call edges, complexity), e.g. `"java: call edges are static calls and
+constructors only (incl. through generics), not virtual dispatch"`. It is the same signal the
+per-tool `caveats` below carry, aggregated up front so you see it on the first call.
 
 **Returns (monorepo, default):** the layout — `{ monorepoType, monorepoTypes, packageCount, packages: [{ name, relativeRoot, dependsOn, nodeCount? }], dependsOnResolved, nodeCountsResolved, note }`. `nodeCount` per package and (for Gradle/sbt) exact `dependsOn` are present only once a workspace graph has been built — `nodeCountsResolved` / `dependsOnResolved` say which. Pass `eager: true` for the legacy `{ monorepoType, packageCount, packages: [{ package, relativeRoot, nodeCount }] }` shape.
 

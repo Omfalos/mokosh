@@ -108,3 +108,9 @@ import. Nothing is extracted; excluded from duplicate scanning entirely.
 
 - [`docs/known_issues/08-cross-language-reliability.md`](./known_issues/08-cross-language-reliability.md) — the umbrella issue this matrix is the first slice of.
 - `analyze` → `languageCoverage` — the same data for the languages actually in your graph.
+- `analyze` → `caveats` and per-tool `caveats` — one-line advisories generated from this matrix
+  when a result is real but lossy for a language in play (`languageCaveats` in
+  `src/graph/language-support.ts`).
+- `example/full-house/conformance.test.ts` — builds a real multi-language graph and asserts every
+  language's extraction counts and `fidelity` row against a baseline, so a parser regression or a
+  table/reality drift fails CI. Re-baseline with `UPDATE_CONFORMANCE=1`.

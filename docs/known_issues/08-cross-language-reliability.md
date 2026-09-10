@@ -1,34 +1,69 @@
 # Issue 8 — Reliability and feature parity are uneven across supported languages
 
-Status: **first slice shipped** (2026-09-08) — the parity matrix (8a doc + `LANGUAGE_FIDELITY`
-table) and per-language `fidelity` in `analyze`'s `languageCoverage` (8b, first half). Umbrella /
-tracking issue. Found dogfooding v0.5.0 (2026-09-03).
+Status: **8a, 8b and 8d shipped** (8a/8b first slice 2026-09-08; conformance harness, `caveats`,
+resolver-robustness pass 2026-09-08). Only **8c** (closing the actual language gaps) remains.
+Umbrella / tracking issue. Found dogfooding v0.5.0 (2026-09-03).
 
 ## Shipped
 
-- **8a (doc + table, not the conformance harness).** `docs/language-support.md` is the
-  authoritative per-language matrix across 8 axes (import resolution, export symbols, import
-  symbols, call edges, complexity, category, duplication, test tags), each `full | partial |
-  none`, with per-language known-limitations prose + ADR links. `LANGUAGE_FIDELITY` in
-  `src/graph/language-support.ts` is the machine-readable twin; a test keeps the two in exact
-  sync and asserts the four set-backed axes agree cell-for-cell with their `*_TYPES` source of
-  truth (drift guard).
-- **8b (first half).** `getLanguageCoverage` / `analyze`'s `languageCoverage[]` now carry a
-  `fidelity` object (the full 8-axis row) alongside the existing booleans.
-- **Bug found + fixed by the drift guard:** `FUNCTION_COMPLEXITY_TYPES` was missing `java`
+- **8a — parity matrix.** `docs/language-support.md` is the authoritative per-language matrix
+  across 8 axes (import resolution, export symbols, import symbols, call edges, complexity,
+  category, duplication, test tags), each `full | partial | none`, with per-language
+  known-limitations prose + ADR links. `LANGUAGE_FIDELITY` in `src/graph/language-support.ts` is
+  the machine-readable twin; a test keeps the two in exact sync and asserts the four set-backed
+  axes agree cell-for-cell with their `*_TYPES` source of truth (drift guard).
+- **8a — conformance harness.** `example/full-house/conformance.test.ts` builds the real
+  multi-language `full-house` fixture graph (one idiomatic file per language, JVM sub-tree built
+  from its own root) and asserts (1) each present language's `fidelity` row equals
+  `LANGUAGE_FIDELITY` *on a built graph*, (2) a per-language extraction summary
+  (`files` / `withImports` / `withResolvedImports` / `withExports` / `withCallEdges` /
+  `withComplexity`) against an explicit `BASELINE` — regenerable with `UPDATE_CONFORMANCE=1`,
+  readable in review the way a golden snapshot isn't, (3) `unknown` aside, every `FileType` has a
+  fixture (new languages can't skip conformance), (4) `callEdges === "none"` languages really
+  extract zero call edges. Added `example/full-house/notes.md` so Markdown is covered.
+  Chose explicit-assertion baselines over `toMatchSnapshot` to match the codebase (no `.snap`
+  files anywhere).
+- **8b — `fidelity` in `languageCoverage`.** `getLanguageCoverage` / `analyze`'s
+  `languageCoverage[]` carry the full 8-axis `fidelity` object alongside the existing booleans.
+- **8b — per-tool `caveats`.** `languageCaveats(graphs, axis)` + `languageCaveatsSummary(graphs)`
+  in `src/graph/language-support.ts` emit one advisory sentence per present language whose axis
+  is `partial`/`none` *and* carries a concrete reason (or is entirely absent) — a bare
+  unexplained `partial` (the norm for `category` / `duplication`) stays silent so it doesn't fire
+  on every repo. Per-language reason strings live in a `FIDELITY_CAVEAT` table sourced from
+  `docs/language-support.md`'s prose. Wired into `analyze` (aggregate `caveats`, precision axes
+  only) and into `get_dependencies` / `get_dependents` (importResolution), `get_callers` /
+  `get_call_graph` / `find_symbol` (callEdges), `find_complex_functions` / `find_risk_hotspots`
+  (complexity), `find_duplicates` (duplication — Stylus only, in practice). Complements
+  `languageSupportNote`, which still fires only on a *fully empty* result.
+- **8d — resolver robustness.** `DefaultResolver.resolveAllUncached` now wraps the per-language
+  `LangResolver.resolve()` call in try/catch: a throw degrades to a dropped edge (falls through
+  to workspace / external resolution), with one stderr warning per resolver class per process
+  (`warnResolverThrewOnce`). New `src/graph/lang-resolvers/robustness.test.ts`: every resolver
+  returns `null` (no throw) for an unresolvable specifier; a deliberately-throwing resolver is
+  isolated and warned once; Go's `mod/`-prefix + trailing-slash check and Python's
+  existence-gated root-relative probing are both asserted as the "local shadows external"
+  guardrails (Go: a same-prefix external module stays external; Python: local-first is the
+  correct import-time semantic, so only an on-disk `pkg/__init__.py` shadows — by design).
+
+- **Bugs found + fixed by the drift guard:** `FUNCTION_COMPLEXITY_TYPES` was missing `java`
   even though `src/parser/complexity/java.ts` fully populates per-function complexity — added.
   New `TEST_TAG_STRATEGY_TYPES` set added as the source of truth for the `testTags` axis.
+- **Discrepancy surfaced by the conformance harness (not yet fixed — folds into 8c):**
+  LiveScript `.ls` files *do* get `exports` extracted through the graph
+  (`full-house.test.ts` asserts `app.ls` → `[{name:"greet"}]`), but `livescript` is absent from
+  `EXPORT_TRACKING_TYPES` and `LANGUAGE_FIDELITY.livescript.exportSymbols` is `"none"`. The
+  harness records the real count; the table/set and docs should be updated (or export tracking
+  formally dropped) as part of the LiveScript slice of 8c.
 
-## Not done (issue stays open)
+## Not done (issue stays open for 8c only)
 
-- **8a conformance harness** — `test/conformance/<lang>/` golden `analyze` / `find_duplicates` /
-  `get_call_graph` snapshots per language.
-- **8b second half** — per-tool `caveats: [...]` on *degraded but non-empty* results (today
-  `languageSupportNote` only fires on fully-empty results).
-- **8c** — closing the gaps: Kotlin call edges + complexity (needs a real grammar), JVM
-  import-symbol tracking, Groovy audit, Coffee/LS/Lua complexity + call edges.
-- **8d** — resolver-robustness pass (every `LangResolver` degrades to a dropped edge, never a
-  throw or a phantom node) + the "local package shadows an external dep" audit for Go/Python.
+- **8c** — closing the gaps: Kotlin call edges + complexity (needs a real grammar — spike
+  first), JVM import-symbol tracking, Groovy resolution/category audit, Coffee/LS/Lua complexity
+  + call edges, and the LiveScript export-tracking table fix above. The conformance harness now
+  makes each of these a visible, regression-locked baseline change.
+- **8a harness scope** — `full-house` is one fixture with one file per language; per-language
+  `find_duplicates` / `get_call_graph` golden checks and larger idiomatic fixtures can be layered
+  on later, but the fidelity + extraction-count drift guard is in place.
 
 ---
 

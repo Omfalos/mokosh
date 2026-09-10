@@ -8,6 +8,8 @@ import {
   getLanguageCoverage,
   IMPORT_SYMBOL_TYPES,
   LANGUAGE_FIDELITY,
+  languageCaveats,
+  languageCaveatsSummary,
   languageSupportNote,
   TEST_TAG_STRATEGY_TYPES,
 } from "./language-support";
@@ -313,5 +315,74 @@ describe("languageSupportNote", { tags: ["languageSupportNote", "Graph", "FileNo
 
   test("empty graph -> generic subject", () => {
     expect(languageSupportNote(makeGraph([]), "callEdges")).toContain("this project");
+  });
+});
+
+describe("languageCaveats", { tags: ["languageCaveats", "Graph", "FileNode"] }, () => {
+  test("empty for an all-'full' (all-TS) graph", () => {
+    const graph = makeGraph([makeNode("a.ts", "typescript"), makeNode("b.ts", "typescript")]);
+    for (const axis of [
+      "importResolution",
+      "exportSymbols",
+      "importSymbols",
+      "callEdges",
+      "complexity",
+    ] as const) {
+      expect(languageCaveats(graph, axis)).toEqual([]);
+    }
+  });
+
+  test("callEdges: Java gets a 'constructors only' note; Kotlin gets a 'not extracted' note", () => {
+    const graph = makeGraph([makeNode("A.java", "java"), makeNode("B.kt", "kotlin")]);
+    const notes = languageCaveats(graph, "callEdges");
+    expect(notes).toHaveLength(2);
+    expect(notes.find((n) => n.startsWith("java:"))).toContain("constructors only");
+    expect(notes.find((n) => n.startsWith("kotlin:"))).toContain("not extracted");
+  });
+
+  test("does not fire for a 'partial' axis that carries no concrete reason (category/duplication)", () => {
+    // Every non-CSS language is `duplication: partial`; without a per-language note that would be
+    // noise on nearly every repo, so the helper stays quiet.
+    const graph = makeGraph([makeNode("a.ts", "typescript"), makeNode("b.py", "python")]);
+    expect(languageCaveats(graph, "duplication")).toEqual([]);
+    expect(languageCaveats(graph, "category")).toEqual([]);
+  });
+
+  test("stylus carries a concrete duplication note", () => {
+    const graph = makeGraph([makeNode("a.styl", "stylus")]);
+    expect(languageCaveats(graph, "duplication")[0]).toContain("stylus:");
+  });
+
+  test("ignores markdown and unknown files", () => {
+    const graph = makeGraph([makeNode("README.md", "markdown"), makeNode("x.json", "unknown")]);
+    expect(languageCaveats(graph, "importResolution")).toEqual([]);
+  });
+
+  test("accepts an array of graphs (workspace) and de-dupes across packages", () => {
+    const a = makeGraph([makeNode("A.kt", "kotlin")]);
+    const b = makeGraph([makeNode("B.kt", "kotlin")]);
+    expect(languageCaveats([a, b], "callEdges")).toEqual(languageCaveats(a, "callEdges"));
+  });
+
+  test("output is sorted", () => {
+    const graph = makeGraph([makeNode("A.java", "java"), makeNode("B.kt", "kotlin")]);
+    const notes = languageCaveats(graph, "importResolution");
+    expect([...notes].sort()).toEqual(notes);
+  });
+});
+
+describe("languageCaveatsSummary", { tags: ["languageCaveatsSummary", "Graph"] }, () => {
+  test("empty for an all-TS graph", () => {
+    expect(languageCaveatsSummary(makeGraph([makeNode("a.ts", "typescript")]))).toEqual([]);
+  });
+
+  test("aggregates across precision axes, de-duplicated and sorted", () => {
+    const graph = makeGraph([makeNode("A.java", "java"), makeNode("b.ts", "typescript")]);
+    const summary = languageCaveatsSummary(graph);
+    // Java is degraded on importResolution, exportSymbols, importSymbols and callEdges.
+    expect(summary.length).toBeGreaterThanOrEqual(3);
+    expect(summary.every((s) => s.startsWith("java:"))).toBe(true);
+    expect([...summary].sort()).toEqual(summary);
+    expect(new Set(summary).size).toBe(summary.length);
   });
 });

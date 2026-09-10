@@ -181,6 +181,14 @@ describe("handleAnalyze", {
     ]);
   });
 
+  test("omits caveats for an all-TypeScript graph (every axis is 'full')", async () => {
+    const cache = makeCache();
+    const data = parse(
+      await handleAnalyze(cache, { root: ROOT, entryPoints: ["src/a.ts"] }),
+    ) as Record<string, unknown>;
+    expect(data).not.toHaveProperty("caveats");
+  });
+
   test("applies config when root is not yet configured", async () => {
     const { loadMokoshConfig, applyConfig } = await import("../index.js");
     const cache = makeCache();

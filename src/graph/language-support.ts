@@ -194,6 +194,160 @@ export const LANGUAGE_FIDELITY: Record<FileType, LanguageFidelity> = {
   unknown: f("none", "none", "none", "none", "none", "none", "none", "none"),
 };
 
+/** Human-readable label for each fidelity axis, used in caveat sentences. */
+const AXIS_LABEL: Record<keyof LanguageFidelity, string> = {
+  importResolution: "import resolution",
+  exportSymbols: "export symbols",
+  importSymbols: "per-import symbol tracking",
+  callEdges: "call edges",
+  complexity: "complexity",
+  category: "category classification",
+  duplication: "duplicate detection",
+  testTags: "test-tag strategy",
+};
+
+/**
+ * Per-language, per-axis explanation of *why* a non-`full` axis is degraded — the prose from
+ * `docs/language-support.md`'s "Known limitations" section, keyed for programmatic surfacing in a
+ * tool's `caveats`. Only entries that meaningfully inform a caller are listed; any `partial`/
+ * `none` axis without an entry falls back to a generic sentence in {@link languageCaveats}.
+ */
+const FIDELITY_CAVEAT: Partial<Record<FileType, Partial<Record<keyof LanguageFidelity, string>>>> =
+  {
+    python: {
+      exportSymbols: "tracked at module level, not per-symbol",
+      importSymbols: "only star imports and re-exports are tracked (ADR-002)",
+    },
+    go: {
+      exportSymbols: "identifier-level, no per-symbol doc/signature",
+      importSymbols: "not tracked — per-import symbol resolution is not implemented",
+    },
+    java: {
+      importResolution:
+        "index-based: matched by type name across the module, not by resolving the exact package path (ADR-017)",
+      exportSymbols: "top-level types only, no field/method-level exports",
+      importSymbols: "not tracked",
+      callEdges:
+        "static calls and constructors only (incl. through generics), not virtual dispatch",
+    },
+    kotlin: {
+      importResolution: "index-based, shared with Java's JvmLangResolver (ADR-017)",
+      exportSymbols: "top-level types only",
+      importSymbols: "not tracked",
+      callEdges: "not extracted — Kotlin needs its own grammar (issue 8c)",
+      complexity: "not computed — Kotlin needs its own grammar (issue 8c)",
+      testTags: "no framework-aware strategy — falls back to the generic path-glob applier",
+    },
+    scala: {
+      importResolution:
+        "index-based, shared with Java's JvmLangResolver; brace-package imports are a known gap",
+      exportSymbols: "top-level types only",
+      importSymbols: "not tracked",
+      callEdges: "not extracted — Scala needs its own grammar (issue 8c)",
+      complexity: "not computed — Scala needs its own grammar (issue 8c)",
+    },
+    groovy: {
+      importResolution: "index-based, shared with Java's JvmLangResolver",
+      exportSymbols: "top-level types only",
+      importSymbols: "not tracked",
+      callEdges: "not extracted — Groovy needs its own grammar (issue 8c)",
+      complexity: "not computed — Groovy needs its own grammar (issue 8c)",
+    },
+    coffeescript: {
+      importResolution: "generic relative-path fallback, no ecosystem-specific rules",
+      exportSymbols: "best-effort, less validated than TS/JS",
+      callEdges: "not extracted (backfill planned — see the language coverage roadmap)",
+      complexity: "not computed (backfill planned — see the language coverage roadmap)",
+      testTags: "no framework-aware strategy — falls back to the generic path-glob applier",
+    },
+    livescript: {
+      importResolution: "generic relative-path fallback",
+      exportSymbols: "not tracked",
+      callEdges: "not extracted (backfill planned)",
+      complexity: "not computed (backfill planned)",
+      testTags: "no framework-aware strategy — falls back to the generic path-glob applier",
+    },
+    lua: {
+      importResolution: "basic dot-path handling only",
+      exportSymbols: "best-effort module-return inspection",
+      callEdges: "not extracted (backfill planned)",
+      complexity: "not computed (backfill planned)",
+      testTags: "no framework-aware strategy — falls back to the generic path-glob applier",
+    },
+    scss: { exportSymbols: "root-level $/@ variables, mixins and functions only" },
+    less: { exportSymbols: "root-level $/@ variables, mixins and functions only" },
+    stylus: {
+      duplication: "generic token pipeline — no shared PostCSS AST for structural comparison",
+    },
+    markdown: {
+      importResolution: "edges only via code-span file references (`` `src/foo.ts` ``) (ADR-009)",
+    },
+    gherkin: { importResolution: "feature files have no imports" },
+  };
+
+/** Axes worth summarising in `analyze`'s aggregate `caveats` — the precision-relevant ones a
+ *  caller would otherwise trust blindly. `category`/`duplication`/`testTags` are omitted here;
+ *  the tools that depend on them surface their own note. */
+const SUMMARY_AXES: readonly (keyof LanguageFidelity)[] = [
+  "importResolution",
+  "exportSymbols",
+  "importSymbols",
+  "callEdges",
+  "complexity",
+];
+
+/**
+ * @description Returns one advisory sentence per language present in `graphs` whose `axis`
+ *   fidelity is `"partial"` or `"none"` — so a tool whose result is real but *lossy* for the
+ *   languages in play (e.g. `get_call_graph` on a Java repo: constructors only) can say so
+ *   instead of returning a confident-looking result. Complements {@link languageSupportNote},
+ *   which only fires when the result is fully empty *and* no supported-language file is present.
+ * @param graphs - One graph, or the per-package graphs of a workspace.
+ * @param axis - The fidelity axis the calling tool depends on.
+ * @returns Sorted, de-duplicated caveat sentences; empty when every present language is `"full"`
+ *   for `axis` (or the only files are markdown/unknown).
+ */
+export function languageCaveats(graphs: Graph | Graph[], axis: keyof LanguageFidelity): string[] {
+  const list = Array.isArray(graphs) ? graphs : [graphs];
+  const present = new Set<FileType>();
+  for (const graph of list) {
+    for (const node of graph.nodes.values()) {
+      if (node.type !== "markdown" && node.type !== "unknown") present.add(node.type);
+    }
+  }
+  const out: string[] = [];
+  for (const type of present) {
+    const level = LANGUAGE_FIDELITY[type][axis];
+    if (level === "full") continue;
+    const reason = FIDELITY_CAVEAT[type]?.[axis];
+    // Emit only when there's a concrete reason, or the axis is entirely absent for this
+    // language. A bare `"partial"` with no explanation (the norm for `category` / `duplication`)
+    // isn't worth a line — it would fire on nearly every repo.
+    if (!reason && level !== "none") continue;
+    out.push(
+      `${type}: ${AXIS_LABEL[axis]} is ${
+        reason ?? "not available for this language — see docs/language-support.md"
+      }`,
+    );
+  }
+  return out.sort();
+}
+
+/**
+ * @description Aggregates {@link languageCaveats} across the precision-relevant axes
+ *   ({@link SUMMARY_AXES}) for an `analyze` response, so a caller sees upfront — from the first
+ *   call — where results for this repo's languages will be lossy.
+ * @param graphs - One graph, or the per-package graphs of a workspace.
+ * @returns Sorted, de-duplicated caveat sentences; empty for an all-`full` (e.g. all-TS) repo.
+ */
+export function languageCaveatsSummary(graphs: Graph | Graph[]): string[] {
+  const seen = new Set<string>();
+  for (const axis of SUMMARY_AXES) {
+    for (const c of languageCaveats(graphs, axis)) seen.add(c);
+  }
+  return [...seen].sort();
+}
+
 export interface LanguageCoverage {
   type: FileType;
   fileCount: number;

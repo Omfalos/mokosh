@@ -37,6 +37,8 @@ import {
   getNodeMeta,
   hasCoverageData,
   hasGitTimestampData,
+  languageCaveats,
+  languageCaveatsSummary,
   languageSupportNote,
   loadCoverageMap,
   loadDuplicationResult,
@@ -362,7 +364,14 @@ export async function handleAnalyze(cache: SessionState, args: AnalyzeArgs) {
   }, {});
   const cycles = graph.findCycles({ includeKinds: args.cycleKinds });
   const languageCoverage = getLanguageCoverage(graph);
-  return text({ nodeCount: serialized.nodes.length, categories, cycles, languageCoverage });
+  const caveats = languageCaveatsSummary(graph);
+  return text({
+    nodeCount: serialized.nodes.length,
+    categories,
+    cycles,
+    languageCoverage,
+    ...(caveats.length > 0 && { caveats }),
+  });
 }
 
 /**
@@ -384,7 +393,8 @@ export async function handleGetDependencies(
     ? deps.map((dep) => ({ ...dep, ...getNodeMeta(graph, dep.path) }))
     : deps;
   const dependencies = withPackageMeta(withMetaDeps, packageOf);
-  return text({ file, dependencies });
+  const caveats = languageCaveats(graph, "importResolution");
+  return text({ file, dependencies, ...(caveats.length > 0 && { caveats }) });
 }
 
 /**
@@ -406,7 +416,8 @@ export async function handleGetDependents(
     ? deps.map((dep) => ({ ...dep, ...getNodeMeta(graph, dep.path) }))
     : deps;
   const dependents = withPackageMeta(withMetaDeps, packageOf);
-  return text({ file, dependents });
+  const caveats = languageCaveats(graph, "importResolution");
+  return text({ file, dependents, ...(caveats.length > 0 && { caveats }) });
 }
 
 /**
@@ -542,7 +553,14 @@ export async function handleGetCallers(
           return pkg ? { ...entry, package: pkg } : entry;
         });
   const note = callers.length === 0 ? languageSupportNote(graph, "callEdges") : undefined;
-  return text({ file, callers, count: callers.length, ...(note && { note }) });
+  const caveats = callers.length > 0 ? languageCaveats(graph, "callEdges") : [];
+  return text({
+    file,
+    callers,
+    count: callers.length,
+    ...(note && { note }),
+    ...(caveats.length > 0 && { caveats }),
+  });
 }
 
 /**
@@ -728,14 +746,18 @@ export async function handleFindComplexFunctions(
     )
     .sort((a, b) => b[metric] - a[metric])
     .slice(0, limit);
+  const graphList = graphs.map(({ graph }) => graph);
   const note =
-    functions.length === 0
-      ? languageSupportNote(
-          graphs.map(({ graph }) => graph),
-          "functionComplexity",
-        )
-      : undefined;
-  return text({ metric, threshold, functions, count: functions.length, ...(note && { note }) });
+    functions.length === 0 ? languageSupportNote(graphList, "functionComplexity") : undefined;
+  const caveats = functions.length > 0 ? languageCaveats(graphList, "complexity") : [];
+  return text({
+    metric,
+    threshold,
+    functions,
+    count: functions.length,
+    ...(note && { note }),
+    ...(caveats.length > 0 && { caveats }),
+  });
 }
 
 /**
@@ -792,6 +814,13 @@ export async function handleFindRiskHotspots(
     .sort((a, b) => b[metric] - a[metric])
     .slice(0, limit);
   const churnDataAvailable = perPackage.some((p) => p.churnDataAvailable);
+  const caveats =
+    hotspots.length > 0
+      ? languageCaveats(
+          graphs.map(({ graph }) => graph),
+          "complexity",
+        )
+      : [];
   return text({
     metric,
     minComplexity,
@@ -800,6 +829,7 @@ export async function handleFindRiskHotspots(
     churnDataAvailable,
     hotspots,
     count: hotspots.length,
+    ...(caveats.length > 0 && { caveats }),
   });
 }
 
@@ -1014,6 +1044,14 @@ export async function handleFindDuplicates(
     truncated = true;
   }
 
+  // `duplication` fidelity is `partial` for every non-CSS language (the generic token pipeline),
+  // so `languageCaveats` stays quiet there unless a language carries a concrete note (e.g. Stylus:
+  // no shared PostCSS AST).
+  const caveats = languageCaveats(
+    graphs.map(({ graph }) => graph),
+    "duplication",
+  );
+
   return text({
     minLines,
     ...(filter !== undefined && { filter }),
@@ -1021,6 +1059,7 @@ export async function handleFindDuplicates(
     ...(wantClusters && { clusters: shapeClusters() }),
     ...(wantGroups && { groups: shapeGroups(), count: groups.length }),
     ...(bareDefault && { hint: buildDuplicatesHint(summary) }),
+    ...(caveats.length > 0 && { caveats }),
     ...(truncated && { truncated }),
   });
 }
@@ -1342,11 +1381,10 @@ export async function handleGetCallGraph(
   const { root, function: functionName, package: pkg } = args;
   const { graph } = await cache.resolveFlatGraph(root, pkg);
   const result = queryCallGraph(graph, functionName);
-  const note =
-    result.callers.length === 0 && result.callees.length === 0
-      ? languageSupportNote(graph, "callEdges")
-      : undefined;
-  return text({ ...result, ...(note && { note }) });
+  const empty = result.callers.length === 0 && result.callees.length === 0;
+  const note = empty ? languageSupportNote(graph, "callEdges") : undefined;
+  const caveats = empty ? [] : languageCaveats(graph, "callEdges");
+  return text({ ...result, ...(note && { note }), ...(caveats.length > 0 && { caveats }) });
 }
 
 /**
@@ -1367,7 +1405,16 @@ export async function handleFindSymbol(
   const matches = graphs.flatMap(({ graph, package: pkgName }) =>
     tagPackage(findSymbol(graph, name), pkgName, multi),
   );
-  return text({ name, matches, count: matches.length });
+  // Per-match precision already varies (call-edge callers for TS/JS, import tracking for Python,
+  // whole-file dependents otherwise); the caveat says which languages can't reach call-level.
+  const caveats =
+    matches.length > 0
+      ? languageCaveats(
+          graphs.map(({ graph }) => graph),
+          "callEdges",
+        )
+      : [];
+  return text({ name, matches, count: matches.length, ...(caveats.length > 0 && { caveats }) });
 }
 
 /**
