@@ -25,7 +25,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "analyze",
     description:
-      "Build the dependency graph for a project from entry points. Returns a summary of node count, categories, and cycles. Must be called before get_dependencies, get_dependents, get_affected, or propose_tags. Pass an empty entryPoints array to auto-detect a monorepo (pnpm/npm/yarn/Nx/Turborepo/Gradle/sbt): this returns the package layout immediately and builds per-package graphs lazily on the first workspace-aware tool call — pass eager:true to build them all up front. Whole-graph tools then run against the flattened workspace; pass package to narrow.",
+      "Build the dependency graph from entry points; returns node count, categories, and cycles. Call before get_dependencies/get_dependents/get_affected/propose_tags. Empty entryPoints auto-detects a monorepo (pnpm/npm/yarn/Nx/Turborepo/Gradle/sbt): returns the layout at once, builds per-package graphs lazily on the first workspace-aware call — eager:true builds all up front. Whole-graph tools then run against the flattened workspace; pass package to narrow.",
     inputSchema: {
       type: "object",
       properties: {
@@ -228,11 +228,20 @@ export const TOOL_DEFINITIONS = [
   {
     name: "list_tags",
     description:
-      "List every distinct tag name present in the graph, with how many nodes carry each one. Call this before querying with tag:<name> to avoid a speculative filter silently returning zero results. Includes all tag kinds — a superset of what query's slim mode keeps (slim only retains comment-marker and import tags).",
+      "Discover tag:<name> values. Bounded: capped at 250 tags, no full mode. Default = comment-marker + import kinds, count>=2, top 50, plus a byKind histogram over all kinds, totalDistinct and a hint. Narrow with kind, prefix or minCount. See docs/mcp.md.",
     inputSchema: {
       type: "object",
       properties: {
         root: { type: "string", description: "Absolute path to the project root" },
+        kind: {
+          type: "string",
+          enum: ["comment-marker", "import", "function", "variable", "library", "all"],
+          description:
+            'One tag kind, or "all" — overrides the default comment-marker+import filter. import/library = per-imported file/package on tests; function/variable = declaration names.',
+        },
+        prefix: { type: "string", description: "Case-insensitive substring match on the name." },
+        minCount: { type: "number", description: "Min node count per tag (default 2)." },
+        limit: { type: "number", description: "Max tags returned (default 50, max 250)." },
         package: FAN_OUT_PACKAGE_PROPERTY,
       },
       required: ["root"],
@@ -259,7 +268,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "check_doc_drift",
     description:
-      "Find markdown docs whose referenced files changed more recently than the doc itself — a commit-recency heuristic for stale documentation, not a content diff. Requires a prior analyze() call with gitStats: true in mokosh.config (otherwise no file has commit-timestamp data and nothing is flagged). See docs/adr-009-markdown-parsing.md for known limitations.",
+      "Find markdown docs whose referenced files changed more recently than the doc itself — a commit-recency heuristic for stale docs, not a content diff. Requires a prior analyze() with gitStats: true in mokosh.config (else no commit-timestamp data, nothing flagged). See docs/adr-009-markdown-parsing.md for limitations.",
     inputSchema: {
       type: "object",
       properties: {
@@ -298,7 +307,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "find_risk_hotspots",
     description:
-      "Find functions that are complex, in a poorly-covered file, and — when gitStats is enabled in mokosh.config — in a frequently-changed file. Requires a prior analyze() call and coverageReportPath set in mokosh.config; errors if no coverage data was loaded. Churn filtering is skipped (churnDataAvailable: false) when gitStats wasn't enabled, since complexity + low coverage alone is still a meaningful signal.",
+      "Find functions that are complex, in a poorly-covered file, and — when gitStats is enabled in mokosh.config — frequently changed. Requires a prior analyze() and coverageReportPath in mokosh.config; errors if no coverage loaded. Churn filtering is skipped (churnDataAvailable: false) without gitStats, since complexity + low coverage alone is still a meaningful signal.",
     inputSchema: {
       type: "object",
       properties: {
@@ -483,7 +492,7 @@ export const TOOL_DEFINITIONS = [
         slim: {
           type: "boolean",
           description:
-            "Compact response mode (default: true). Export names, meaningful tags (comment-marker + import kinds only), and a flat importsFiles path list — no edge objects, no mtime/size. Pass slim: false for every tag kind and full edge metadata; use list_tags for the full tag inventory.",
+            "Compact response mode (default: true). Export names, meaningful tags (comment-marker + import kinds only), and a flat importsFiles path list — no edge objects, no mtime/size. Pass slim: false for every tag kind and full edge metadata; use list_tags (bounded; its byKind histogram shows per-kind totals) to discover tag names.",
         },
         package: {
           type: "string",
@@ -496,7 +505,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "get_workspace_packages",
     description:
-      "List all workspace packages detected in a monorepo: name, relativeRoot, and dependsOn. Answers from the repo layout and package.json manifests alone — no analyze() required and no graph build, so it is fast on large monorepos. Per-package nodeCount (and, for Gradle/sbt monorepos, exact dependsOn edges) are included only when a workspace graph is already built from a prior analyze() call; check the dependsOnResolved / nodeCountsResolved flags in the response.",
+      "List workspace packages in a monorepo: name, relativeRoot, dependsOn. Reads repo layout + package.json manifests alone — no analyze(), no graph build, fast on large monorepos. Per-package nodeCount (and exact dependsOn edges for Gradle/sbt) appear only when a prior analyze() built the workspace graph; check the dependsOnResolved / nodeCountsResolved flags.",
     inputSchema: {
       type: "object",
       properties: {
@@ -529,7 +538,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "get_type_graph",
     description:
-      "Return type-level relationships for the project. Without a type name, returns an inventory of all interfaces, classes, enums, and type aliases with their file and kind. With a type name, returns which files import that type (usedByFiles) and which types the defining file imports (uses). Requires a prior analyze() call. Only covers TypeScript/JavaScript files.",
+      "Type-level relationships. Without a type name: an inventory of all interfaces, classes, enums and type aliases with their file and kind. With a type name: which files import it (usedByFiles) and which types the defining file imports (uses). Requires a prior analyze(). TypeScript/JavaScript only.",
     inputSchema: {
       type: "object",
       properties: {
@@ -569,7 +578,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "get_feature_graph",
     description:
-      "Group files by domain: returns which files each feature hub (high-import orchestrator) transitively owns. Each file is assigned to the most specific hub that can reach it (lowest out-degree wins). Use this instead of a full query when answering 'what files are in the X feature/module?' — it returns only paths grouped by hub, so it's substantially smaller than a full graph query for the same question; compare output sizes yourself if you need an exact figure for your repo.",
+      "Group files by domain: which files each feature hub (high-import orchestrator) transitively owns. Each file goes to the most specific hub that can reach it (lowest out-degree wins). Prefer over a full query for 'what files are in feature X?' — returns only paths grouped by hub, so it's smaller than a full graph query for the same question.",
     inputSchema: {
       type: "object",
       properties: {
@@ -621,7 +630,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "get_api_surface",
     description:
-      "API surface report: exported symbols resolved to defining file + kind, plus internalFiles / unreachableFromEntry / testFiles partitions. Needs a prior analyze(). Entry points auto-detect from package.json exports + bin + main (JS/TS) or every non-test source file (Go/Python/JVM). Summary-first: view 'summary' (default) is counts + byKind + a capped sample + the short unreachableFromEntry list; 'exports' and 'full' widen it. Monorepo root without `package`: compact per-package breakdown + `skipped`. See docs/mcp.md.",
+      "API surface report: exported symbols resolved to defining file + kind, plus internalFiles / unreachableFromEntry / testFiles partitions. Needs a prior analyze(). Entry points auto-detect from package.json exports/bin/main (JS/TS) or every non-test source file (Go/Python/JVM). Summary-first: view 'summary' (default) = counts + byKind + a capped sample + the short unreachableFromEntry list; 'exports'/'full' widen it. Monorepo root without `package`: per-package breakdown + `skipped`. See docs/mcp.md.",
     inputSchema: {
       type: "object",
       properties: {
@@ -653,7 +662,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "clear_cache",
     description:
-      "Drop the cached dependency graph and loaded mokosh.config.json for a project root, forcing the next analyze() call to rebuild from disk and re-read config. Call this after editing source files OR mokosh.config.json mid-session — otherwise get_affected, get_dependencies, and other query tools will reason from stale data (or a stale config).",
+      "Drop the cached dependency graph and mokosh.config.json for a root, forcing the next analyze() to rebuild from disk and re-read config. Call after editing source files or mokosh.config.json mid-session — otherwise get_affected, get_dependencies and other query tools reason from stale data.",
     inputSchema: {
       type: "object",
       properties: {

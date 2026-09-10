@@ -8,6 +8,7 @@ import {
   buildApiSurface,
   buildFeatureGraph,
   buildResponsibilityGraph,
+  buildTagInventory,
   buildTypeGraph,
   type CycleEdgeKind,
   compareBranches,
@@ -60,7 +61,9 @@ import {
   summarizeApiSurface,
   summarizeBranchComparison,
   summarizeDuplicates,
+  summarizeTagInventory,
   summarizeWorkspaceLayout,
+  type TagKind,
 } from "../index";
 import type { SessionState } from "./cache";
 import type { TextResponse } from "./utils";
@@ -142,7 +145,19 @@ export type GetCallersArgs = {
 export type FindSymbolArgs = { root: string; name: string; package?: string };
 export type FindUnusedArgs = { root: string; entryPoints?: string[]; package?: string };
 export type FindUncoveredArgs = { root: string; coverageThreshold?: number; package?: string };
-export type ListTagsArgs = { root: string; package?: string };
+export type ListTagsArgs = {
+  root: string;
+  package?: string;
+  /** Restrict to one tag kind, or `"all"`. Default: the query-meaningful kinds
+   *  (`comment-marker`, `import`). */
+  kind?: TagKind | "all";
+  /** Case-insensitive substring match on the tag name. */
+  prefix?: string;
+  /** Minimum node count for a tag to appear. Default 2. */
+  minCount?: number;
+  /** Max tags returned. Default 100; hard-capped at 250 whatever the value. */
+  limit?: number;
+};
 export type CheckDocDriftArgs = { root: string; package?: string };
 export type FindComplexFunctionsArgs = {
   root: string;
@@ -614,29 +629,22 @@ export async function handleFindUnused(cache: SessionState, args: FindUnusedArgs
 }
 
 /**
- * @description Lists every distinct tag name present in the graph, with how many nodes carry it —
- *   lets an AI discover what `tag:<name>` values exist before querying, instead of guessing and
- *   getting a silent empty result. Includes all tag kinds (declaration, import, marker, comment,
- *   option-bag), not just the subset kept in `query`'s `slim` output.
+ * @description Bounded tag-discovery tool: lists tag names for `tag:<name>` querying. The
+ *   response is always capped at `TAG_RESPONSE_HARD_CAP` (250) tags — no argument combination
+ *   returns the full inventory. By default it shows only the query-meaningful kinds
+ *   (`comment-marker`, `import`) with `count >= 2`, sorted by count descending, top 50. The
+ *   `byKind` histogram (distinct names per kind, across all 5 real kinds: `comment-marker`,
+ *   `import`, `function`, `variable`, `library`) and `totalDistinct` report what the cap hid;
+ *   `kind`, `prefix` and `minCount` narrow the list to find a specific tag.
  * @param cache - Session state holding the cached graph.
- * @param args - `root` selects the graph.
- * @returns TextResponse with `{ tags, count }` where `tags` is `{ name, count }[]` sorted by count descending.
+ * @param args - `root` selects the graph; `kind` / `prefix` / `minCount` / `limit` shape the list.
+ * @returns TextResponse with `{ tags: {name,count,kinds}[], count, matched, totalDistinct, byKind, truncated?, hint }`.
  */
 export async function handleListTags(cache: SessionState, args: ListTagsArgs) {
-  const { root, package: pkg } = args;
+  const { root, package: pkg, kind, prefix, minCount, limit } = args;
   const graphs = await cache.resolveGraphs(root, pkg);
-  const counts = new Map<string, number>();
-  for (const { graph } of graphs) {
-    for (const node of graph.nodes.values()) {
-      for (const tag of node.tags) {
-        counts.set(tag.name, (counts.get(tag.name) ?? 0) + 1);
-      }
-    }
-  }
-  const tags = [...counts.entries()]
-    .map(([name, count]) => ({ name, count }))
-    .sort((a, b) => b.count - a.count);
-  return text({ tags, count: tags.length });
+  const inventory = buildTagInventory(graphs.map(({ graph }) => graph));
+  return text(summarizeTagInventory(inventory, { kind, prefix, minCount, limit }));
 }
 
 /**

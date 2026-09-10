@@ -10,7 +10,7 @@ import { TOOL_DEFINITIONS } from "./tools";
  */
 const MAX_DESCRIPTION_CHARS = 700;
 const MAX_TOTAL_DESCRIPTION_CHARS = 10_000;
-const MAX_TOTAL_SCHEMA_CHARS = 24_800; // ~6.2K tokens — ec923c5's pre-trim size + find_duplicates scope/includeDocs params + adr-020 monorepo work (workspace `package` narrowing; get_workspace_affected / get_api_surface compact shapes; compare_branches monorepo note). Issue 6's find_duplicates filter/slim params were absorbed by trimming sibling param descriptions — budget held. Summary-first find_duplicates (`view` param, terser summary-first blurb) likewise absorbed by trimming its sibling param descriptions — budget held.
+const MAX_TOTAL_SCHEMA_CHARS = 24_800; // ~6.2K tokens — ec923c5's pre-trim size + find_duplicates scope/includeDocs params + adr-020 monorepo work (workspace `package` narrowing; get_workspace_affected / get_api_surface compact shapes; compare_branches monorepo note). Issue 6's find_duplicates filter/slim params were absorbed by trimming sibling param descriptions — budget held. Summary-first find_duplicates (`view` param, terser summary-first blurb) likewise absorbed by trimming its sibling param descriptions — budget held. T1's list_tags `kind`/`prefix`/`minCount`/`limit` params likewise absorbed by tightening the wordiest sibling tool descriptions (analyze, get_api_surface, get_feature_graph, get_workspace_packages, find_risk_hotspots, check_doc_drift, clear_cache, get_type_graph) — budget held.
 
 describe("TOOL_DEFINITIONS size budget", () => {
   test.each(TOOL_DEFINITIONS.map((tool) => ({ name: tool.name, description: tool.description })))(

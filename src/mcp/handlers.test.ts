@@ -1158,19 +1158,80 @@ describe("handleListTags", {
     "handlers",
   ],
 }, () => {
-  test("returns every distinct tag with its node count, sorted by count descending", async () => {
-    const data = parse(await handleListTags(makeCache(), { root: ROOT })) as {
-      tags: Array<{ name: string; count: number }>;
-      count: number;
-    };
+  type ListTagsData = {
+    tags: Array<{ name: string; count: number; kinds: string[] }>;
+    count: number;
+    matched: number;
+    totalDistinct: number;
+    byKind: Record<string, number>;
+    truncated?: true;
+    hint: string;
+  };
+
+  test("default view hides the single-occurrence tail but still reports it in byKind", async () => {
+    const data = parse(await handleListTags(makeCache(), { root: ROOT })) as ListTagsData;
+
+    // FIXTURE has only count-1 comment-marker tags (`auth`, `a`) — filtered by minCount:2.
+    expect(data.tags).toEqual([]);
+    expect(data.matched).toBe(0);
+    expect(data.totalDistinct).toBe(2);
+    expect(data.byKind).toEqual({ "comment-marker": 2 });
+    expect(data.count).toBe(data.tags.length);
+    expect(typeof data.hint).toBe("string");
+  });
+
+  test("minCount:1 surfaces the count-1 meaningful tags with their kinds", async () => {
+    const data = parse(
+      await handleListTags(makeCache(), { root: ROOT, minCount: 1 }),
+    ) as ListTagsData;
 
     expect(data.tags).toEqual(
       expect.arrayContaining([
-        { name: "auth", count: 1 },
-        { name: "a", count: 1 },
+        { name: "auth", count: 1, kinds: ["comment-marker"] },
+        { name: "a", count: 1, kinds: ["comment-marker"] },
       ]),
     );
-    expect(data.count).toBe(data.tags.length);
+  });
+
+  test("kind filter selects a declaration-only kind hidden by default", async () => {
+    const cache = makeCache();
+    const graph = Graph.deserialize({
+      nodes: [
+        {
+          path: "src/x.ts",
+          type: "typescript",
+          category: "logic",
+          tags: [
+            { name: "core", kind: "comment-marker" as const },
+            { name: "core", kind: "comment-marker" as const },
+            { name: "makeNode", kind: "function" as const },
+          ],
+          imports: [],
+          exports: [],
+          mtime: 0,
+          size: 0,
+        },
+        {
+          path: "src/y.ts",
+          type: "typescript",
+          category: "logic",
+          tags: [{ name: "core", kind: "comment-marker" as const }],
+          imports: [],
+          exports: [],
+          mtime: 0,
+          size: 0,
+        },
+      ],
+    });
+    (cache.resolveGraphs as ReturnType<typeof vi.fn>).mockResolvedValue([{ package: "", graph }]);
+
+    const dflt = parse(await handleListTags(cache, { root: ROOT })) as ListTagsData;
+    expect(dflt.tags).toEqual([{ name: "core", count: 3, kinds: ["comment-marker"] }]);
+
+    const fns = parse(
+      await handleListTags(cache, { root: ROOT, kind: "function", minCount: 1 }),
+    ) as ListTagsData;
+    expect(fns.tags).toEqual([{ name: "makeNode", count: 1, kinds: ["function"] }]);
   });
 
   test("returns an empty list for a graph with no tags", async () => {
@@ -1193,13 +1254,13 @@ describe("handleListTags", {
       { package: "", graph: untaggedGraph },
     ]);
 
-    const data = parse(await handleListTags(cache, { root: ROOT })) as {
-      tags: unknown[];
-      count: number;
-    };
+    const data = parse(await handleListTags(cache, { root: ROOT })) as ListTagsData;
 
     expect(data.tags).toEqual([]);
     expect(data.count).toBe(0);
+    expect(data.matched).toBe(0);
+    expect(data.totalDistinct).toBe(0);
+    expect(data.byKind).toEqual({});
   });
 });
 

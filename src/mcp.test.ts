@@ -241,22 +241,38 @@ describe("mokosh MCP server", { tags: ["createMcpServer", "mcp"] }, () => {
   });
 
   describe("list_tags", () => {
-    test("returns distinct tags with counts from the cached graph", async () => {
+    test("returns a bounded summary; count-1 tags are hidden by default but visible with minCount:1", async () => {
       const root = makeProject("mcp-list-tags", {
-        "a.js": "// @auth\nexport function login() {}",
+        "a.js": "// @tag auth\nexport function login() {}",
         "b.js": "import './a.js'",
       });
       const client = await makeClient();
       await client.callTool({ name: "analyze", arguments: { root, entryPoints: ["b.js"] } });
 
-      const data = parseText(await client.callTool({ name: "list_tags", arguments: { root } })) as {
-        tags: Array<{ name: string; count: number }>;
+      type Data = {
+        tags: Array<{ name: string; count: number; kinds: string[] }>;
         count: number;
+        matched: number;
+        totalDistinct: number;
+        byKind: Record<string, number>;
+        hint: string;
       };
-      expect(data.count).toBe(data.tags.length);
-      for (const tag of data.tags) {
-        expect(tag.count).toBeGreaterThan(0);
-      }
+
+      const dflt = parseText(
+        await client.callTool({ name: "list_tags", arguments: { root } }),
+      ) as Data;
+      expect(dflt.count).toBe(dflt.tags.length);
+      expect(dflt.tags.length).toBeLessThanOrEqual(250);
+      expect(dflt.totalDistinct).toBeGreaterThanOrEqual(1);
+      expect(dflt.byKind["comment-marker"]).toBeGreaterThanOrEqual(1);
+      expect(typeof dflt.hint).toBe("string");
+
+      const all = parseText(
+        await client.callTool({ name: "list_tags", arguments: { root, minCount: 1 } }),
+      ) as Data;
+      expect(all.tags).toEqual(
+        expect.arrayContaining([{ name: "auth", count: 1, kinds: ["comment-marker"] }]),
+      );
     });
   });
 

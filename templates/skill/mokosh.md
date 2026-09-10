@@ -108,7 +108,7 @@ Use with `query({ root, filter: "..." })` via MCP or `--query "..."` via CLI. Al
 
 `category` values: `logic` · `ui` · `test` · `config` · `barrel` · `type-only` · `other`.
 
-`query` (MCP) defaults to `slim: true` — compact nodes with flat `importsFiles`, export names, and meaningful tags only. Tags are filtered to kinds `comment-marker` and `import`; `function`/`class`/`variable`/`type`/`library` tags are dropped in slim output. Call `list_tags` for the full tag inventory, or pass `slim: false` when full edge metadata is needed.
+`query` (MCP) defaults to `slim: true` — compact nodes with flat `importsFiles`, export names, and meaningful tags only. Tags are filtered to kinds `comment-marker` and `import`; `function`/`class`/`variable`/`type`/`library` tags are dropped in slim output. Call `list_tags` to discover tag names (bounded; its `byKind` histogram shows per-kind totals, `kind`/`prefix`/`minCount` narrow it), or pass `slim: false` when full edge metadata is needed.
 
 Run `mokosh --query-help` (CLI) for the full reference at any time.
 

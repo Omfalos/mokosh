@@ -19,8 +19,14 @@ Options:
   --find-unused               Find files that are not reachable from entry points
   --exclude-tests             Exclude test files from --find-unused output
   --find-uncovered            List non-test files whose coverage is below the threshold (requires coverageReportPath in config)
-  --list-tags                 List every distinct tag in the graph with its per-node count, sorted
-                               by count descending (use with --plain for a bare name list)
+  --list-tags                 Bounded tag inventory (always <=250 tags): by default the
+                               query-meaningful kinds (comment-marker, import) with count>=2,
+                               top 50, plus a byKind histogram. Use --plain for a bare name list
+  --tag-kind <k|all>          --list-tags: restrict to one kind (comment-marker|import|function|
+                               variable|library) or all
+  --tag-prefix <s>            --list-tags: case-insensitive substring match on the tag name
+  --tag-min-count <N>         --list-tags: min node count per tag (default: 2)
+  --tag-limit <N>             --list-tags: max tags to print (default: 50; hard-capped at 250)
   --callers                   List files whose exported functions call into --file
   --file <path>               Target file for --callers/--dependencies/--dependents/--affected/--workspace-affected
   --package <name>            On a monorepo root (with no entry points given): narrow every

@@ -172,6 +172,18 @@ export {
 } from "./graph/symbol";
 export { SymbolTraversalContext } from "./graph/symbol-traversal";
 export {
+  buildTagInventory,
+  DEFAULT_TAG_LIMIT,
+  DEFAULT_TAG_MIN_COUNT,
+  SUMMARY_TAG_KINDS,
+  summarizeTagInventory,
+  TAG_RESPONSE_HARD_CAP,
+  type TagAggregateEntry,
+  type TagInventory,
+  type TagSummary,
+  type TagSummaryOptions,
+} from "./graph/tag-inventory";
+export {
   buildTypeGraph,
   queryTypeGraph,
   type TypeEdge,

@@ -277,13 +277,18 @@ Find non-test files whose line coverage is below a threshold. Requires a prior `
 
 ### `list_tags`
 
-Lists every distinct tag name present in the graph, with how many nodes carry it. Call this before querying with `tag:<name>` to avoid a speculative filter silently returning zero results. Includes all tag kinds — a superset of what `query`'s `slim` mode keeps (`slim` only retains `comment-marker` and `import` tags).
+Discover `tag:<name>` values before a speculative `tag:` filter. **Bounded:** every response is capped at 250 tags (`TAG_RESPONSE_HARD_CAP`) — there is no full-inventory mode. By default it returns only the query-meaningful kinds (`comment-marker`, `import`) with `count >= 2`, sorted by count descending, top 50. The `byKind` histogram (distinct names per kind, across the 5 real kinds: `comment-marker`, `import`, `function`, `variable`, `library`) and `totalDistinct` report what the cap hid; `kind` / `prefix` / `minCount` narrow the list to find a specific tag.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `root` | `string` | yes | |
+| `kind` | `"comment-marker" \| "import" \| "function" \| "variable" \| "library" \| "all"` | no | Restrict to one kind, or `all`. Overrides the default `comment-marker`+`import` filter. |
+| `prefix` | `string` | no | Case-insensitive substring match on the tag name. |
+| `minCount` | `number` | no | Minimum node count for a tag to appear (default `2`). |
+| `limit` | `number` | no | Max tags returned (default `50`; hard-capped at `250`). |
+| `package` | `string` | no | On a monorepo root, narrow to one package. |
 
-**Returns:** `{ tags: Array<{ name, count }>, count: number }`, sorted by count descending.
+**Returns:** `{ tags: Array<{ name, count, kinds }>, count, matched, totalDistinct, byKind, truncated?, hint }`. `tags` is sorted by count descending then name ascending; `matched` is the pre-cap match count; `truncated` is set when the cap or `limit` clipped the list.
 
 **Requires:** a prior `analyze` call for the same `root`.
 

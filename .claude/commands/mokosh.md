@@ -103,7 +103,7 @@ All keys are **case-insensitive**. Multiple keys are **AND'd** together.
 
 **`category` values:** `logic` · `ui` · `test` · `config` · `barrel` · `type-only` · `other`
 
-`query` defaults to `slim: true` (compact nodes: flat `importsFiles` path list, export names, meaningful tags only, no edge objects/mtime/size). Tags are filtered to kinds `comment-marker` and `import`; `function`/`class`/`variable`/`type`/`library` tags are dropped in slim output — use `list_tags` for the full tag inventory, or `slim: false` for every tag kind. `entryPoints` can be omitted to reuse the cached graph from `analyze`.
+`query` defaults to `slim: true` (compact nodes: flat `importsFiles` path list, export names, meaningful tags only, no edge objects/mtime/size). Tags are filtered to kinds `comment-marker` and `import`; `function`/`class`/`variable`/`type`/`library` tags are dropped in slim output — use `list_tags` to discover tag names (bounded; `byKind` shows per-kind totals, `kind`/`prefix`/`minCount` narrow it), or `slim: false` for every tag kind. `entryPoints` can be omitted to reuse the cached graph from `analyze`.
 
 ## Common AI query patterns
 

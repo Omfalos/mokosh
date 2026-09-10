@@ -38,6 +38,14 @@ export interface CommandContext {
   limit: number | undefined;
   slim: boolean;
   testsOnly: boolean;
+  /** `--tag-kind` — restrict `--list-tags` to one kind, or `all`. */
+  tagKind: string | undefined;
+  /** `--tag-prefix` — case-insensitive substring match on the tag name for `--list-tags`. */
+  tagPrefix: string | undefined;
+  /** `--tag-min-count` — min node count per tag for `--list-tags` (default 2). */
+  tagMinCount: number | undefined;
+  /** `--tag-limit` — max tags printed by `--list-tags` (default 100; hard-capped at 250). */
+  tagLimit: number | undefined;
   minDuplicateLines: number | undefined;
   /** `--dup-query` — `key:value` filter DSL for `--find-duplicates` results. */
   dupQuery: string | undefined;

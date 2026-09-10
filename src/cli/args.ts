@@ -19,6 +19,14 @@ export interface ParsedArgs {
   checkDocDrift: boolean;
   findUncovered: boolean;
   listTags: boolean;
+  /** `--tag-kind` — restrict `--list-tags` to one kind, or `all`. */
+  tagKind: string | undefined;
+  /** `--tag-prefix` — case-insensitive substring match on the tag name for `--list-tags`. */
+  tagPrefix: string | undefined;
+  /** `--tag-min-count` — min node count per tag for `--list-tags` (default 2). */
+  tagMinCount: number | undefined;
+  /** `--tag-limit` — max tags printed by `--list-tags` (default 100; hard-capped at 250). */
+  tagLimit: number | undefined;
   callers: boolean;
   file: string | undefined;
   packageName: string | undefined;
@@ -153,6 +161,10 @@ export const OPTIONS = {
   "check-doc-drift": { type: "boolean" },
   "find-uncovered": { type: "boolean" },
   "list-tags": { type: "boolean" },
+  "tag-kind": { type: "string" },
+  "tag-prefix": { type: "string" },
+  "tag-min-count": { type: "string" },
+  "tag-limit": { type: "string" },
   callers: { type: "boolean" },
   silent: { type: "boolean" },
   "query-help": { type: "boolean" },
@@ -435,6 +447,10 @@ export function parseArgs(cliTokens: string[]): ParsedArgs {
     complexityThreshold: parseOptionalInt(values["complexity-threshold"]),
     limit: parseOptionalInt(values.limit),
     minDuplicateLines: parseOptionalInt(values["min-duplicate-lines"]),
+    tagKind: values["tag-kind"],
+    tagPrefix: values["tag-prefix"],
+    tagMinCount: parseOptionalInt(values["tag-min-count"]),
+    tagLimit: parseOptionalInt(values["tag-limit"]),
     dupQuery: values["dup-query"],
     dupSlim: !((values["dup-full"] as boolean) ?? false),
     includeGenerated: (values["include-generated"] as boolean) ?? false,
