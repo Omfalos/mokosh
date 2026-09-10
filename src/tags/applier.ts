@@ -3,36 +3,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { loadMokoshConfig } from "../config";
 import type { Graph } from "../graph";
+import { isSelectionTag } from "../tag-quality";
 import { createStrategies, getStrategyForFile, type TagApplierStrategy } from "./strategies";
-
-// Valid tag names must be simple identifiers; colons (node:fs), slashes, and @ sigils are excluded.
-const VALID_TAG_NAME_RE = /^[a-zA-Z][a-zA-Z0-9_-]{1,}$/;
-
-// Only filename-derived import-kind tags qualify for writing. comment-marker tags are excluded
-// because collectStringLiteralAtTags extracts @word from all string literals, including external
-// package names in import paths (e.g. "@modelcontextprotocol/sdk" → tag "modelcontextprotocol").
-const ALLOWED_TAG_KINDS = new Set(["import"]);
-
-// Generic structural names that appear in nearly every project and carry no domain signal.
-const GENERIC_TAG_BLOCKLIST = new Set([
-  "common",
-  "fixture",
-  "fixtures",
-  "helper",
-  "helpers",
-  "index",
-  "main",
-  "mock",
-  "mocks",
-  "setup",
-  "shared",
-  "spec",
-  "test",
-  "tests",
-  "types",
-  "util",
-  "utils",
-]);
 
 /**
  * @description Result for a single file processed by {@link applyTagsToFile}.
@@ -93,10 +65,12 @@ export async function applyTagsToFile(
 }
 
 /**
- * @description Iterates every test node in the graph, extracts `"import"` kind tags that pass
- *   a name validity check and generic-name blocklist, then delegates writing to the strategy
- *   selected by `mokosh.config.*` (`tagApplier.framework`, default `"vitest"`). Non-test nodes
- *   are skipped.
+ * @description Iterates every test node in the graph, keeps its selection-quality tags
+ *   (see {@link isSelectionTag} — `import` filename/symbol tags and deliberate `comment-marker`
+ *   markers, minus declaration/library names, `test`/`barrel`, and blocklisted generics), then
+ *   delegates writing to the strategy selected by `mokosh.config.*` (`tagApplier.framework`,
+ *   default `"vitest"`). Non-test nodes are skipped. Assumes `applyConfig` has already run for
+ *   this root so any `tags.blocklist` / `tags.allowlist` is active.
  * @param {Graph} graph - The fully-enriched dependency graph.
  * @param {string} rootDir - Absolute path to the project root.
  * @param {{ dryRun: boolean }} options - Pass `dryRun: true` to preview changes without disk writes.
@@ -120,9 +94,7 @@ export async function applyTags(
     const seen = new Set<string>();
     const tagNames: string[] = [];
     for (const tag of node.tags) {
-      if (!ALLOWED_TAG_KINDS.has(tag.kind)) continue;
-      if (!VALID_TAG_NAME_RE.test(tag.name)) continue;
-      if (GENERIC_TAG_BLOCKLIST.has(tag.name.toLowerCase())) continue;
+      if (!isSelectionTag(tag)) continue;
       if (!seen.has(tag.name)) {
         seen.add(tag.name);
         tagNames.push(tag.name);

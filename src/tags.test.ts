@@ -87,10 +87,12 @@ describe("tags", {
       const entryPoints = ["app.test.js", "auth.test.js"];
       const graph = await createImportMap(rootDir, entryPoints);
 
-      // Change in auth.js should affect both app.test.js (@smoke) and auth.test.js (test)
+      // Change in auth.js should affect both app.test.js (@smoke) and auth.test.js (auth).
+      // The bare `test` category tag is noise and is filtered out of the proposal.
       const tags1 = proposeTags(graph, ["auth.js"]);
       expect(tags1).toContain("smoke");
-      expect(tags1).toContain("test");
+      expect(tags1).toContain("auth");
+      expect(tags1).not.toContain("test");
 
       // Change in app.js should affect only app.test.js (@smoke)
       const tags2 = proposeTags(graph, ["app.js"]);
@@ -205,6 +207,37 @@ describe("tags", {
     const tags = proposeTags(graph, ["auth.ts"], { featureDetection: { minOutDegree: 5 } });
     expect(tags).toContain("auth");
     expect(tags).not.toContain("feature:auth");
+  });
+
+  test("proposeTags - drops non-selection tags from the proposal", () => {
+    const nodes = new Map<string, FileNode>();
+    nodes.set("auth.ts", stubNode("auth.ts"));
+    const testFile = "auth.test.ts";
+    nodes.set(testFile, {
+      ...stubNode(testFile, "test"),
+      tags: [
+        { name: "auth", kind: "comment-marker" as const }, // keep — deliberate marker
+        { name: "billing", kind: "import" as const }, // keep — module exercised
+        { name: "makeContext", kind: "function" as const }, // drop — test helper name
+        { name: "vitest", kind: "library" as const }, // drop — every test has it
+        { name: "test", kind: "comment-marker" as const }, // drop — category echo
+        { name: "index", kind: "import" as const }, // drop — blocklisted generic
+      ],
+      imports: [
+        {
+          fromPath: testFile,
+          toPath: "auth.ts",
+          rawSpecifier: "./auth",
+          type: "static",
+          isStyle: false,
+          isExternal: false,
+        },
+      ],
+    });
+
+    const graph = new Graph(nodes);
+    const tags = proposeTags(graph, ["auth.ts"], { featureDetection: { minOutDegree: 5 } });
+    expect([...tags].sort()).toEqual(["auth", "billing"]);
   });
 });
 

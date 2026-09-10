@@ -1,4 +1,5 @@
 /** Per-field predicates used by matchNode() to test a FileNode against a single NodeQuery criterion. */
+import { isSelectionTag } from "../tag-quality";
 import type { FileNode } from "../types/node";
 import type { NodeQuery } from "./types";
 
@@ -114,33 +115,38 @@ export const matchIsExternal: NodeMatcher = (node, query) => {
 /**
  * @description Matches `NodeQuery.tags` using OR logic across positive entries; entries
  *   prefixed with `!` act as mandatory exclusions evaluated independently of the positive set.
+ *   Only **selection-quality** tags are considered (see {@link isSelectionTag}) — so
+ *   `tag:<declarationName>` / `tag:<libraryName>` / `tag:test` no longer match.
  * @param {FileNode} node - The graph node to evaluate.
  * @param {NodeQuery} query - Filter criteria; omitted fields are treated as wildcards.
  * @returns {boolean} `true` if the node satisfies this criterion.
  */
 export const matchTags: NodeMatcher = (node, query) => {
   if (!query.tags || query.tags.length === 0) return true;
+  const names = new Set(
+    node.tags.filter(isSelectionTag).map((structuredTag) => structuredTag.name),
+  );
   const positiveTags = query.tags.filter((tag) => !tag.startsWith("!"));
   const negativeTags = query.tags.filter((tag) => tag.startsWith("!")).map((tag) => tag.slice(1));
-  if (
-    positiveTags.length > 0 &&
-    !positiveTags.some((tag) => node.tags.some((structuredTag) => structuredTag.name === tag))
-  )
-    return false;
-  if (negativeTags.some((tag) => node.tags.some((structuredTag) => structuredTag.name === tag)))
-    return false;
+  if (positiveTags.length > 0 && !positiveTags.some((tag) => names.has(tag))) return false;
+  if (negativeTags.some((tag) => names.has(tag))) return false;
   return true;
 };
 
 /**
  * @description Matches `NodeQuery.allTags` using AND logic — every entry must be present.
+ *   Only selection-quality tags count (see {@link isSelectionTag}).
  * @param {FileNode} node - The graph node to evaluate.
  * @param {NodeQuery} query - Filter criteria; omitted fields are treated as wildcards.
  * @returns {boolean} `true` if the node satisfies this criterion.
  */
-export const matchAllTags: NodeMatcher = (node, query) =>
-  !query.allTags?.length ||
-  query.allTags.every((tag) => node.tags.some((structuredTag) => structuredTag.name === tag));
+export const matchAllTags: NodeMatcher = (node, query) => {
+  if (!query.allTags?.length) return true;
+  const names = new Set(
+    node.tags.filter(isSelectionTag).map((structuredTag) => structuredTag.name),
+  );
+  return query.allTags.every((tag) => names.has(tag));
+};
 
 /**
  * @description Matches `NodeQuery.importsFile` as a substring of any import's `toPath`.

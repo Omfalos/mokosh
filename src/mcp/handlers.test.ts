@@ -77,7 +77,7 @@ const FIXTURE: SerializedGraph = {
       path: "src/a.test.ts",
       type: "typescript",
       category: "test",
-      tags: [{ name: "a", kind: "comment-marker" as const }],
+      tags: [{ name: "smoke", kind: "comment-marker" as const }],
       imports: [
         {
           fromPath: "src/a.test.ts",
@@ -1014,7 +1014,7 @@ describe("handleProposeTags", {
       await handleProposeTags(makeCache(), { root: ROOT, changedFiles: ["src/a.ts"] }),
     ) as { proposedTags: string[] };
 
-    expect(data.proposedTags).toContain("a");
+    expect(data.proposedTags).toContain("smoke");
   });
 });
 
@@ -1188,7 +1188,7 @@ describe("handleListTags", {
     expect(data.tags).toEqual(
       expect.arrayContaining([
         { name: "auth", count: 1, kinds: ["comment-marker"] },
-        { name: "a", count: 1, kinds: ["comment-marker"] },
+        { name: "smoke", count: 1, kinds: ["comment-marker"] },
       ]),
     );
   });

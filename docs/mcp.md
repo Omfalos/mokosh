@@ -277,7 +277,7 @@ Find non-test files whose line coverage is below a threshold. Requires a prior `
 
 ### `list_tags`
 
-Discover `tag:<name>` values before a speculative `tag:` filter. **Bounded:** every response is capped at 250 tags (`TAG_RESPONSE_HARD_CAP`) — there is no full-inventory mode. By default it returns only the query-meaningful kinds (`comment-marker`, `import`) with `count >= 2`, sorted by count descending, top 50. The `byKind` histogram (distinct names per kind, across the 5 real kinds: `comment-marker`, `import`, `function`, `variable`, `library`) and `totalDistinct` report what the cap hid; `kind` / `prefix` / `minCount` narrow the list to find a specific tag.
+Discover `tag:<name>` values before a speculative `tag:` filter. **Bounded:** every response is capped at 250 tags (`TAG_RESPONSE_HARD_CAP`) — there is no full-inventory mode. By default it returns only **selection-quality** tags (see [Test Tags → Tag quality](./test-tags.md#tag-quality)): the `comment-marker` / `import` kinds, minus category echoes (`test`, `barrel`) and blocklisted generics, with `count >= 2`, sorted by count descending, top 50. The `byKind` histogram (distinct names per kind, across the 5 real kinds: `comment-marker`, `import`, `function`, `variable`, `library`) and `totalDistinct` report what the default view hid; `kind` (incl. `"all"`) / `prefix` / `minCount` widen it.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -384,7 +384,7 @@ Each cluster also carries `coverage` — one entry per file in `files`, with tha
 
 ### `propose_tags`
 
-Backward-traverses from each changed file to find affected test files. Feature hub files (high out-degree) short-circuit the traversal and emit a `feature:<name>` tag to prevent tag explosion.
+Backward-traverses from each changed file to find affected test files. Feature hub files (high out-degree) short-circuit the traversal and emit a `feature:<name>` tag to prevent tag explosion. With `format: "tags"`, each reached test contributes only its **selection-quality** tags (see [Test Tags → Tag quality](./test-tags.md#tag-quality)) — declaration/library names, category echoes and blocklisted generics are dropped.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -420,7 +420,7 @@ Filters the graph by category, tag, path, coverage, complexity, or any other nod
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `root` | `string` | yes | |
-| `filter` | `string` | yes | Query string e.g. `category:logic` or `category:logic,tag:auth` |
+| `filter` | `string` | yes | Query string e.g. `category:logic` or `category:logic,tag:auth`. `tag:` matches only **selection-quality** tags (see [Test Tags → Tag quality](./test-tags.md#tag-quality)) — `tag:<functionName>` / `tag:<libraryName>` / `tag:test` do not match. |
 | `entryPoints` | `string[]` | no | Entry points to build the graph from. Omit to reuse the cached graph |
 | `mermaid` | `boolean` | no | Return a `graph TD` Mermaid string instead of JSON (default: `false`) |
 | `slim` | `boolean` | no | **Compact response mode (default: `true`).** Returns `importsFiles` (flat path list), export names, and meaningful tags only — no edge objects, no mtime/size. Pass `false` only when full edge metadata is needed. |
@@ -607,7 +607,7 @@ Drop the cached dependency graph for a project root, forcing the next `analyze` 
 
 ### `apply_tags`
 
-Writes `@tag` annotations into test file source code based on the dependency graph. Tags of kind `import` (filename-derived) and `comment-marker` (domain semantic, propagated from source files) are written as an idempotent block; re-running replaces the block in place. Tags already present in the file are excluded to avoid duplication. Per-language strategies: TypeScript/JavaScript (`// <mokosh-tags>` block with `// @tag` lines, framework-format aware), Gherkin `.feature` (`# <mokosh-tags>` block), Pytest `.py` (`pytestmark`), Go `*_test.go` (`//go:build mokosh_*`), JUnit/Spock `.java` / `.groovy` test files (`// mokosh:tags` block of `@Tag("…")` annotations), and ScalaTest `.scala` test files (`// mokosh:tags a, b` marker comment — a marker only, not a natively-filterable tag; see [ADR-017](./adr-017-jvm-languages.md)). See [ADR-008](./adr-008-tag-applier-strategies.md).
+Writes `@tag` annotations into test file source code based on the dependency graph. Each test file's **selection-quality** tags (see [Test Tags → Tag quality](./test-tags.md#tag-quality)) — filename-derived `import` tags and deliberate `comment-marker` markers, minus category echoes and blocklisted generics — are written as an idempotent block; re-running replaces the block in place, so a stale block from an earlier run is cleaned up. Per-language strategies: TypeScript/JavaScript (`// <mokosh-tags>` block with `// @tag` lines, framework-format aware), Gherkin `.feature` (`# <mokosh-tags>` block), Pytest `.py` (`pytestmark`), Go `*_test.go` (`//go:build mokosh_*`), JUnit/Spock `.java` / `.groovy` test files (`// mokosh:tags` block of `@Tag("…")` annotations), and ScalaTest `.scala` test files (`// mokosh:tags a, b` marker comment — a marker only, not a natively-filterable tag; see [ADR-017](./adr-017-jvm-languages.md)). See [ADR-008](./adr-008-tag-applier-strategies.md).
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|

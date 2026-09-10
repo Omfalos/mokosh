@@ -104,6 +104,24 @@ describe("summarizeTagInventory", () => {
     expect(summary.tags.map((tag) => tag.name)).toEqual(["core", "auth", "makeNode"]);
   });
 
+  it("default view drops category-echo and blocklisted names; kind:'all' keeps them", () => {
+    const noisy = buildTagInventory([
+      graphOf(
+        { path: "src/a.ts", tags: [cm("auth"), cm("auth")] },
+        { path: "src/a.test.ts", tags: [cm("test"), imp("index"), imp("index"), cm("auth")] },
+        { path: "src/b.test.ts", tags: [cm("test"), imp("index")] },
+      ),
+    ]);
+
+    expect(summarizeTagInventory(noisy).tags.map((tag) => tag.name)).toEqual(["auth"]);
+
+    const all = summarizeTagInventory(noisy, { kind: "all" }).tags.map((tag) => tag.name);
+    expect(all).toEqual(expect.arrayContaining(["auth", "test", "index"]));
+
+    // byKind is a full census — unaffected by the default-view filter
+    expect(summarizeTagInventory(noisy).byKind).toEqual({ "comment-marker": 2, import: 1 });
+  });
+
   it("prefix matches a case-insensitive substring of the name", () => {
     const summary = summarizeTagInventory(inv, { minCount: 1, prefix: "AR" });
     expect(summary.tags.map((tag) => tag.name)).toEqual(["rare"]);

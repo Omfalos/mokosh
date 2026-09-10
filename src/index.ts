@@ -22,7 +22,6 @@ export {
 
 // Coverage
 export { loadCoverageMap } from "./coverage";
-
 // Exporters
 export { type GraphExporter, MermaidExporter, toMermaid } from "./exporters";
 export { type CycleEdgeKind, type FindCyclesOptions, GraphAnalyzer } from "./graph/analyzer";
@@ -227,6 +226,19 @@ export {
   parseQuery,
   sortLimitDupGroups,
 } from "./query";
+// Tag quality (shared test-selection tag filter)
+export {
+  CATEGORY_MARKER_TAGS,
+  configureTagQuality,
+  DEFAULT_TAG_BLOCKLIST,
+  isSelectionTag,
+  isSelectionTagName,
+  resetTagQuality,
+  SELECTION_TAG_KINDS,
+  selectionTagNames,
+  type TagQualityConfig,
+  VALID_TAG_NAME_RE,
+} from "./tag-quality";
 // Tags
 export {
   type ApplyTagsFileResult,

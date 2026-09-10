@@ -24,7 +24,7 @@ The query is a comma-separated string of `key:value` pairs.
 | `type` | Matches the exact file type (e.g., `typescript`, `python`). | `type:python` |
 | `package` | Exact match on the owning workspace package name. Prefix with `"!"` to exclude. Only meaningful on a monorepo root (where the query runs across the whole flattened workspace and every result node reports its `package`); a no-op elsewhere. | `package:@org/app`, `package:!@org/legacy` |
 | `category` | Matches the exact node category (e.g., `logic`, `ui`, `test`). | `category:logic` |
-| `tag` / `tags` | Matches if the file has **any** of the specified tags (OR). Prefix with `"!"` to exclude. | `tag:auth`, `tag:!test` |
+| `tag` / `tags` | Matches if the file has **any** of the specified tags (OR). Prefix with `"!"` to exclude. Only **selection-quality** tags are considered — deliberate `@tag` / option-bag markers and filename-derived `import` tags — so `tag:<functionName>`, `tag:<libraryName>` and `tag:test` never match (see [Test Tags → Tag quality](./test-tags.md#tag-quality)). | `tag:auth`, `tag:!e2e` |
 | `tag` (AND syntax) | Use `+` within the value to require **all** listed tags (AND). | `tag:auth+core` |
 | `external` | Matches if the node is considered external (value: `true` or `false`). | `external:true` |
 | `importsFile` | Matches if the node directly imports the given path (substring). | `importsFile:src/utils` |

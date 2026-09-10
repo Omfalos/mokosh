@@ -22,7 +22,7 @@ function graphWithTags(): Graph {
         category: "logic",
         tags: [
           { name: "auth", kind: "comment-marker" },
-          { name: "b", kind: "comment-marker" },
+          { name: "billing", kind: "comment-marker" },
         ],
         imports: [],
         exports: [],
@@ -75,7 +75,7 @@ describe("list-tags command", { tags: ["list-tags"] }, () => {
     const output = JSON.parse(logSpy.mock.calls[0]?.[0] as string);
     expect(output.tags).toEqual([
       { name: "auth", count: 2, kinds: ["comment-marker"] },
-      { name: "b", count: 1, kinds: ["comment-marker"] },
+      { name: "billing", count: 1, kinds: ["comment-marker"] },
     ]);
   });
 
@@ -104,6 +104,6 @@ describe("list-tags command", { tags: ["list-tags"] }, () => {
 
     await run(makeContext({ graph: graphWithTags(), plain: true, tagMinCount: 1 }));
 
-    expect(logSpy.mock.calls[0]?.[0]).toBe("auth\nb");
+    expect(logSpy.mock.calls[0]?.[0]).toBe("auth\nbilling");
   });
 });

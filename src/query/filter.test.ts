@@ -1,4 +1,5 @@
-import { describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test } from "vitest";
+import { configureTagQuality, resetTagQuality } from "../tag-quality";
 import type { SerializedGraph } from "../types/graph";
 import type { FileNode, ImportEdge } from "../types/node";
 import { filterGraph, matchNode } from "./filter";
@@ -174,6 +175,36 @@ describe("matchNode", {
       expect(matchNode(node, {})).toBe(true);
     });
   });
+
+  describe("tags — only selection-quality tags match", () => {
+    test("tag: does not match a declaration- or library-kind tag", () => {
+      const node = makeNode({
+        path: "src/a.ts",
+        tags: [
+          { name: "parseQuery", kind: "function" as const },
+          { name: "typescript", kind: "library" as const },
+          { name: "test", kind: "comment-marker" as const },
+          { name: "index", kind: "import" as const },
+        ],
+      });
+      expect(matchNode(node, { tags: ["parseQuery"] })).toBe(false);
+      expect(matchNode(node, { tags: ["typescript"] })).toBe(false);
+      expect(matchNode(node, { tags: ["test"] })).toBe(false); // category echo
+      expect(matchNode(node, { tags: ["index"] })).toBe(false); // blocklisted generic
+    });
+
+    test("a config allowlist re-enables a built-in-blocked name", () => {
+      const node = makeNode({
+        path: "src/a.ts",
+        tags: [{ name: "config", kind: "import" as const }],
+      });
+      expect(matchNode(node, { tags: ["config"] })).toBe(false);
+      configureTagQuality({ allowlist: ["config"] });
+      expect(matchNode(node, { tags: ["config"] })).toBe(true);
+    });
+  });
+
+  afterEach(() => resetTagQuality());
 
   describe("allTags — AND logic", () => {
     const node = makeNode({ path: "src/a.ts", tags: [tag("auth"), tag("core")] });

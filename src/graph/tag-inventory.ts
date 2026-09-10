@@ -8,13 +8,14 @@
  * `totalDistinct` count report what exists beyond the cap; `kind` / `prefix` / `minCount`
  * narrow the list to find a specific tag.
  */
+import { isSelectionTagName, SELECTION_TAG_KINDS } from "../tag-quality";
 import type { TagKind } from "../types/parse";
 import type { Graph } from "./model";
 
-/** Tag kinds worth surfacing for `tag:<name>` querying by default — mirrors the set `query`'s
- *  slim mode keeps (`src/graph/queries.ts`). The other kinds (`function` / `variable` /
- *  `library`) are declaration/dependency names, mostly single-occurrence noise. */
-export const SUMMARY_TAG_KINDS: readonly TagKind[] = ["comment-marker", "import"];
+/** Tag kinds worth surfacing for `tag:<name>` querying by default — the shared
+ *  {@link SELECTION_TAG_KINDS} (`comment-marker` + `import`). The other kinds (`function` /
+ *  `variable` / `library`) are declaration/dependency names, not test-selection labels. */
+export const SUMMARY_TAG_KINDS: readonly TagKind[] = SELECTION_TAG_KINDS;
 
 /** Default `minCount` floor — drops the single-occurrence long tail. */
 export const DEFAULT_TAG_MIN_COUNT = 2;
@@ -143,8 +144,15 @@ export function summarizeTagInventory(
   const limit = Math.min(requestedLimit, TAG_RESPONSE_HARD_CAP);
   const prefix = opts.prefix?.toLowerCase();
 
-  const kindPredicate = (entry: TagAggregateEntry): boolean => {
-    if (opts.kind === undefined) return entry.kinds.some((k) => SUMMARY_TAG_KINDS.includes(k));
+  // The default view (no explicit `kind`) is the test-selection view: selection kinds AND a
+  // name that isn't a category echo / blocklisted generic. An explicit `kind` (incl. "all") is
+  // the escape hatch — it shows the raw census, blocklist included.
+  const entryPredicate = (entry: TagAggregateEntry): boolean => {
+    if (opts.kind === undefined) {
+      return (
+        entry.kinds.some((k) => SUMMARY_TAG_KINDS.includes(k)) && isSelectionTagName(entry.name)
+      );
+    }
     if (opts.kind === "all") return true;
     return entry.kinds.includes(opts.kind);
   };
@@ -153,7 +161,7 @@ export function summarizeTagInventory(
     .filter(
       (entry) =>
         entry.count >= minCount &&
-        kindPredicate(entry) &&
+        entryPredicate(entry) &&
         (prefix === undefined || entry.name.toLowerCase().includes(prefix)),
     )
     .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
@@ -163,7 +171,7 @@ export function summarizeTagInventory(
 
   const kindLabel =
     opts.kind === undefined
-      ? `${SUMMARY_TAG_KINDS.join(" + ")} kinds`
+      ? `${SUMMARY_TAG_KINDS.join(" + ")} kinds, noise-filtered`
       : opts.kind === "all"
         ? "all kinds"
         : `${opts.kind} kind`;

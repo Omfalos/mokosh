@@ -9,6 +9,7 @@ import {
   resetClassifyRegistries,
   setBarrelThreshold,
 } from "./parser/classify";
+import { configureTagQuality, resetTagQuality } from "./tag-quality";
 import type { TagFramework } from "./tags/strategies";
 
 /**
@@ -68,6 +69,16 @@ export interface MokoshConfig {
      * Jest globals) instead of sharing one project-wide default.
      */
     frameworkOverrides?: Record<string, TagFramework>;
+  };
+  /**
+   * Tunes which tags count as test-selection labels for `propose_tags`, `apply_tags`,
+   * `list_tags` (default view) and the `tag:` query filter. Both lists are case-insensitive.
+   */
+  tags?: {
+    /** Tag names to treat as noise, added to the built-in curated blocklist. */
+    blocklist?: string[];
+    /** Tag names to keep even when built-in- or user-blocked (overrides `blocklist`). */
+    allowlist?: string[];
   };
   /** Path to the Istanbul/v8 `coverage-summary.json` file, relative to the project root. When set, `coveragePct` is populated on each node after the graph is built. */
   coverageReportPath?: string;
@@ -180,6 +191,8 @@ function readJsConfig(filePath: string): MokoshConfig {
  */
 export function applyConfig(config: MokoshConfig): void {
   resetClassifyRegistries();
+  resetTagQuality();
+  configureTagQuality(config.tags);
   for (const pattern of config.configMatchers ?? []) {
     registerConfigMatcher(pattern);
   }

@@ -83,24 +83,36 @@ describe("handleTagging", {
     });
   });
 
-  describe("strategy 2 – @word in string literals", () => {
-    test("extracts @tag from test title string", () => {
+  describe("strategy 2 – @word in test-title strings", () => {
+    test("extracts @tag from a test title string", () => {
       const ctx = makeCtx();
       visitAll(parseSource("test('login @smoke @regression', () => {});"), ctx);
       expect(hasTag(ctx.tags, "smoke")).toBe(true);
       expect(hasTag(ctx.tags, "regression")).toBe(true);
     });
 
-    test("extracts @tag with hyphen", () => {
+    test("extracts a hyphenated @tag from a test title", () => {
       const ctx = makeCtx();
-      visitAll(parseSource("const s = 'do @my-thing';"), ctx);
+      visitAll(parseSource("it('does @my-thing', () => {});"), ctx);
       expect(hasTag(ctx.tags, "my-thing")).toBe(true);
+    });
+
+    test("ignores @word in non-test-title string literals", () => {
+      const ctx = makeCtx();
+      visitAll(
+        parseSource(
+          "import x from '@modelcontextprotocol/sdk';\nconst s = 'do @my-thing';\nconst email = 'a@b.com';",
+        ),
+        ctx,
+      );
+      expect(hasTag(ctx.tags, "modelcontextprotocol")).toBe(false);
+      expect(hasTag(ctx.tags, "my-thing")).toBe(false);
+      expect(hasTag(ctx.tags, "b")).toBe(false);
     });
 
     test("ignores strings without @ markers", () => {
       const ctx = makeCtx();
-      const _before = new Set(makeCtx().tags);
-      visitAll(parseSource("const s = 'no tags here';"), ctx);
+      visitAll(parseSource("test('no tags here', () => {});"), ctx);
       expect(
         [...ctx.tags].filter((t) => t.name === "no" || t.name === "tags" || t.name === "here")
           .length,

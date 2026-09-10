@@ -279,22 +279,22 @@ describe("mokosh MCP server", { tags: ["createMcpServer", "mcp"] }, () => {
   describe("propose_tags", () => {
     test("returns tags covering test files affected by changed files", async () => {
       const root = makeProject("mcp-tags", {
-        "a.js": "",
-        "a.test.js": "import './a.js'",
+        "auth.js": "",
+        "auth.test.js": "import './auth.js'",
       });
       const client = await makeClient();
       await client.callTool({
         name: "analyze",
-        arguments: { root, entryPoints: ["a.test.js"] },
+        arguments: { root, entryPoints: ["auth.test.js"] },
       });
 
       const data = parseText(
         await client.callTool({
           name: "propose_tags",
-          arguments: { root, changedFiles: ["a.js"] },
+          arguments: { root, changedFiles: ["auth.js"] },
         }),
       ) as { proposedTags: string[] };
-      expect(data.proposedTags).toContain("a");
+      expect(data.proposedTags).toContain("auth");
     });
   });
 

@@ -7,6 +7,7 @@ import {
   type FeatureInfo,
   SymbolTraversalContext,
 } from "../graph";
+import { selectionTagNames } from "../tag-quality";
 import type { FileNode } from "../types/node";
 import { DefaultTestNodeIdentifier, type TestNodeIdentifier } from "./identifier";
 
@@ -94,9 +95,10 @@ function traverseAffected(
  * @description Proposes Vitest tags to run based on which files changed.
  *
  * Traverses the incoming dependency graph from each changed file. Test nodes
- * that can reach the changed file contribute their tags. Feature hubs act as
- * boundaries: the hub's tag is emitted and traversal stops there, preventing
- * combinatorial blowup in large graphs.
+ * that can reach the changed file contribute their **selection-quality** tags
+ * (see {@link selectionTagNames} — drops declaration/library names, `test`/`barrel`,
+ * and blocklisted generics). Feature hubs act as boundaries: the hub's tag is
+ * emitted and traversal stops there, preventing combinatorial blowup in large graphs.
  * @param {Graph} graph - The full project dependency graph.
  * @param {string[]} changedFiles - Relative paths of files that were modified (e.g. from git diff).
  * @param {ProposeTagsOptions} [options] - Optional: custom test identifier and feature-detection settings.
@@ -124,7 +126,7 @@ export function proposeTags(
     (feature) => proposedTags.add(feature.tag),
     (node) => {
       if (identifier.isTestNode(node)) {
-        for (const tag of node.tags) proposedTags.add(tag.name);
+        for (const name of selectionTagNames(node.tags)) proposedTags.add(name);
       }
     },
   );

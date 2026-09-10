@@ -176,19 +176,6 @@ function addFilenameTag(testNode: FileNode, importEdge: ImportEdge): void {
 }
 
 /**
- * @description Adds an `import` tag for each named symbol imported by `importEdge`.
- *   Namespace imports (`["*"]`) are skipped since there is no single symbol name to tag.
- * @param {FileNode} testNode - The test node receiving the tags; mutated in place.
- * @param {ImportEdge} importEdge - The resolved import edge whose `symbols` are tagged.
- */
-function addSymbolTags(testNode: FileNode, importEdge: ImportEdge): void {
-  if (!importEdge.symbols || importEdge.symbols.includes("*")) return;
-  for (const symbolName of importEdge.symbols) {
-    addUniqueTag(testNode.tags, symbolName, "import");
-  }
-}
-
-/**
  * @description Propagates `comment-marker` tags (e.g. `@tag auth` in the source file) from
  *   the imported node to `testNode`, so tests inherit the semantic markers of what they test.
  *   Skips imports that resolve to another test node.
@@ -210,12 +197,13 @@ function propagateCommentMarkers(
 }
 
 /**
- * @description Adds tags derived from each local import to the importing test node.
- *   Two tag kinds are applied: a filename-derived `import` tag (e.g. a test importing
- *   `graph/builder.ts` receives the tag `builder`), and any `comment-marker` tags
- *   propagated from the source node (e.g. `@tag auth` in `auth/service.ts` propagates
- *   to tests that import it). `function` and `variable` kind tags are intentionally skipped
- *   as they are too granular for test filtering. Existing duplicate tags are skipped.
+ * @description Adds tags derived from each local import to the importing test node: a
+ *   filename-derived `import` tag (a test importing `graph/builder.ts` receives the tag
+ *   `builder` — a plausible `describe` name and the "module exercised" signal), plus any
+ *   `comment-marker` tags propagated from the source node (`@tag auth` in `auth/service.ts`
+ *   propagates to tests that import it). Imported *symbol* names are deliberately not tagged —
+ *   they are just re-derived identifiers (`FileNode`, `handleQuery`) that no one greps a test
+ *   suite by. Existing duplicate tags are skipped.
  * @param {Map<string, FileNode>} nodes - The full node map produced by the graph builder; mutated in place.
  */
 export function enrichTestNodeTags(nodes: Map<string, FileNode>): void {
@@ -233,7 +221,6 @@ function applyTestNodeTagsForImport(
   if (!importEdge.toPath || importEdge.isExternal) return;
 
   addFilenameTag(node, importEdge);
-  addSymbolTags(node, importEdge);
   propagateCommentMarkers(node, importEdge, nodes);
 }
 

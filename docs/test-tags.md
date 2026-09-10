@@ -15,16 +15,24 @@ The tag proposal process follows these steps:
 
 ## Tag Identification Rules
 
-Mokosh automatically extracts tags using several strategies:
+Mokosh automatically extracts tags using several strategies. Not every extracted tag is used
+for test selection — see [Tag quality](#tag-quality) below for which ones survive.
 
 ### 1. Filename-based Tags
-If a file contains `test` or `spec` in its name, it is automatically tagged with `test`.
+If a file contains `test` or `spec` in its name, it is automatically tagged with `test`
+(a `category` marker — it is *not* a selection tag, since every test file carries it).
 
 ### 2. Declaration-based Tags
-Mokosh treats the names of **top-level** functions and variables as potential tags. Declarations nested inside callbacks, test blocks, or helper functions are excluded to avoid noise (e.g. local variables like `tmpDir` or `unique` inside a `test()` body will not produce tags).
+Mokosh records the names of **top-level** functions and variables as `function` / `variable`
+tags (declarations nested inside callbacks or test blocks are skipped). These are **not**
+used for test selection — a helper name like `makeContext` is not something you grep a
+suite by — but they are still visible via `list_tags` with `kind: "function"`.
 
-### 3. `@word` in String Literals
-Any `@word` pattern inside a string literal is extracted as a tag (leading `@` stripped). This covers test-title conventions like `test('user login @smoke', ...)`.
+### 3. `@word` in Test Titles
+A `@word` token in a **test title** — the first string argument of `test` / `describe` /
+`it` — is extracted as a tag, leading `@` stripped: `test('user login @smoke', …)` → `smoke`.
+`@word` tokens in other string literals (import specifiers, `@param`, emails) are ignored —
+they are almost never test-selection labels.
 
 ### 4. `@tag` Comment Annotations
 `@tag <name>` anywhere in the source (JSDoc, inline comments) registers `<name>` as a tag:
@@ -34,7 +42,14 @@ export function login() { ... }
 ```
 
 ### 5. Graph-Derived Tags (Test Files)
-After the dependency graph is fully built, Mokosh enriches every test node with tags derived from the basenames of its local imports. For example, `config.test.ts` importing `./config.ts` and `./parser/utils.ts` gains the tags `config` and `utils`. This captures the semantic relationship between a test file and the modules it exercises — without relying on naming conventions inside the file.
+After the dependency graph is fully built, Mokosh enriches every test node with a tag for the
+**basename** of each module it imports locally. `config.test.ts` importing `./config.ts` gains
+the tag `config` — the "module exercised" signal, and usually a plausible `describe` name.
+Imported *symbol* names are not tagged (they are just re-derived identifiers). `@tag`
+comment-markers on an imported source file also propagate to the tests that import it.
+
+Generic basenames (`index`, `utils`, `types`, `helpers`, `mock`, `setup`, …) are dropped — see
+[Tag quality](#tag-quality).
 
 ### 6. Vitest / Playwright Option-Bag Tags
 Tags declared in the options argument of `test`, `describe`, or `it` calls are extracted directly:
@@ -49,6 +64,42 @@ test('login', { tag: ['@smoke', '@regression'] }, async ({ page }) => { ... });
 ```
 
 Chained variants like `it.skip(...)` and `describe.only(...)` are also recognised.
+
+## Tag quality
+
+Tags exist to answer **"given this source change, which tests should run?"** — so a tag is
+only useful if it is a plausible `vitest --grep` term or native framework tag. `--propose-tags`,
+`--apply-tags`, `--list-tags` (default view) and the `tag:` query filter all pass tags through
+one shared **selection-tag** test. A tag survives when **all** of:
+
+1. Its kind is `comment-marker` (deliberate `@tag` / option-bag / test-title marker) or
+   `import` (module-basename tag). `function` / `variable` (declaration names) and `library`
+   (npm package names) are dropped.
+2. Its name is a bare identifier (≥ 2 chars, no `@` / `:` / `/`).
+3. It is not a bare category echo (`test`, `barrel`).
+4. It is not on the built-in **blocklist** of generic names — structural filenames (`index`,
+   `main`, `utils`, `types`, `helpers`, `mock`, `setup`, `common`, `shared`, `config`, …),
+   ubiquitous code words (`run`, `get`, `set`, `node`, `context`, `handler`, `result`, …) and
+   Go build-constraint platform tokens (`linux`, `amd64`, `darwin`, `cgo`, …).
+
+`--list-tags` still exposes everything behind `--tag-kind function` / `--tag-kind all`; only
+its default view is filtered.
+
+### Tuning the blocklist
+
+`mokosh.config.json`:
+
+```json
+{
+  "tags": {
+    "blocklist": ["widget", "legacy"],
+    "allowlist": ["config"]
+  }
+}
+```
+
+`blocklist` names are added to the built-in list; `allowlist` names are kept even if built-in-
+or user-blocked. Both are case-insensitive.
 
 ## Feature Hub Detection
 
@@ -74,7 +125,7 @@ npx mokosh --propose-tags src/tests/e2e.test.ts
 Output:
 ```json
 {
-  "proposedTags": ["smoke", "auth", "login"]
+  "proposedTags": ["smoke", "auth"]
 }
 ```
 

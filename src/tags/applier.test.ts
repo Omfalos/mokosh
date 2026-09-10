@@ -134,6 +134,25 @@ describe("applyTags", {
     expect(written).toContain('tags: ["auth", "zeta"]');
   });
 
+  test("writes deliberate comment-marker tags, not just import-kind ones", async () => {
+    const relPath = "src/checkout.test.ts";
+    const absPath = path.join(dir, relPath);
+    await fs.mkdir(path.dirname(absPath), { recursive: true });
+    await fs.writeFile(absPath, 'test("checkout", () => {});\n', "utf8");
+
+    const tags: StructuredTag[] = [
+      { name: "smoke", kind: "comment-marker" }, // deliberate marker — now written
+      { name: "checkout", kind: "import" }, // module exercised — written
+      { name: "test", kind: "comment-marker" }, // category echo — excluded
+      { name: "types", kind: "import" }, // blocklisted generic — excluded
+    ];
+    const graph = makeGraph([makeNode(relPath, tags)]);
+
+    await applyTags(graph, dir, { dryRun: false });
+    const written = await fs.readFile(absPath, "utf8");
+    expect(written).toContain('tags: ["checkout", "smoke"]');
+  });
+
   test("reports unchanged when computed tags produce no diff, and error on unreadable files", async () => {
     const okPath = "src/plain.test.ts";
     const okAbs = path.join(dir, okPath);
