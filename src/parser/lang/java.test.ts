@@ -44,6 +44,26 @@ class A {}`,
     expect(explicitSpecifiers(imports)).toEqual(["com.x.Consts"]);
   });
 
+  test("import symbols: last segment for plain/wildcard, the static member itself for `import static`", () => {
+    const { imports } = parseJava(
+      "src/main/java/com/x/Repo.java",
+      `package com.x;
+import com.x.util.Helper;
+import com.x.data.*;
+import static com.x.Consts.MAX;
+import static com.x.More.*;
+class Repo {}
+`,
+    );
+    const explicit = imports.filter((edge) => edge.type !== "side-effect");
+    expect(explicit.map((edge) => edge.symbols)).toEqual([
+      ["Helper"],
+      undefined,
+      ["MAX"],
+      undefined,
+    ]);
+  });
+
   test("the package declaration is not emitted as an explicit import edge", () => {
     const { imports } = parseJava("A.java", `package com.x.y.z;\nclass A {}`);
     expect(explicitSpecifiers(imports)).toHaveLength(0);

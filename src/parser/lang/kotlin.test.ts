@@ -19,6 +19,19 @@ import com.x.Foo as Bar
     expect(imports.every((edge) => edge.isExternal === true)).toBe(true);
   });
 
+  test("import symbols: last segment for a plain import, none for wildcard", () => {
+    const { imports } = parseKotlin(
+      "src/main/kotlin/com/x/Repo.kt",
+      `package com.x
+import com.x.util.Helper
+import com.x.data.*
+import com.x.Foo as Bar
+`,
+    );
+    const explicit = imports.filter((edge) => edge.type !== "side-effect");
+    expect(explicit.map((edge) => edge.symbols)).toEqual([["Helper"], undefined, ["Foo"]]);
+  });
+
   test("emits a synthetic same-package edge", () => {
     const { imports } = parseKotlin("src/main/kotlin/com/x/Repo.kt", `package com.x\nclass Repo`);
     expect(imports).toContainEqual(

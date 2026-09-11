@@ -4,12 +4,14 @@ import { JUnitStrategy } from "./junit";
 describe("JUnitStrategy", () => {
   const strategy = new JUnitStrategy();
 
-  test("canHandle matches .java/.groovy test files by dir or name, nothing else", () => {
+  test("canHandle matches .java/.groovy/.kt test files by dir or name, nothing else", () => {
     expect(strategy.canHandle("/repo/src/test/java/app/LoginTest.java")).toBe(true);
     expect(strategy.canHandle("/repo/src/main/java/app/LoginTest.java")).toBe(true); // *Test name
     expect(strategy.canHandle("/repo/src/test/groovy/app/LoginSpec.groovy")).toBe(true);
+    expect(strategy.canHandle("/repo/src/test/kotlin/app/LoginTest.kt")).toBe(true);
+    expect(strategy.canHandle("/repo/src/androidTest/kotlin/app/LoginTest.kt")).toBe(true);
     expect(strategy.canHandle("/repo/src/main/java/app/Login.java")).toBe(false);
-    expect(strategy.canHandle("/repo/src/test/kotlin/app/LoginTest.kt")).toBe(false);
+    expect(strategy.canHandle("/repo/src/main/kotlin/app/Login.kt")).toBe(false);
   });
 
   test("inserts a managed @Tag block and the Tag import", () => {
@@ -109,5 +111,86 @@ public class LoginTest {
   test("returns source unchanged when no top-level type declaration is found", () => {
     const source = `package app;\n// just a comment\n`;
     expect(strategy.apply("/repo/src/test/java/app/LoginTest.java", source, ["auth"])).toBe(source);
+  });
+
+  describe("Kotlin", () => {
+    test("inserts a managed @Tag block and the Tag import, no trailing semicolons", () => {
+      const source = `package app
+
+import org.junit.jupiter.api.Test
+
+class LoginTest {
+}
+`;
+      const result = strategy.apply("/repo/src/test/kotlin/app/LoginTest.kt", source, ["auth"]);
+      expect(result).toBe(`package app
+
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.Tag
+
+// mokosh:tags
+@Tag("auth")
+class LoginTest {
+}
+`);
+    });
+
+    test("finds the declaration through Kotlin modifiers and a supertype clause", () => {
+      const source = `package app\nimport org.junit.jupiter.api.Test\ninternal class LoginTest : BaseTest() {\n}\n`;
+      const result = strategy.apply("/repo/src/test/kotlin/app/LoginTest.kt", source, ["smoke"]);
+      expect(result).toContain(
+        '// mokosh:tags\n@Tag("smoke")\ninternal class LoginTest : BaseTest() {',
+      );
+    });
+
+    test("is idempotent when tags already match", () => {
+      const source = `package app
+import org.junit.jupiter.api.Tag
+
+// mokosh:tags
+@Tag("auth")
+class LoginTest {
+}
+`;
+      expect(strategy.apply("/repo/src/test/kotlin/app/LoginTest.kt", source, ["auth"])).toBe(
+        source,
+      );
+    });
+
+    test("removes the block and the now-unused import when tags is empty", () => {
+      const source = `package app
+import org.junit.jupiter.api.Tag
+
+// mokosh:tags
+@Tag("auth")
+class LoginTest {
+}
+`;
+      const result = strategy.apply("/repo/src/test/kotlin/app/LoginTest.kt", source, []);
+      expect(result).toBe(`package app
+
+class LoginTest {
+}
+`);
+    });
+
+    test("finds an enum class declaration", () => {
+      const source = `package app\nimport org.junit.jupiter.api.Test\nenum class LoginTest {\n  A, B\n}\n`;
+      const result = strategy.apply("/repo/src/test/kotlin/app/LoginTest.kt", source, ["auth"]);
+      expect(result).toContain('// mokosh:tags\n@Tag("auth")\nenum class LoginTest {');
+    });
+
+    test("recognizes an existing semicolon-terminated Tag import instead of duplicating it", () => {
+      const source = `package app
+import org.junit.jupiter.api.Tag;
+
+// mokosh:tags
+@Tag("old")
+class LoginTest {
+}
+`;
+      const result = strategy.apply("/repo/src/test/kotlin/app/LoginTest.kt", source, ["auth"]);
+      expect(result.match(/^import org\.junit\.jupiter\.api\.Tag;?$/gm)).toHaveLength(1);
+    });
   });
 });

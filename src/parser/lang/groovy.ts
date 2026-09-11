@@ -55,7 +55,9 @@ export function parseGroovy(filePath: string, content: string): ParseResult {
     const imp = line.match(IMPORT_RE);
     if (imp?.[2]) {
       const specifier = normaliseSpecifier(Boolean(imp[1]), imp[2]);
-      if (specifier) imports.push(jvmImportEdge(filePath, specifier));
+      // Pass the pre-normalisation text as the symbol source: for `import static a.b.C.MEMBER`
+      // the specifier is trimmed to `a.b.C`, but the imported symbol is `MEMBER`, not `C`.
+      if (specifier) imports.push(jvmImportEdge(filePath, specifier, imp[2]));
       continue;
     }
     const decl = line.match(DECL_RE);

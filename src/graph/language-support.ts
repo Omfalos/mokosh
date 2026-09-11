@@ -31,6 +31,10 @@ export const IMPORT_SYMBOL_TYPES: ReadonlySet<FileType> = new Set<FileType>([
   "typescript",
   "javascript",
   "python",
+  "java",
+  "kotlin",
+  "scala",
+  "groovy",
 ]);
 
 /** File types whose parser records function-level call edges (`FileNode.callEdges`). */
@@ -61,6 +65,7 @@ export const TEST_TAG_STRATEGY_TYPES: ReadonlySet<FileType> = new Set<FileType>(
   "go",
   "java",
   "groovy",
+  "kotlin",
   "scala",
   "gherkin",
 ]);
@@ -178,10 +183,10 @@ export const LANGUAGE_FIDELITY: Record<FileType, LanguageFidelity> = {
   javascript: f("full", "full", "full", "full", "full", "full", "partial", "full"),
   python: f("full", "partial", "partial", "full", "full", "partial", "partial", "full"),
   go: f("full", "partial", "none", "full", "full", "partial", "partial", "full"),
-  java: f("partial", "partial", "none", "partial", "full", "partial", "partial", "full"),
-  kotlin: f("partial", "partial", "none", "none", "none", "partial", "partial", "none"),
-  scala: f("partial", "partial", "none", "none", "none", "partial", "partial", "full"),
-  groovy: f("partial", "partial", "none", "none", "none", "partial", "partial", "full"),
+  java: f("partial", "partial", "partial", "partial", "full", "partial", "partial", "full"),
+  kotlin: f("partial", "partial", "partial", "none", "none", "partial", "partial", "full"),
+  scala: f("partial", "partial", "partial", "none", "none", "partial", "partial", "full"),
+  groovy: f("partial", "partial", "partial", "none", "none", "partial", "partial", "full"),
   coffeescript: f("partial", "partial", "none", "none", "none", "partial", "partial", "none"),
   livescript: f("partial", "none", "none", "none", "none", "partial", "partial", "none"),
   lua: f("partial", "partial", "none", "none", "none", "partial", "partial", "none"),
@@ -226,30 +231,33 @@ const FIDELITY_CAVEAT: Partial<Record<FileType, Partial<Record<keyof LanguageFid
       importResolution:
         "index-based: matched by type name across the module, not by resolving the exact package path (ADR-017)",
       exportSymbols: "top-level types only, no field/method-level exports",
-      importSymbols: "not tracked",
+      importSymbols:
+        "one symbol per import (the FQN's last segment, or the static member for `import static`); wildcard imports carry none, and re-exports aren't tracked",
       callEdges:
         "static calls and constructors only (incl. through generics), not virtual dispatch",
     },
     kotlin: {
       importResolution: "index-based, shared with Java's JvmLangResolver (ADR-017)",
       exportSymbols: "top-level types only",
-      importSymbols: "not tracked",
+      importSymbols:
+        "one symbol per import (the FQN's last segment); wildcard imports carry none, and re-exports aren't tracked",
       callEdges: "not extracted — Kotlin needs its own grammar (issue 8c)",
       complexity: "not computed — Kotlin needs its own grammar (issue 8c)",
-      testTags: "no framework-aware strategy — falls back to the generic path-glob applier",
     },
     scala: {
       importResolution:
         "index-based, shared with Java's JvmLangResolver; brace-package imports are a known gap",
       exportSymbols: "top-level types only",
-      importSymbols: "not tracked",
+      importSymbols:
+        "one symbol per import (the FQN's last segment, brace groups expanded to one edge per member); wildcard imports carry none, and re-exports aren't tracked",
       callEdges: "not extracted — Scala needs its own grammar (issue 8c)",
       complexity: "not computed — Scala needs its own grammar (issue 8c)",
     },
     groovy: {
       importResolution: "index-based, shared with Java's JvmLangResolver",
       exportSymbols: "top-level types only",
-      importSymbols: "not tracked",
+      importSymbols:
+        "one symbol per import (the FQN's last segment, or the static member for `import static`); wildcard imports carry none, and re-exports aren't tracked",
       callEdges: "not extracted — Groovy needs its own grammar (issue 8c)",
       complexity: "not computed — Groovy needs its own grammar (issue 8c)",
     },

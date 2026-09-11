@@ -24,6 +24,25 @@ import static com.x.More.*
     ]);
   });
 
+  test("import symbols: plain → last segment, wildcard → none, static member → the member itself", () => {
+    const { imports } = parseGroovy(
+      "src/main/groovy/com/x/Task.groovy",
+      `package com.x
+import com.x.util.Helper
+import com.x.data.*
+import static com.x.Consts.MAX
+import static com.x.More.*
+`,
+    );
+    const explicit = imports.filter((edge) => edge.type !== "side-effect");
+    expect(explicit.map((edge) => edge.symbols)).toEqual([
+      ["Helper"],
+      undefined,
+      ["MAX"],
+      undefined,
+    ]);
+  });
+
   test("emits a synthetic same-package edge", () => {
     const { imports } = parseGroovy(
       "src/main/groovy/com/x/Task.groovy",

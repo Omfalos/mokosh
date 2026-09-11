@@ -10,43 +10,53 @@ import {
   enclosingTypeName,
 } from "../complexity/java";
 import type { ParseResult, RawCallEdge } from "../types";
-import { classifyJvm, extractJvmPackage, jvmPackageEdge } from "./jvm-scan";
+import {
+  classifyJvm,
+  extractJvmPackage,
+  importSymbolFromSpecifier,
+  jvmPackageEdge,
+} from "./jvm-scan";
 
 const TAG_RE = /\/\/\s*@tag\s+([a-zA-Z0-9_-]+)/;
 
 /**
  * @description Reads an `ImportDeclaration` node and returns the FQN specifier the resolver
- *   should act on, plus whether it is a wildcard (package-level) import.
+ *   should act on, plus whether it is a wildcard (package-level) import and the imported symbol
+ *   name (undefined for a wildcard).
  *
- *   - `import a.b.C;` → `{ specifier: "a.b.C", wildcard: false }`
- *   - `import a.b.*;` → `{ specifier: "a.b.*", wildcard: true }`
- *   - `import static a.b.C.MAX;` → `{ specifier: "a.b.C", wildcard: false }` (last segment is a
- *     member, dropped so the specifier names the enclosing type)
- *   - `import static a.b.C.*;` → `{ specifier: "a.b.C", wildcard: false }` (the `ScopedIdentifier`
- *     already names the type; the `*` targets its members, not a package)
+ *   - `import a.b.C;` → `{ specifier: "a.b.C", wildcard: false, symbol: "C" }`
+ *   - `import a.b.*;` → `{ specifier: "a.b.*", wildcard: true, symbol: undefined }`
+ *   - `import static a.b.C.MAX;` → `{ specifier: "a.b.C", wildcard: false, symbol: "MAX" }` (the
+ *     last segment is a member, dropped from the specifier so it names the enclosing type, but
+ *     `MAX` — not `C` — is what's actually imported)
+ *   - `import static a.b.C.*;` → `{ specifier: "a.b.C", wildcard: false, symbol: undefined }` (the
+ *     `ScopedIdentifier` already names the type; the `*` targets its members, not a package)
  * @param node - The `ImportDeclaration` syntax node.
  * @param source - Full file source text.
- * @returns The specifier and wildcard flag, or `null` when no identifier could be read.
+ * @returns The specifier, wildcard flag, and symbol, or `null` when no identifier could be read.
  */
 function readImport(
   node: SyntaxNode,
   source: string,
-): { specifier: string; wildcard: boolean } | null {
+): { specifier: string; wildcard: boolean; symbol?: string | undefined } | null {
   const scoped = node.getChild("ScopedIdentifier");
   if (!scoped) return null;
 
   const isStatic = node.getChild("static") != null;
   const hasAsterisk = node.getChild("Asterisk") != null;
-  let specifier = source.slice(scoped.from, scoped.to);
+  const raw = source.slice(scoped.from, scoped.to);
 
   if (isStatic) {
     // `a.b.C.MAX` → `a.b.C`; `a.b.C` (from `import static a.b.C.*`) → unchanged.
-    if (!hasAsterisk) specifier = specifier.split(".").slice(0, -1).join(".");
-    return specifier ? { specifier, wildcard: false } : null;
+    if (hasAsterisk) return raw ? { specifier: raw, wildcard: false } : null;
+    const specifier = raw.split(".").slice(0, -1).join(".");
+    return specifier
+      ? { specifier, wildcard: false, symbol: importSymbolFromSpecifier(raw) }
+      : null;
   }
 
-  if (hasAsterisk) return { specifier: `${specifier}.*`, wildcard: true };
-  return { specifier, wildcard: false };
+  if (hasAsterisk) return { specifier: `${raw}.*`, wildcard: true };
+  return { specifier: raw, wildcard: false, symbol: importSymbolFromSpecifier(raw) };
 }
 
 /**
@@ -214,6 +224,7 @@ export function parseJava(filePath: string, content: string): ParseResult {
             isExternal: true,
             isStyle: false,
             type: "static",
+            symbols: parsed.symbol ? [parsed.symbol] : undefined,
           });
         }
         break;

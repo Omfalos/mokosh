@@ -101,13 +101,37 @@ export function scanJvmClassifyHints(source: string): Required<JvmClassifyHints>
 }
 
 /**
+ * @description Derives the imported symbol name from a resolved FQN specifier — the last
+ *   dot-segment, or `undefined` for a wildcard (`a.b.*`) which names a package, not a type.
+ *   The one JVM-wide rule every language's import syntax reduces to once aliases/renames are
+ *   already resolved down to the FQN they name (Kotlin/Groovy `as`, Scala `{C => D}` — none of
+ *   the four scanners retain the local alias, so this always reports the canonical name, unlike
+ *   TS's convention of recording the post-alias local binding).
+ * @param specifier - A resolved FQN specifier, as put on `ImportEdge.rawSpecifier`.
+ * @returns The simple name, or `undefined` for a wildcard/empty specifier.
+ */
+export function importSymbolFromSpecifier(specifier: string): string | undefined {
+  const last = specifier.split(".").pop();
+  return last && last !== "*" ? last : undefined;
+}
+
+/**
  * @description Builds an external `ImportEdge` for a JVM FQN specifier. All JVM imports are
  *   marked external at parse time; `JvmLangResolver` resolves them to local files later.
  * @param fromPath - Path of the importing file.
  * @param specifier - Fully-qualified name (e.g. `a.b.C` or `a.b.*`).
+ * @param symbolSource - Defaults to `specifier`. Pass the pre-normalisation text separately when
+ *   the caller already trimmed a trailing member off `specifier` (Groovy's
+ *   `import static a.b.C.MEMBER` → `specifier: "a.b.C"`, but the imported symbol is `MEMBER`,
+ *   not `C`).
  * @returns The import edge.
  */
-export function jvmImportEdge(fromPath: string, specifier: string): ImportEdge {
+export function jvmImportEdge(
+  fromPath: string,
+  specifier: string,
+  symbolSource: string = specifier,
+): ImportEdge {
+  const symbol = importSymbolFromSpecifier(symbolSource);
   return {
     fromPath,
     toPath: "",
@@ -115,6 +139,7 @@ export function jvmImportEdge(fromPath: string, specifier: string): ImportEdge {
     isExternal: true,
     isStyle: false,
     type: "static",
+    symbols: symbol ? [symbol] : undefined,
   };
 }
 

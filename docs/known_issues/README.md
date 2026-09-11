@@ -9,7 +9,7 @@ dependencies.
 |---|------|---------|
 | 6 | [`06-duplicates-query-language.md`](06-duplicates-query-language.md) | `find_duplicates` output too large for an LLM. **6a–6c shipped** (`filter` DSL + `slim` + `summary`); 6d (shared shaping layer) and the overlapping-window matcher fix remain |
 | 7 | [`07-per-language-analysis-semantics.md`](07-per-language-analysis-semantics.md) | Analyses treat every language like JS/TS; JVM data shapes, idiom exclusion, and the per-language config surface still go undetected/unbuilt (CSS vars + TS types shipped in phase 1) |
-| 8 | [`08-cross-language-reliability.md`](08-cross-language-reliability.md) | Umbrella: uneven feature parity across languages. **8a/8b/8d shipped** (parity matrix + `LANGUAGE_FIDELITY` + `analyze` `fidelity`; `example/full-house/conformance.test.ts` drift guard; per-tool `caveats`; resolver try/catch + robustness tests). Only **8c** — the actual language gaps (Kotlin call edges/complexity, JVM import symbols, Groovy audit, Coffee/LS/Lua) — remains |
+| 8 | [`08-cross-language-reliability.md`](08-cross-language-reliability.md) | Umbrella: uneven feature parity across languages. **8a/8b/8d shipped** (parity matrix + `LANGUAGE_FIDELITY` + `analyze` `fidelity`; `example/full-house/conformance.test.ts` drift guard; per-tool `caveats`; resolver try/catch + robustness tests). **8c partially shipped** (JVM import-symbol tracking; Kotlin test-tag strategy). Remaining 8c: Kotlin call edges/complexity, Groovy audit, Coffee/LS/Lua |
 | 9 | [`09-duplicate-clone-family-noise.md`](09-duplicate-clone-family-noise.md) | `find_duplicates` reports one row per LCP-tree node instead of per clone family; connected-component clustering for the remaining non-nested cases still open (dominance filter shipped) |
 
 ## Fixed
@@ -65,7 +65,8 @@ dependencies.
 4. **Issue 8** — ~~parity matrix~~ + ~~conformance harness~~ + ~~per-tool caveats~~ +
    ~~resolver-robustness pass~~ (all **shipped**: `docs/language-support.md` + `LANGUAGE_FIDELITY`
    + `analyze` `fidelity`/`caveats`; `example/full-house/conformance.test.ts`; `languageCaveats`
-   wired into 8 tools; `LangResolver` try/catch + `lang-resolvers/robustness.test.ts`). Remaining:
-   **8c** — the language gaps themselves (Kotlin call edges + complexity, JVM import symbols,
-   Groovy audit, Coffee/LS/Lua, LiveScript export-tracking table fix) and issue 7's remaining
-   languages. The conformance harness now regression-locks each as a baseline change.
+   wired into 8 tools; `LangResolver` try/catch + `lang-resolvers/robustness.test.ts`). 8c:
+   ~~JVM import-symbol tracking~~ + ~~Kotlin test-tag strategy~~ **shipped**. Remaining: Kotlin
+   call edges + complexity, Groovy audit, Coffee/LS/Lua, LiveScript export-tracking table fix, and
+   issue 7's remaining languages. The conformance harness now regression-locks each as a baseline
+   change.

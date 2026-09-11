@@ -39,10 +39,10 @@ graph, under `languageCoverage[].fidelity`.
 | `javascript` | full | full | full | full | full | full | partial | full |
 | `python` | full | partial | partial | full | full | partial | partial | full |
 | `go` | full | partial | none | full | full | partial | partial | full |
-| `java` | partial | partial | none | partial | full | partial | partial | full |
-| `kotlin` | partial | partial | none | none | none | partial | partial | none |
-| `scala` | partial | partial | none | none | none | partial | partial | full |
-| `groovy` | partial | partial | none | none | none | partial | partial | full |
+| `java` | partial | partial | partial | partial | full | partial | partial | full |
+| `kotlin` | partial | partial | partial | none | none | partial | partial | full |
+| `scala` | partial | partial | partial | none | none | partial | partial | full |
+| `groovy` | partial | partial | partial | none | none | partial | partial | full |
 | `coffeescript` | partial | partial | none | none | none | partial | partial | none |
 | `livescript` | partial | none | none | none | none | partial | partial | none |
 | `lua` | partial | partial | none | none | none | partial | partial | none |
@@ -73,12 +73,19 @@ are `full`.
 type name across the module, not by resolving the exact package path — see
 `docs/known_issues/08-cross-language-reliability.md`). Call edges cover static calls and
 constructors, including through generics ([#10](https://github.com/)/issue 4), but not virtual
-dispatch. Complexity is `full` (`src/parser/complexity/java.ts`). No per-import symbol tracking.
+dispatch. Complexity is `full` (`src/parser/complexity/java.ts`). Import symbols are `partial`:
+one symbol per import (the FQN's last segment, or the static member for `import static`) —
+wildcard imports carry none, and re-exports aren't tracked.
 
 **Kotlin / Scala / Groovy** — [ADR-017](./adr-017-jvm-languages.md). Share Java's index-based
-`JvmLangResolver`. **No call edges and no complexity** — the Java `@lezer` scanner is
-hand-rolled and doesn't port; Kotlin/Scala/Groovy need their own grammar (tracked as issue 8c).
-Scala and Groovy have test-tag strategies (ScalaTest, JUnit/Spock); Kotlin does not yet.
+`JvmLangResolver`, and now its `partial` import-symbol tracking too (`src/parser/lang/jvm-scan.ts`
+derives the symbol from each language's already-resolved FQN specifier — Kotlin/Groovy `as` and
+Scala's `{C => D}` renames are resolved to the canonical name before this point, so no local-alias
+tracking is possible, unlike TS's convention). **No call edges and no complexity** — the Java
+`@lezer` scanner is hand-rolled and doesn't port; Kotlin/Scala/Groovy need their own grammar
+(tracked as issue 8c). All three now have test-tag strategies: Scala and Groovy (ScalaTest,
+JUnit/Spock), and Kotlin via the shared JUnit strategy (`src/tags/strategies/junit.ts`, JUnit 5 on
+`.kt`).
 
 **CoffeeScript / LiveScript / Lua** — resolution falls back to generic relative-path handling.
 No call edges, no complexity (backfill planned — see the language coverage roadmap). LiveScript

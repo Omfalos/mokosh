@@ -111,7 +111,7 @@ describe("getLanguageCoverage", { tags: ["getLanguageCoverage", "Graph", "FileNo
     );
   });
 
-  test("reports exportsTracked (but not importSymbols) for JVM languages", () => {
+  test("reports exportsTracked and importSymbolsTracked for JVM languages", () => {
     const graph = makeGraph([
       makeNode("src/A.java", "java"),
       makeNode("src/B.kt", "kotlin"),
@@ -123,7 +123,7 @@ describe("getLanguageCoverage", { tags: ["getLanguageCoverage", "Graph", "FileNo
 
     for (const type of ["java", "kotlin", "scala", "groovy"] as const) {
       expect(coverage).toContainEqual(
-        expect.objectContaining({ type, exportsTracked: true, importSymbolsTracked: false }),
+        expect.objectContaining({ type, exportsTracked: true, importSymbolsTracked: true }),
       );
     }
   });

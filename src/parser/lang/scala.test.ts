@@ -42,6 +42,17 @@ class A {
     );
   });
 
+  test("import symbols: last segment per resolved specifier, none for a wildcard", () => {
+    const { imports } = parseScala(
+      "A.scala",
+      `import a.b.C
+import a.b.{D, E}
+import a.b._
+`,
+    );
+    expect(imports.map((edge) => edge.symbols)).toEqual([["C"], ["D"], ["E"], undefined]);
+  });
+
   test("top-level class / object / trait names are exports", () => {
     const { exports } = parseScala(
       "A.scala",
