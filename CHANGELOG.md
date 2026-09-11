@@ -1,3 +1,22 @@
+## [0.5.2](https://github.com/Omfalos/mokosh/compare/v0.5.1...v0.5.2) (2026-09-11)
+
+### Features
+
+* **duplicates:** report definition-level duplicates for CSS vars and TS types ([#13](https://github.com/Omfalos/mokosh/issues/13)) ([c0262db](https://github.com/Omfalos/mokosh/commit/c0262dbd91d92f141fe92028b36e47f5e7206a92))
+* **duplicates:** summary-first find_duplicates response with disk result cache ([29c05b5](https://github.com/Omfalos/mokosh/commit/29c05b5abdac6f9d43f1e411fd11ba482cda2280))
+* find_duplicates filter DSL and per-language fidelity matrix ([b758a37](https://github.com/Omfalos/mokosh/commit/b758a3714d57ef813e8a043a1ddfde817b1c6c25))
+* **lang:** add Kotlin test-tag support and JVM import-symbol tracking ([67e19c1](https://github.com/Omfalos/mokosh/commit/67e19c1b47296c8e8450d722392cba3842b2ed18))
+* **lang:** fidelity caveats, conformance harness, resolver robustness ([8de6ea8](https://github.com/Omfalos/mokosh/commit/8de6ea8cc0fc55094a62128aff41d66f7ba4ec42))
+* **mcp:** make list_tags a bounded, summary-first tool ([647aefc](https://github.com/Omfalos/mokosh/commit/647aefcfc9f939e4db22365dd0ecd39e991639ea))
+* **tags:** keep only test-selection tags in propose_tags/apply_tags/list_tags/query ([70299b4](https://github.com/Omfalos/mokosh/commit/70299b4f0705a4d36c90b0b048669823cb62e342))
+* **workspace:** route file-scoped and whole-graph queries through per-package graphs ([e153281](https://github.com/Omfalos/mokosh/commit/e153281e3f4a9208d7b01737521a9a17d59ad52b))
+
+### Bug Fixes
+
+* **mcp:** prevent silent OOM crash on find_duplicates over large monorepos ([2c31879](https://github.com/Omfalos/mokosh/commit/2c318799a5dce454611f25dc605727241917f4d3))
+* **mcp:** summary-first get_api_surface response; detect bin entry points ([1ae2a78](https://github.com/Omfalos/mokosh/commit/1ae2a78457951e635de25e9246fc2f5a518dc8b6))
+* **mcp:** support monorepo roots in compare_branches; compact api-surface; language-support notes ([3fe281c](https://github.com/Omfalos/mokosh/commit/3fe281c5363102edb3fa17cd3b4c7ab7130c48ee))
+
 ## [0.5.1](https://github.com/Omfalos/mokosh/compare/v0.5.0...v0.5.1) (2026-09-03)
 
 ### ⚠ BREAKING CHANGES
