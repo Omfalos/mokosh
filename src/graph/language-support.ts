@@ -44,6 +44,7 @@ export const CALL_EDGE_TYPES: ReadonlySet<FileType> = new Set<FileType>([
   "go",
   "python",
   "java",
+  "kotlin",
 ]);
 
 /** File types whose parser populates the per-function complexity breakdown (`FileNode.functions`)
@@ -184,7 +185,7 @@ export const LANGUAGE_FIDELITY: Record<FileType, LanguageFidelity> = {
   python: f("full", "partial", "partial", "full", "full", "partial", "partial", "full"),
   go: f("full", "partial", "none", "full", "full", "partial", "partial", "full"),
   java: f("partial", "partial", "partial", "partial", "full", "partial", "partial", "full"),
-  kotlin: f("partial", "partial", "partial", "none", "none", "partial", "partial", "full"),
+  kotlin: f("partial", "partial", "partial", "partial", "none", "partial", "partial", "full"),
   scala: f("partial", "partial", "partial", "none", "none", "partial", "partial", "full"),
   groovy: f("partial", "partial", "partial", "none", "none", "partial", "partial", "full"),
   coffeescript: f("partial", "partial", "none", "none", "none", "partial", "partial", "none"),
@@ -241,7 +242,8 @@ const FIDELITY_CAVEAT: Partial<Record<FileType, Partial<Record<keyof LanguageFid
       exportSymbols: "top-level types only",
       importSymbols:
         "one symbol per import (the FQN's last segment); wildcard imports carry none, and re-exports aren't tracked",
-      callEdges: "not extracted — Kotlin needs its own grammar (issue 8c)",
+      callEdges:
+        "static/qualified calls and constructors only (via the first-party Kotlin grammar, ADR-021), not virtual dispatch; single-level qualifiers only (`a.b()`, not `a.b.c()`); wildcard-imported qualifiers don't resolve; the grammar has no newline-sensitivity (ASI), so two consecutive statements with no separator can mis-nest — qualified calls (`Bar.other(2)`) and no-argument constructor calls (`Bar()`) as the second statement are recovered, but a *with-arguments* constructor call there (`Bar(1)`) still loses its edge",
       complexity: "not computed — Kotlin needs its own grammar (issue 8c)",
     },
     scala: {

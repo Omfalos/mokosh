@@ -40,7 +40,7 @@ graph, under `languageCoverage[].fidelity`.
 | `python` | full | partial | partial | full | full | partial | partial | full |
 | `go` | full | partial | none | full | full | partial | partial | full |
 | `java` | partial | partial | partial | partial | full | partial | partial | full |
-| `kotlin` | partial | partial | partial | none | none | partial | partial | full |
+| `kotlin` | partial | partial | partial | partial | none | partial | partial | full |
 | `scala` | partial | partial | partial | none | none | partial | partial | full |
 | `groovy` | partial | partial | partial | none | none | partial | partial | full |
 | `coffeescript` | partial | partial | none | none | none | partial | partial | none |
@@ -81,11 +81,24 @@ wildcard imports carry none, and re-exports aren't tracked.
 `JvmLangResolver`, and now its `partial` import-symbol tracking too (`src/parser/lang/jvm-scan.ts`
 derives the symbol from each language's already-resolved FQN specifier — Kotlin/Groovy `as` and
 Scala's `{C => D}` renames are resolved to the canonical name before this point, so no local-alias
-tracking is possible, unlike TS's convention). **No call edges and no complexity** — the Java
-`@lezer` scanner is hand-rolled and doesn't port; Kotlin/Scala/Groovy need their own grammar
-(tracked as issue 8c). All three now have test-tag strategies: Scala and Groovy (ScalaTest,
-JUnit/Spock), and Kotlin via the shared JUnit strategy (`src/tags/strategies/junit.ts`, JUnit 5 on
-`.kt`).
+tracking is possible, unlike TS's convention). All three now have test-tag strategies: Scala and
+Groovy (ScalaTest, JUnit/Spock), and Kotlin via the shared JUnit strategy
+(`src/tags/strategies/junit.ts`, JUnit 5 on `.kt`).
+
+**Scala / Groovy still have no call edges and no complexity** — the Java `@lezer` scanner is
+hand-rolled and doesn't port; each needs its own grammar (tracked as issue 8c).
+
+**Kotlin call edges** are now `partial`, via a first-party Kotlin `@lezer` grammar
+([ADR-021](./adr-021-kotlin-parsing.md)) rather than a port of Java's scanner. Same scope as
+Java's: static/qualified calls and constructor calls (incl. through an `as`-aliased import),
+resolved only when the qualifier is a known local import — not virtual dispatch, and only
+single-level qualifiers (`a.b()`, not `a.b.c()`). The grammar has no newline-sensitivity (ASI), so
+two statements in a row with no separator can mis-nest into one bogus tree shape; call-edge
+extraction recovers the qualified-call and no-argument-constructor-call shapes from that mis-nest,
+but a with-arguments constructor call (`Bar(1)`) as the second statement still loses its edge —
+see `src/parser/lang/kotlin/PROGRESS.md` for the underlying grammar limitation. Complexity is
+still `none` — Kotlin needs its own complexity/call-edge extraction to be added in a follow-up
+(the grammar and call edges are Phase 1 of that plan; complexity is Phase 2).
 
 **CoffeeScript / LiveScript / Lua** — resolution falls back to generic relative-path handling.
 No call edges, no complexity (backfill planned — see the language coverage roadmap). LiveScript

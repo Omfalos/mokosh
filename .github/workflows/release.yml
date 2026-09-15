@@ -37,6 +37,9 @@ jobs:
 
       - run: npm ci
 
+      - name: Build Kotlin grammar
+        run: npm run build:grammar
+
       - name: Lint and Format Check
         run: npm run check
 

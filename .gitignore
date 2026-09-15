@@ -33,3 +33,7 @@ coverage/
 .idea/
 .claude/settings.local.json
 .mcp.json
+
+# Kotlin Lezer grammar output — rebuilt by `npm run build:grammar` (chained into `build`/
+# `build:prod`), not committed. Pure build output — nothing hand-written belongs in here.
+/src/parser/lang/kotlin/generated/

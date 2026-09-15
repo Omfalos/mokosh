@@ -128,7 +128,7 @@ describe("getLanguageCoverage", { tags: ["getLanguageCoverage", "Graph", "FileNo
     }
   });
 
-  test("Java tracks call edges; Kotlin/Scala/Groovy do not (no pure-JS AST yet)", () => {
+  test("Java and Kotlin track call edges; Scala/Groovy do not (no pure-JS AST yet)", () => {
     const graph = makeGraph([
       makeNode("src/A.java", "java"),
       makeNode("src/B.kt", "kotlin"),
@@ -141,7 +141,7 @@ describe("getLanguageCoverage", { tags: ["getLanguageCoverage", "Graph", "FileNo
       coverage.find((entry) => entry.type === type)?.callEdgesTracked;
 
     expect(callEdgesFor("java")).toBe(true);
-    expect(callEdgesFor("kotlin")).toBe(false);
+    expect(callEdgesFor("kotlin")).toBe(true);
     expect(callEdgesFor("scala")).toBe(false);
     expect(callEdgesFor("groovy")).toBe(false);
   });
@@ -239,7 +239,7 @@ describe("LANGUAGE_FIDELITY", { tags: ["LANGUAGE_FIDELITY", "FileType"] }, () =>
     expect(LANGUAGE_FIDELITY.scss.duplication).toBe("full");
     expect(LANGUAGE_FIDELITY.typescript.duplication).toBe("partial"); // generic token pipeline
     expect(LANGUAGE_FIDELITY.java.importResolution).toBe("partial"); // index-based, issue 3
-    expect(LANGUAGE_FIDELITY.kotlin.callEdges).toBe("none");
+    expect(LANGUAGE_FIDELITY.kotlin.callEdges).toBe("partial");
     expect(LANGUAGE_FIDELITY.kotlin.complexity).toBe("none");
     for (const axis of AXES) expect(LANGUAGE_FIDELITY.unknown[axis]).toBe("none");
   });
@@ -274,16 +274,22 @@ describe("LANGUAGE_FIDELITY", { tags: ["LANGUAGE_FIDELITY", "FileType"] }, () =>
 
 describe("languageSupportNote", { tags: ["languageSupportNote", "Graph", "FileNode"] }, () => {
   test("returns a note naming the present languages when none support the feature", () => {
-    const graph = makeGraph([makeNode("A.kt", "kotlin"), makeNode("B.scala", "scala")]);
+    const graph = makeGraph([makeNode("A.scala", "scala"), makeNode("B.groovy", "groovy")]);
     const note = languageSupportNote(graph, "callEdges");
     expect(note).toBeDefined();
-    expect(note).toContain("kotlin, scala");
+    expect(note).toContain("groovy, scala");
     expect(note).toContain("call edges");
   });
 
   test("returns undefined when a supported language is present", () => {
     const graph = makeGraph([makeNode("A.kt", "kotlin"), makeNode("b.ts", "typescript")]);
     expect(languageSupportNote(graph, "callEdges")).toBeUndefined();
+  });
+
+  test("kotlin alone no longer triggers the callEdges note (Phase 1: first-party grammar)", () => {
+    expect(
+      languageSupportNote(makeGraph([makeNode("A.kt", "kotlin")]), "callEdges"),
+    ).toBeUndefined();
   });
 
   test("functionComplexity: go/python/ts supported, kotlin not", () => {
@@ -307,9 +313,9 @@ describe("languageSupportNote", { tags: ["languageSupportNote", "Graph", "FileNo
   test("accepts an array of graphs (workspace) — undefined if any has a supported language", () => {
     const kt = makeGraph([makeNode("A.kt", "kotlin")]);
     const ts = makeGraph([makeNode("b.ts", "typescript")]);
-    expect(languageSupportNote([kt, ts], "callEdges")).toBeUndefined();
+    expect(languageSupportNote([kt, ts], "functionComplexity")).toBeUndefined();
     expect(
-      languageSupportNote([kt, makeGraph([makeNode("B.kt", "kotlin")])], "callEdges"),
+      languageSupportNote([kt, makeGraph([makeNode("B.kt", "kotlin")])], "functionComplexity"),
     ).toBeDefined();
   });
 
@@ -332,12 +338,12 @@ describe("languageCaveats", { tags: ["languageCaveats", "Graph", "FileNode"] }, 
     }
   });
 
-  test("callEdges: Java gets a 'constructors only' note; Kotlin gets a 'not extracted' note", () => {
+  test("callEdges: Java and Kotlin both get 'constructors/virtual dispatch' notes", () => {
     const graph = makeGraph([makeNode("A.java", "java"), makeNode("B.kt", "kotlin")]);
     const notes = languageCaveats(graph, "callEdges");
     expect(notes).toHaveLength(2);
     expect(notes.find((n) => n.startsWith("java:"))).toContain("constructors only");
-    expect(notes.find((n) => n.startsWith("kotlin:"))).toContain("not extracted");
+    expect(notes.find((n) => n.startsWith("kotlin:"))).toContain("not virtual dispatch");
   });
 
   test("does not fire for a 'partial' axis that carries no concrete reason (category/duplication)", () => {

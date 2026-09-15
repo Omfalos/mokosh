@@ -1,7 +1,7 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.4.11/schema.json",
   "files": {
-    "includes": ["**", "!coverage", "!dist", "!example"]
+    "includes": ["**", "!coverage", "!dist", "!example", "!src/parser/lang/kotlin/generated"]
   },
   "assist": { "actions": { "source": { "organizeImports": "on" } } },
   "linter": {

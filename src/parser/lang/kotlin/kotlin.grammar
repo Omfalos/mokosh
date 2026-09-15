@@ -1,0 +1,690 @@
+// mokosh's own first-party Kotlin grammar (see docs/adr-021-kotlin-parsing.md for why this
+// exists as an authored grammar rather than a dependency). Informed by — not copied from —
+// JetBrains' published Kotlin grammar spec (kotlin-spec, Apache-2.0), the reference every
+// Kotlin tool works from.
+//
+// Scope is deliberately incremental (docs/adr-021-kotlin-parsing.md lists what's covered and
+// what's deferred): enough to find declaration/function boundaries and call-expression shapes
+// for complexity + call-edge extraction (mokosh's actual need), not full Kotlin syntax. Gaps are
+// grown test-first as real .kt files surface them (see src/parser/lang/kotlin/README.md).
+
+@precedence {
+  postfix @left
+  prefix
+  asCast @left
+  times @left
+  plus @left
+  range @left
+  infixFn @left
+  elvis @right
+  namedCheck @left
+  compare @left
+  equality @left
+  and @left
+  or @left
+  assign @right
+  else @right
+  scope @left
+  typeArgs
+  // Not real Kotlin operator precedence — a name for the recurring "optional trailing piece of
+  // this rule vs. start of the next sibling in the enclosing repetition" shift/reduce conflict
+  // (e.g. `break` immediately followed by `@Foo` — is `@Foo` this break's label, or the next
+  // statement's annotation?). Always resolved by preferring to shift into the current rule's own
+  // optional suffix. See docs/adr-021-kotlin-parsing.md.
+  greedy
+}
+
+@top Program {
+  PackageHeader? ImportHeader* topLevelDeclaration*
+}
+
+PackageHeader {
+  kw<"package"> dottedName
+}
+
+// Written as one flat repetition (not `dottedName ("." Asterisk)?`) so the wildcard segment
+// doesn't create a dangling-optional shift/reduce conflict against dottedName's own trailing
+// `("." Identifier)*` — see docs/adr-021-kotlin-parsing.md. A stray `*` mid-path (not last) is
+// accepted rather than rejected; that's a superset of real Kotlin syntax, not a correctness gap.
+ImportHeader {
+  kw<"import"> Identifier ("." (Identifier | Asterisk))* (kw<"as"> Identifier)?
+}
+
+dottedName {
+  Identifier ("." Identifier)*
+}
+
+topLevelDeclaration {
+  ClassDeclaration |
+  ObjectDeclaration |
+  FunctionDeclaration |
+  PropertyDeclaration |
+  TypeAlias
+}
+
+modifier {
+  ckw<"public"> | ckw<"private"> | ckw<"protected"> | ckw<"internal"> | ckw<"expect"> |
+  ckw<"actual"> | ckw<"final"> | ckw<"open"> | ckw<"abstract"> | ckw<"sealed"> | ckw<"const"> |
+  ckw<"external"> | ckw<"override"> | ckw<"lateinit"> | ckw<"tailrec"> | ckw<"vararg"> |
+  ckw<"suspend"> | ckw<"inner"> | ckw<"enum"> | ckw<"annotation"> | ckw<"inline"> |
+  ckw<"value"> | ckw<"infix"> | ckw<"operator"> | ckw<"data"> | ckw<"noinline"> |
+  ckw<"crossinline"> | ckw<"reified"> | kw<"in"> | annotationUse
+}
+
+// Deliberately no annotation-argument support here (`@Foo(bar = 1)`) — pulling `expression`
+// into the modifier soup that prefixes nearly every declaration exploded the LR automaton
+// (see docs/adr-021-kotlin-parsing.md). Annotation arguments are Phase 0b (grown when a real
+// file needs them tracked, not just skipped over).
+annotationUse {
+  "@" (ckw<"file"> ":")? dottedName
+}
+
+ClassDeclaration {
+  modifier* (kw<"class"> | kw<"interface">) Definition TypeParameters? (!greedy PrimaryConstructor)?
+    (":" DelegationSpecifiers)? (!greedy TypeConstraints)? (!greedy ClassBody)?
+}
+
+// No leading `modifier*` here (unlike SecondaryConstructor): a modifier directly after a class
+// header (`class Foo private constructor(...)`) is genuinely ambiguous for an LR(1) parser
+// against the *next* top-level/member declaration's own modifier soup, since PrimaryConstructor
+// is an optional trailing piece of ClassDeclaration, not a repetition alternative alongside it
+// (see docs/adr-021-kotlin-parsing.md). `private constructor(...)` still parses — the
+// visibility modifier just doesn't attach to the constructor node. Phase 0b if this matters.
+PrimaryConstructor {
+  (!greedy ckw<"constructor">)? "(" commaSep<ClassParameter> ")"
+}
+
+ClassParameter {
+  modifier* (kw<"val"> | kw<"var">)? Definition ":" type ("=" expression)?
+}
+
+// Inlined (not via commaSep1<>) with an explicit `!greedy` on the comma: when a
+// DelegationSpecifiers list sits inside an outer call's argument list (an ObjectLiteral used as
+// a call argument, e.g. `foo(object : Base(), Other)`), "," is ambiguous between continuing this
+// list and separating the next call argument — always prefer continuing it.
+DelegationSpecifiers {
+  DelegationSpecifier (!greedy "," DelegationSpecifier)*
+}
+
+DelegationSpecifier {
+  ConstructorInvocation |
+  ExplicitDelegation |
+  type
+}
+
+ConstructorInvocation {
+  type !greedy ArgumentList
+}
+
+ExplicitDelegation {
+  type ckw<"by"> expression
+}
+
+TypeConstraints {
+  ckw<"where"> TypeConstraint (!greedy "," TypeConstraint)*
+}
+
+TypeConstraint {
+  Definition ":" type
+}
+
+// The optional leading enum-entry list (`RED, GREEN, BLUE` or `RED("#F00"), GREEN("#0F0")`,
+// optionally followed by `;` then regular members) is accepted here unconditionally, not gated
+// on the class actually having the `enum` modifier — a superset of real Kotlin syntax, same
+// tradeoff already made elsewhere in this grammar (e.g. ImportHeader's stray wildcard). Gating it
+// on `enum` would need a semantic (not just syntactic) condition this grammar doesn't track.
+// No explicit `";"` between the entry list and `classMemberDeclaration*`: `;` is a globally
+// skipped token (this grammar has no ASI, `;` is pure whitespace — see the `@skip` block below),
+// so it can never appear as a literal in a rule; it's already invisible right where it'd go.
+ClassBody {
+  "{" (EnumEntry (!greedy "," EnumEntry)*)? classMemberDeclaration* "}"
+}
+
+EnumEntry {
+  Definition (!greedy ArgumentList)? (!greedy ClassBody)?
+}
+
+classMemberDeclaration {
+  CompanionObject |
+  ObjectDeclaration |
+  ClassDeclaration |
+  FunctionDeclaration |
+  PropertyDeclaration |
+  TypeAlias |
+  SecondaryConstructor |
+  InitBlock
+}
+
+CompanionObject {
+  modifier* ckw<"companion"> kw<"object"> Definition?
+    (":" DelegationSpecifiers)? (!greedy ClassBody)?
+}
+
+ObjectDeclaration {
+  modifier* kw<"object"> Definition (":" DelegationSpecifiers)? (!greedy ClassBody)?
+}
+
+SecondaryConstructor {
+  modifier* ckw<"constructor"> "(" commaSep<ClassParameter> ")" ConstructorDelegationCall? Block?
+}
+
+ConstructorDelegationCall {
+  ":" (kw<"this"> | kw<"super">) ArgumentList
+}
+
+InitBlock {
+  ckw<"init"> Block
+}
+
+// No receiver-type prefix here (unlike an earlier version of this grammar): `(receiverType
+// ".")? Definition` has the exact same Identifier-vs-Definition state-merge ambiguity already
+// cut from PropertyDeclaration below, but here it doesn't error at build time — it silently
+// mis-parses instead (`fun Foo.bar()` reduces `Foo.bar` entirely as a type, via ScopedTypeName,
+// leaving nothing for Definition, then cascades into garbage error-recovery for everything after).
+// Caught by testing against real/synthetic .kt files, not by the generator; restricting
+// receiverType to exclude ScopedTypeName didn't fix it, confirming the ambiguity is the same
+// Identifier/Definition one, not a ScopedTypeName-specific greediness issue. Extension functions
+// are accordingly unsupported for now — Phase 0b if this matters (see docs/adr-021-kotlin-parsing.md).
+FunctionDeclaration {
+  modifier* kw<"fun"> TypeParameters? Definition
+    "(" commaSep<FunctionParameter> ")" (":" type)? (!greedy TypeConstraints)? (!greedy functionBody)?
+}
+
+functionBody {
+  Block | !greedy "=" expression
+}
+
+FunctionParameter {
+  modifier* Definition ":" type ("=" expression)?
+}
+
+// No receiver-type prefix here (unlike FunctionDeclaration): `(receiverType ".")? Definition`
+// makes the leading identifier reduce, at the same LALR state, to either `Identifier` (start of
+// receiverType's TypeName) or `Definition` (the bare property name) — a genuine reduce/reduce
+// conflict, since Identifier and Definition are structurally identical (`identifier |
+// backtickIdentifier`) and state-merging conflates their follow sets here. FunctionDeclaration's
+// analogous prefix doesn't conflict because its Definition is always immediately followed by the
+// unambiguous "(" of the parameter list. Extension properties (`val String.foo get() = ...`) are
+// accordingly unsupported for now — Phase 0b if this matters (see docs/adr-021-kotlin-parsing.md).
+PropertyDeclaration {
+  modifier* (kw<"val"> | kw<"var">) TypeParameters? Definition
+    (":" type)? (!greedy TypeConstraints)?
+    (!greedy "=" expression | !greedy ckw<"by"> expression)?
+    (!greedy PropertyAccessor)*
+}
+
+// No leading `modifier*` (unlike most declarations): PropertyAccessor is an optional trailing
+// piece of PropertyDeclaration, so a modifier here (`private set`) is ambiguous against the
+// *next* top-level/member declaration's own modifier soup, same class of conflict as
+// PrimaryConstructor above. `private set` still parses — the modifier just doesn't attach.
+// The trailing `"(" ... ")" functionBody?` is *not* optional here (unlike an earlier version):
+// a bare `get`/`set` with no parens at all isn't valid Kotlin syntax anyway (the only bare-keyword
+// form Kotlin allows, `private set`, needs the leading modifier this grammar already doesn't
+// support — see PropertyAccessor's own note below), and making it optional made "just `get`"
+// simultaneously a complete PropertyAccessor and a continuable one, hitting the same unfixable
+// `statement+ -> statement+ statement+` wall as ClassDeclaration/FunctionDeclaration in statement
+// position (see declarationStatement's note above) — no precedence marker reaches it. Requiring
+// the parens removes the ambiguous production instead of fighting it.
+PropertyAccessor {
+  !greedy ckw<"get"> !greedy "(" ")" (":" type)? functionBody? |
+  !greedy ckw<"set"> !greedy "(" FunctionParameter ")" functionBody?
+}
+
+TypeAlias {
+  modifier* kw<"typealias"> Definition TypeParameters? "=" type
+}
+
+TypeParameters {
+  "<" commaSep1<TypeParameter> ">"
+}
+
+TypeParameter {
+  modifier* Definition (":" type)?
+}
+
+// No standalone Block or IfStatement alternative here: Kotlin has no bare `{ ... }` block
+// statement (a free-standing `{...}` is always a lambda literal, reached via ExpressionStatement)
+// and no separate if-statement node (`if` is always IfExpression, used in statement position via
+// ExpressionStatement too) — having both produced a reduce/reduce conflict against the
+// expression-side node for the exact same input. See docs/adr-021-kotlin-parsing.md.
+statement[@isGroup=Statement] {
+  declarationStatement |
+  AssignmentStatement |
+  ExpressionStatement |
+  ForStatement |
+  WhileStatement |
+  DoWhileStatement |
+  ReturnStatement |
+  BreakStatement |
+  ContinueStatement |
+  ThrowStatement
+}
+
+// Kotlin assignment is a statement, not an expression (unlike Java/C) — `val x = (y = 1)` isn't
+// valid Kotlin. Modeled at the statement level only so `expression` doesn't need to disambiguate
+// `name = value` (assignment) from `name = value` (a named call argument) at the same position.
+AssignmentStatement {
+  expression !assign (AssignOp | "=") expression
+}
+
+// No ClassDeclaration here: a *locally-declared* class (nested in a function body) hits the
+// same "attach vs. start next sibling" ambiguity as PrimaryConstructor/ClassBody above, but
+// `!greedy` on ClassDeclaration's own `(!greedy ClassBody)?` can't reach it — the competing
+// reduction comes from the generator's own internal `statement+ -> statement+ statement+`
+// grouping (its binary splitting of `statement*` for incremental reparsing), not from a sibling
+// rule this grammar controls, so there's no precedence hook to mark. Local classes are
+// accordingly unsupported for now (top-level and class-member positions are unaffected — they
+// reach ClassDeclaration via `topLevelDeclaration`/`classMemberDeclaration` instead). Phase 0b if
+// this matters — see docs/adr-021-kotlin-parsing.md.
+//
+// LocalFunctionDeclaration (not FunctionDeclaration) here for the same reason, but with a
+// narrower fix: a local function's `functionBody` is *never* optional in valid Kotlin (a
+// body-less function header is only legal for interface/abstract/external members, never as a
+// statement), so requiring it — instead of trying to force `!greedy` through the same
+// unreachable `statement+` wall — removes the ambiguous "reduce without a body" path outright.
+// LocalPropertyDeclaration (not PropertyDeclaration) here for real grammatical reasons, not just
+// conflict workarounds: Kotlin doesn't allow `get`/`set` accessors on local variables at all (only
+// top-level/member properties can have them), and local variables can't declare type parameters
+// or constraints either (locals are never generic) — so this variant omits `PropertyAccessor*`,
+// `TypeParameters?`, and `TypeConstraints?` entirely. Beyond matching real Kotlin, dropping
+// TypeConstraints specifically was what it took to unblock the build: every remaining "=" vs.
+// AssignmentStatement shift/reduce conflict in this grammar had `TypeConstraints?` sitting
+// immediately before the ambiguous token, and no amount of `!greedy` placement around it made a
+// difference — removing the piece (once confirmed grammatically unnecessary here) succeeded
+// where marking it kept failing.
+declarationStatement {
+  LocalPropertyDeclaration | LocalFunctionDeclaration | ObjectDeclaration | TypeAlias
+}
+
+LocalPropertyDeclaration {
+  modifier* (kw<"val"> | kw<"var">) Definition
+    (":" type)?
+    (!greedy "=" expression | !greedy ckw<"by"> expression)?
+}
+
+LocalFunctionDeclaration {
+  modifier* kw<"fun"> TypeParameters? Definition
+    "(" commaSep<FunctionParameter> ")" (":" type)? (!greedy TypeConstraints)? functionBody
+}
+
+Block {
+  "{" statement* "}"
+}
+
+// No `Block` alternative here (unlike an earlier version of this grammar): `Block` and a bare
+// (no-arrow) `LambdaLiteral` are structurally identical (`"{" statement* "}"`), and `LambdaLiteral`
+// is already reachable here via `statement -> ExpressionStatement -> expression`, so offering
+// `Block` too is a redundant dual-representation of the same input — hard reduce/reduce, same
+// class of conflict as the `IfStatement`/`IfExpression` dedup below. A `{ ... }` control-flow body
+// is accordingly tagged `LambdaLiteral`, not `Block`, in the parsed tree (`Block` remains its own
+// distinct, unambiguous node everywhere it's used unconditionally: function bodies, init blocks,
+// try/catch/finally, secondary constructors). See docs/adr-021-kotlin-parsing.md.
+controlBody {
+  statement
+}
+
+ExpressionStatement {
+  expression
+}
+
+ForStatement {
+  kw<"for"> "(" modifier* Definition (":" type)? kw<"in"> expression ")" controlBody
+}
+
+WhileStatement {
+  kw<"while"> "(" expression ")" controlBody
+}
+
+DoWhileStatement {
+  kw<"do"> controlBody kw<"while"> "(" expression ")"
+}
+
+// No `@label` support (non-local `return@foo`/`break@foo`/`continue@foo`): without
+// newline-sensitivity (this grammar treats newlines as plain whitespace — see the `;` @skip
+// note below), a bare `return`/`break`/`continue` immediately followed by `@` is ambiguous
+// between "this statement's own label" and "an annotation starting the *next* statement", the
+// same dangling-optional-suffix-vs-next-sibling shape as PrimaryConstructor/ClassBody above, and
+// unlike those it kept resisting a `!greedy` resolution here (deep interaction with
+// CallableReference). Labeled non-local jumps (common inside lambdas passed to `forEach` etc.)
+// are a real Phase 0b gap — see docs/adr-021-kotlin-parsing.md.
+ReturnStatement {
+  kw<"return"> (!greedy expression)?
+}
+
+BreakStatement {
+  kw<"break">
+}
+
+ContinueStatement {
+  kw<"continue">
+}
+
+ThrowStatement {
+  kw<"throw"> expression
+}
+
+expression[@isGroup=Expression] {
+  BinaryExpression |
+  RangeExpression |
+  InfixExpression |
+  IsExpression |
+  AsExpression |
+  PrefixExpression |
+  LambdaLiteral |
+  baseExpression
+}
+
+BinaryExpression {
+  expression !equality op<Equality, "==" | "!=" | "===" | "!=="> expression |
+  expression !compare op<Compare, "<" | ">" | "<=" | ">="> expression |
+  expression !and op<Logic, "&&"> expression |
+  expression !or op<Logic, "||"> expression |
+  expression !elvis Elvis expression |
+  expression !plus op<Arith, "+" | "-"> expression |
+  expression !times op<Arith, "*" | "/" | "%"> expression
+}
+
+RangeExpression {
+  expression !range (".." | "..<") expression
+}
+
+InfixExpression {
+  expression !infixFn Identifier expression
+}
+
+IsExpression {
+  expression !namedCheck (kw<"is"> | NotIs) type
+}
+
+AsExpression {
+  expression !asCast kw<"as"> "?"? type
+}
+
+PrefixExpression {
+  (op<Arith, "-" | "+"> | op<Logic, "!"> | op<Update, "--" | "++">) !prefix expression
+}
+
+baseExpression {
+  literal |
+  StringTemplate |
+  kw<"this"> |
+  kw<"super"> |
+  Identifier |
+  ParenthesizedExpression |
+  IfExpression |
+  WhenExpression |
+  TryExpression |
+  ObjectLiteral |
+  CallableReference |
+  NavigationExpression |
+  CallExpression |
+  IndexingExpression |
+  PostfixUnaryExpression
+}
+
+ParenthesizedExpression {
+  "(" expression ")"
+}
+
+IfExpression {
+  kw<"if"> "(" expression ")" controlBody (!else kw<"else"> controlBody)?
+}
+
+WhenExpression {
+  kw<"when"> ("(" expression ")")? "{" WhenEntry* "}"
+}
+
+WhenEntry {
+  (commaSep1<whenCondition> | kw<"else">) "->" controlBody
+}
+
+whenCondition {
+  (kw<"in"> | NotIn) expression |
+  (kw<"is"> | NotIs) type |
+  expression
+}
+
+TryExpression {
+  kw<"try"> Block CatchClause* FinallyClause?
+}
+
+CatchClause {
+  !else kw<"catch"> "(" modifier* Definition ":" type ")" Block
+}
+
+FinallyClause {
+  kw<"finally"> Block
+}
+
+ObjectLiteral {
+  kw<"object"> (":" DelegationSpecifiers)? ClassBody
+}
+
+// Bare/simple form only (`Foo::bar`, `::bar`) — not `pkg.Foo::bar` or `List<T>::bar`. Using
+// `simpleType?` here (instead of `Identifier`) would make TypeName and baseExpression's own
+// `Identifier` alt reduce-reduce-ambiguous on every bare identifier, since both would then be
+// reachable from the same baseExpression start position (see docs/adr-021-kotlin-parsing.md).
+// Qualified/generic callable references are a Phase 0b addition.
+CallableReference {
+  Identifier !postfix "::" (Identifier | kw<"class">) |
+  "::" (Identifier | kw<"class">)
+}
+
+NavigationExpression {
+  baseExpression !postfix (op<Nav, "."> | SafeNav) (Identifier | kw<"class">)
+}
+
+CallExpression {
+  baseExpression !postfix (ArgumentList (!postfix TrailingLambda)? | TrailingLambda)
+}
+
+ArgumentList {
+  "(" commaSep<callArgument> ")"
+}
+
+callArgument {
+  (Identifier "=")? "*"? expression
+}
+
+TrailingLambda {
+  LambdaLiteral
+}
+
+LambdaLiteral {
+  "{" (lambdaParameters "->")? statement* "}"
+}
+
+lambdaParameters {
+  commaSep1<lambdaParameter>
+}
+
+lambdaParameter {
+  Definition (":" type)?
+}
+
+IndexingExpression {
+  baseExpression !postfix "[" commaSep1<expression> "]"
+}
+
+PostfixUnaryExpression {
+  baseExpression !postfix (NotNull | op<Update, "--" | "++">)
+}
+
+literal {
+  IntegerLiteral |
+  FloatingPointLiteral |
+  @specialize[@name=BooleanLiteral]<identifier, "true" | "false"> |
+  CharacterLiteral |
+  kw<"null">
+}
+
+// No generic `"(" type ")"` parenthesized-type form: it would need to stay ambiguous with
+// FunctionType's own `"(" commaSep<type> ")" "->" type` until *after* the closing paren (both
+// reduce the same single `type` inside identical parens, and an LR(1) parser can't defer that
+// reduction past the shared prefix — see docs/adr-021-kotlin-parsing.md). `(Foo)` as a bare
+// parenthesized type is accordingly unsupported (rare in practice); the one common real pattern
+// that needs parens — a nullable function type, `(() -> Unit)?` — gets its own rule instead.
+type {
+  FunctionType |
+  NullableType |
+  simpleType
+}
+
+NullableType {
+  simpleType "?"
+}
+
+// No receiver-qualified form (`Foo.() -> Unit`, common in DSL builders): its leading `simpleType
+// "."` shares a prefix with plain NavigationExpression's `baseExpression "."`, which produced a
+// spurious shift/reduce conflict wherever a `type` position is reachable from inside a larger
+// expression (e.g. after `is`/`!is`). Phase 0b if this matters — see docs/adr-021-kotlin-parsing.md.
+FunctionType {
+  "(" commaSep<type> ")" "->" type
+}
+
+simpleType {
+  TypeName |
+  ScopedTypeName |
+  GenericType
+}
+
+TypeName {
+  Identifier
+}
+
+ScopedTypeName {
+  (TypeName | ScopedTypeName | GenericType) !scope "." TypeName
+}
+
+GenericType[@dynamicPrecedence=1] {
+  (TypeName | ScopedTypeName) !typeArgs "<" commaSep1<type> ">"
+}
+
+Definition {
+  identifier | backtickIdentifier
+}
+
+Identifier {
+  identifier | backtickIdentifier
+}
+
+kw<term> { @specialize[@name={term}]<identifier, term> }
+
+ckw<term> { @extend[@name={term}]<identifier, term> }
+
+op<tag, expr> { expr }
+
+commaSep<expr> { (expr ("," expr)*)? }
+
+commaSep1<expr> { expr ("," expr)* }
+
+@skip {} {
+  StringTemplate {
+    StringStart (stringContent | Escape | Interpolation | SimpleInterpolation)* stringEnd |
+    StringStartTriple (stringContent | Escape | Interpolation | SimpleInterpolation)* stringEndTriple
+  }
+}
+
+Interpolation {
+  interpolationStart expression "}"
+}
+
+@skip { LineComment | BlockComment | whitespace | ";" }
+
+@tokens {
+  whitespace {
+    @whitespace+
+  }
+
+  digits {
+    $[0-9]+ ("_"+ $[0-9]+)*
+  }
+
+  hexDigits {
+    $[A-Fa-f0-9]+ ("_" $[A-Fa-f0-9]+)*
+  }
+
+  IntegerLiteral {
+    (digits |
+     ("0x" | "0X") hexDigits |
+     ("0b" | "0B") $[01]+ ("_" $[01]+)*)
+    ("u" | "U")? ("l" | "L")?
+  }
+
+  exponent {
+    $[eE] ("-" | "+")? digits
+  }
+
+  floatSuffix {
+    $[fF]
+  }
+
+  // The dot-form requires a digit *after* the "." (unlike an earlier version of this rule): a
+  // bare trailing dot (`digits "." digits?` with the digits optional) isn't valid Kotlin anyway
+  // (`1.` alone isn't a legal float literal — Kotlin requires `1.0`), and making it optional
+  // meant `1..10` (a range) tokenized as `1.` (greedy maximal-munch FloatingPointLiteral) + `.10`
+  // instead of `1` + `..` + `10` — a real, silent mis-tokenization caught by testing against
+  // real/synthetic .kt files, not by the generator. See docs/adr-021-kotlin-parsing.md.
+  FloatingPointLiteral {
+    digits ("." digits exponent? floatSuffix? | exponent floatSuffix? | floatSuffix) |
+    "." digits exponent? floatSuffix?
+  }
+
+  @precedence { FloatingPointLiteral, IntegerLiteral }
+
+  CharacterLiteral[isolate] {
+    "'" (![\\'\n] | "\\" ![\n]) "'"
+  }
+
+  StringStartTriple { '"""' }
+  StringStart { '"' }
+
+  @precedence { StringStartTriple, StringStart }
+
+  Asterisk { "*" }
+
+  identifierChar { @asciiLetter | @digit | "_" }
+
+  identifier { $[a-zA-Z_] identifierChar* }
+
+  backtickIdentifier { "`" ![`\n]+ "`" }
+
+  @precedence { whitespace, identifier }
+
+  AssignOp {
+    ("+" | "-" | "*" | "/" | "%") "="
+  }
+
+  Elvis { "?:" }
+  SafeNav { "?." }
+  NotNull { "!!" }
+  NotIs { "!is" }
+  NotIn { "!in" }
+
+  LineComment[isolate] {
+    "//" ![\n]*
+  }
+
+  BlockComment[isolate] { "/*" blockCommentRest }
+
+  blockCommentRest { ![*] blockCommentRest | "*" blockCommentAfterStar }
+
+  blockCommentAfterStar { "/" | "*" blockCommentAfterStar | ![/*] blockCommentRest }
+
+  @precedence { LineComment, Asterisk }
+  @precedence { BlockComment, Asterisk }
+  @precedence { LineComment, "/" }
+  @precedence { FloatingPointLiteral, "." }
+  @precedence { Elvis, "?" }
+  @precedence { SafeNav, "." }
+  @precedence { NotNull, "!" }
+  @precedence { NotIs, "!" }
+  @precedence { NotIn, "!" }
+  @precedence { "..<", ".." }
+}
+
+@external tokens stringTokens from "./tokens.js" { stringContent, Escape, interpolationStart, SimpleInterpolation, stringEnd, stringEndTriple }
+
+@context trackStrings from "./tokens.js"
+
+@detectDelim

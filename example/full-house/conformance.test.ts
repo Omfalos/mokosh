@@ -107,7 +107,7 @@ const BASELINE: Record<string, LangSummary> = {
   gherkin: { files: 1, withImports: 0, withResolvedImports: 0, withExports: 0, withCallEdges: 0, withComplexity: 0 },
   markdown: { files: 1, withImports: 1, withResolvedImports: 1, withExports: 0, withCallEdges: 0, withComplexity: 0 },
   java: { files: 2, withImports: 1, withResolvedImports: 1, withExports: 2, withCallEdges: 1, withComplexity: 2 },
-  kotlin: { files: 3, withImports: 3, withResolvedImports: 3, withExports: 3, withCallEdges: 0, withComplexity: 0 },
+  kotlin: { files: 3, withImports: 3, withResolvedImports: 3, withExports: 3, withCallEdges: 1, withComplexity: 0 },
   scala: { files: 1, withImports: 1, withResolvedImports: 1, withExports: 1, withCallEdges: 0, withComplexity: 0 },
   groovy: { files: 3, withImports: 1, withResolvedImports: 1, withExports: 1, withCallEdges: 0, withComplexity: 0 },
 };
