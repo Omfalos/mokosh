@@ -207,4 +207,105 @@ class Client {
     expect(cognitiveComplexity).toBeUndefined();
     expect(functions).toBeUndefined();
   });
+
+  // These four cases previously tripped the error-ratio gate above — not because a single
+  // annotation's own span was large, but because a parenthesized argument list or an unrecognized
+  // use-site target (anything but `file:`) sent @lezer's error recovery cascading through
+  // everything after it until the next resync point, corrupting far more of the file than the
+  // annotation itself. Dogfooding against a local square/okhttp checkout found this hit 25/339
+  // real files (7.4%) — see src/parser/lang/kotlin/PROGRESS.md's "Annotation-argument and
+  // use-site-target support" section.
+  test("file-level annotation with arguments no longer trips the error-ratio gate", () => {
+    const { complexity } = parseKotlin(
+      "src/main/kotlin/p/Client.kt",
+      `@file:OptIn(ExperimentalApi::class)
+
+package p
+
+class Client {
+  fun run(): Int { return 1 }
+}`,
+    );
+    expect(complexity).toBeDefined();
+  });
+
+  test("declaration annotation with arguments no longer trips the error-ratio gate", () => {
+    const { complexity } = parseKotlin(
+      "src/main/kotlin/p/Client.kt",
+      `package p
+class Client {
+  @Deprecated("use run2", ReplaceWith("run2()"))
+  fun run(): Int { return 1 }
+}`,
+    );
+    expect(complexity).toBeDefined();
+  });
+
+  test("non-file use-site target with arguments (@get:) no longer trips the error-ratio gate", () => {
+    const { complexity } = parseKotlin(
+      "src/main/kotlin/p/Client.kt",
+      `package p
+class Client(
+  @get:JvmName("isReady") val ready: Boolean,
+) {
+  fun run(): Int { return 1 }
+}`,
+    );
+    expect(complexity).toBeDefined();
+  });
+
+  test("bare no-argument annotation still parses (regression check)", () => {
+    const { complexity } = parseKotlin(
+      "src/main/kotlin/p/Client.kt",
+      `package p
+class Client {
+  @JvmStatic
+  fun run(): Int { return 1 }
+}`,
+    );
+    expect(complexity).toBeDefined();
+  });
+
+  // `class Foo private constructor(...)` previously collapsed the entire rest of the class body
+  // into a single bogus top-level `FunctionDeclaration` named "constructor" (its `Block` swallowing
+  // every subsequent member as unreachable `LocalFunctionDeclaration` statement nodes) — silent,
+  // not gated by ERROR_RATIO_THRESHOLD, since no error nodes were produced. File-level complexity
+  // stayed correct (it walks every node type-agnostically) while the per-function breakdown lost
+  // every member after the constructor. Fixed by giving `PrimaryConstructor` its own leading
+  // `modifier*` (kotlin.grammar) — see src/parser/lang/kotlin/PROGRESS.md's "private constructor(...)"
+  // section. Dogfooding against square/okhttp found 39 real files use this exact pattern.
+  test("modifier before `constructor` doesn't swallow the rest of the class (private constructor)", () => {
+    const { functions } = parseKotlin(
+      "src/main/kotlin/p/Cookie.kt",
+      `package p
+class Cookie private constructor(
+  val name: String,
+) {
+  fun matches(): Boolean {
+    return true
+  }
+
+  override fun equals(other: Any?): Boolean = other is Cookie
+}`,
+    );
+    expect(functions).toEqual([
+      { name: "Cookie.matches", line: 5, complexity: 1, cognitiveComplexity: 0 },
+      { name: "Cookie.equals", line: 9, complexity: 1, cognitiveComplexity: 0 },
+    ]);
+  });
+
+  test("modifier before `constructor` doesn't swallow the rest of the class (internal constructor)", () => {
+    const { functions } = parseKotlin(
+      "src/main/kotlin/p/Widget.kt",
+      `package p
+class Widget internal constructor(
+  val id: String,
+) {
+  fun run(): Int { return 1 }
+}`,
+    );
+    expect(functions).toEqual([
+      { name: "Widget.run", line: 5, complexity: 1, cognitiveComplexity: 0 },
+    ]);
+  });
 });

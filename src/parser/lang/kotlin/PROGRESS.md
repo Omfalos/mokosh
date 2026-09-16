@@ -398,6 +398,132 @@ error-density gate, `docs/language-support.md` + `docs/known_issues/08-cross-lan
 `example/full-house` conformance baseline regenerated. Full suite (`npm test`, 1810 tests) and
 `npm run typecheck` both pass clean.
 
+## Choice-count warnings fixed (2026-09-16)
+
+`yarn build`'s grammar-generation step was printing two non-fatal `@lezer/generator` warnings:
+`ClassDeclaration is generating a lot (128) of choices` and `PropertyDeclaration is generating a
+lot (192) of choices` — a combinatorial-explosion advisory from the LR table builder, not a build
+failure, caused by each rule chaining several independent optional (`?`) pieces after its own
+`modifier*` prefix.
+
+First attempt — capitalizing `modifier` → `Modifier` (so it gets its own tree node instead of
+being inlined into every caller) — was tried on the theory that `modifier`'s 28-way keyword
+alternation was being folded into each caller's choice count. It produced **zero change** (same
+128/192 after rebuild), disproving that theory, and was reverted. The actual driver is the chain
+of optional pieces within `ClassDeclaration`/`PropertyDeclaration` themselves, not `modifier`.
+
+Fix that worked: pulled each rule's middle cluster of optional pieces into its own lowercase
+(inlined, no new tree node) sub-rule — `classTail` (`PrimaryConstructor?`/`DelegationSpecifiers?`/
+`TypeConstraints?`) and `propertyTail` (`(":" type)?`/`TypeConstraints?`). Both sub-rules already
+match empty on their own, so no grammatical change — the parent rule just sees one slot for the
+whole cluster instead of N independent binary choices, bounding the combinatorial product inside
+the smaller sub-rule instead of multiplying it across the whole parent. Both warnings are gone
+after rebuild; no new hard LR conflicts; full suite (`npm test`, 1810 tests) and `npm run
+typecheck` both pass clean; `kotlin-grammar-smoke-test.mjs` against `example/full-house`'s three
+.kt fixtures shows the same error-node counts as before the change (1 pre-existing error node in
+`Repositories.kt`, confirmed present on the pre-change baseline too).
+
+## Annotation-argument and use-site-target support (2026-09-16)
+
+Dogfooding against a local square/okhttp checkout (`analyze()` + `find_complex_functions()` on the
+`okhttp` package, 339 real `.kt` files) found complexity/call-edges silently skipped on 25/339
+(~7.4%) — all above `ERROR_RATIO_THRESHOLD`. Root-caused via a throwaway error-ratio scan script
+(not committed; `scripts/kotlin-corpus-gate.mjs` already does the same job for future use) plus
+per-file error-node dumps: not 25 unrelated gaps, overwhelmingly one class of gap, compounded by
+how @lezer's error recovery works.
+
+**The two real gaps**, both already flagged in `annotationUse`'s old comment as deliberately cut:
+1. `annotationUse` had zero support for annotation arguments (`@Foo(bar = 1)`) — matched only the
+   name.
+2. `annotationUse` only recognized `ckw<"file">` as a use-site target — `@get:`/`@set:`/`@param:`
+   etc. (real Kotlin syntax, and OkHttp's standard idiom for exposing a constructor property under
+   a JVM-friendly name, `@get:JvmName("x") val x: T`) didn't match at all.
+
+**Why the damage was so disproportionate:** hitting either gap didn't just leave one small
+unparsed span — @lezer's error recovery cascaded from that point until it could resynchronize,
+corrupting everything after it. One file had a single `@file:OptIn(Foo::class)` line at the top
+produce error nodes spanning its *entire* import block below. A third, previously-unknown gap
+compounded this for every `@file:` case specifically: `@top Program` never had a leading
+`annotationUse*` slot at all — `annotationUse` was only ever reachable via a declaration's
+`modifier*`, never at `Program` level — so a leading `@file:X` failed to parse *even with no
+arguments*, and its cascade corrupted the whole file, package line and all.
+
+**Fix, in three isolated, individually-reverted-on-failure steps** (each rebuilt + full-suite +
+`example/full-house` smoke-tested before the next):
+1. `useSiteTarget { ckw<"file"> | ckw<"property"> | ckw<"field"> | ckw<"get"> | ckw<"set"> |
+   ckw<"receiver"> | ckw<"param"> | ckw<"setparam"> | ckw<"delegate"> }` — the real Kotlin
+   use-site-target list. `get`/`set` reuse the same `ckw<>` terminals `PropertyAccessor` already
+   declares (no new terminals). Clean build alone; by itself barely moved the skip count (expected
+   — still missing argument support).
+2. `annotationUse { "@" (useSiteTarget ":")? dottedName (!greedy ArgumentList)? }` — reuses the
+   existing `ArgumentList`/`callArgument` machinery already used by `ConstructorInvocation`/
+   `EnumEntry`/`CallExpression`, gated by the same `!greedy` pattern this grammar uses at every
+   other "optional trailing piece vs. next sibling" ambiguity. **Built clean on the first attempt**
+   — the historical "pulling expression into the modifier soup exploded the automaton" note (see
+   `annotationUse`'s old comment, kept below for context) evidently didn't apply with `!greedy` in
+   place; this is worth remembering before assuming that note forecloses future modifier-soup work.
+3. `@top Program { (!greedy annotationUse)* PackageHeader? ImportHeader* topLevelDeclaration* }` —
+   gives `Program` its own leading annotation slot. First attempt (`annotationUse*`, no `!greedy`)
+   hit an immediate hard `GenError` (reduce/reduce conflict between `modifier -> annotationUse` and
+   `annotationUse+ -> annotationUse` — genuinely ambiguous which repetition a leading `@...`
+   belongs to). Adding `!greedy` — the same fix pattern as step 2 — resolved it clean on the retry.
+
+**Result:** skipped-file count on the okhttp corpus dropped from 25/339 to **0/339**; overall
+error-span ratio 1.26% → 0.46%; fully-clean-parse files 68/339 (20%) → 96/339 (28%). No previously
+error-free file regressed (verified via `kotlin-corpus-gate.mjs`'s clean-parse count, not just the
+worst-N list). Full suite (`npm test`, 1810 tests) and `npm run typecheck` pass clean; new coverage
+added to `kotlin.complexity.test.ts` (file-level annotation args, declaration annotation args,
+non-`file` use-site target with args, bare no-arg annotation regression check) since this file had
+zero prior annotation coverage.
+
+## `private constructor(...)` mis-scoping fixed (2026-09-16)
+
+Follow-up dogfooding after the annotation-argument fix above found a real regression: okhttp's
+`Cookie.kt` (and `ConnectionSpec.kt`) lost `equals`/`toString`/etc. from `find_complex_functions`'s
+per-function breakdown, while the file-level aggregate complexity stayed high — a visible
+inconsistency (e.g. Cookie.kt: file complexity 83/cognitive 147, but the enumerated `functions`
+array summed to a small fraction of that and was missing exactly the functions a human would flag
+as hotspots).
+
+**Root cause:** `class Cookie private constructor(...)` — a modifier directly before the
+`constructor` keyword — hits a pre-existing, already-documented grammar gap (`PrimaryConstructor`
+deliberately had no leading `modifier*`, see `docs/adr-021-kotlin-parsing.md`'s scope-cuts table).
+That doc undersold the actual damage, confirmed by diffing tree shape before/after with a minimal
+repro:
+- **Pre-annotation-fix baseline:** the ambiguity already mis-scoped every subsequent class member —
+  `equals`/`matches`/etc. ended up as `FunctionDeclaration` nodes with `parent: Program` (top
+  level) instead of nested in the class's `ClassBody`. Wrong owner attribution, but still
+  individually discoverable.
+- **Post-annotation-fix:** the *same* input resolved the ambiguity differently — it collapsed into
+  one bogus top-level `FunctionDeclaration` named `"constructor"` whose `Block` body swallowed the
+  entire rest of the class as statement content. Every subsequent method became a
+  `LocalFunctionDeclaration` (not `FunctionDeclaration`) buried inside that block —
+  `collectFunctionComplexity`'s cursor walk (`src/parser/complexity/kotlin.ts`) only matches
+  `FunctionDeclaration`/`SecondaryConstructor`, so those members vanished from both the per-function
+  list and call-edge extraction, while `computeComplexity`'s type-agnostic whole-tree walk still
+  (correctly) counted their cost in the file-level aggregate. Neither shape produces error nodes, so
+  `ERROR_RATIO_THRESHOLD` never caught it — a silent structural mis-parse, always wrong, just wrong
+  in a *worse* way after the annotation fix widened how much content the mis-parse swallowed.
+
+**Fix:** `PrimaryConstructor { modifier* (!greedy ckw<"constructor">)? "(" commaSep<ClassParameter>
+")" }` — added the missing leading `modifier*`. Built clean on the **first attempt**, no `!greedy`
+even needed on the new `modifier*` itself (the existing `!greedy` on `ckw<"constructor">` was
+enough) — the original "ambiguous against the next sibling's modifier soup" theory didn't hold once
+actually tried, same lesson as the annotation-argument fix above. Verified via tree-shape diff (all
+21 real members of okhttp's `Cookie.kt` now correctly nested under `ClassBody`, not scattered across
+`Program`/buried in a bogus `Block`), no new choice-count warnings on `ClassDeclaration`/
+`PropertyDeclaration` (both fixed earlier today, re-checked since this rule sits right next to
+them), full suite (1814 tests) + `npm run typecheck` pass clean, corpus re-scan shows further
+improvement (error ratio 0.46% → 0.449%, clean-parse files 96 → 98, no regression). Two new
+regression tests added to `kotlin.complexity.test.ts` (`private constructor`, `internal
+constructor`) asserting every subsequent member surfaces correctly scoped — this exact regression
+had zero prior test coverage. Dogfooding found 39 real okhttp files use this pattern.
+
+**Not fixed, same gap class, not yet attempted:** `private set`/`get`/`set` accessors still don't
+accept a leading modifier (`PropertyAccessor` has the identical "no leading `modifier*`" comment,
+`docs/adr-021-kotlin-parsing.md`'s scope-cuts table) — worth trying the same fix if it turns out to
+matter in practice, but out of scope for this pass.
+
 ## How to resume
 
 Phase 2 is done. Remaining work is Phase 0b (grammar coverage growth, as-needed) per the main plan

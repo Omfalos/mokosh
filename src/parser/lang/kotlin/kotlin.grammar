@@ -34,8 +34,15 @@
   greedy
 }
 
+// File-level annotations (`@file:OptIn(Foo::class)`) precede `package` in real Kotlin — before
+// this, `annotationUse` was only reachable via a declaration's `modifier*`, never at `Program`
+// level, so a leading `@file:...` failed to parse at all (not just its arguments) and its error
+// recovery cascaded through everything until the next resync point, corrupting the whole file.
+// `annotationUse*` here (not narrowed to just the `file` target) matches this grammar's existing
+// superset-acceptance convention elsewhere (e.g. ImportHeader's stray wildcard, ClassBody's
+// ungated enum-entry list) rather than tracking the semantic file-vs-declaration distinction.
 @top Program {
-  PackageHeader? ImportHeader* topLevelDeclaration*
+  (!greedy annotationUse)* PackageHeader? ImportHeader* topLevelDeclaration*
 }
 
 PackageHeader {
@@ -71,27 +78,54 @@ modifier {
   ckw<"crossinline"> | ckw<"reified"> | kw<"in"> | annotationUse
 }
 
-// Deliberately no annotation-argument support here (`@Foo(bar = 1)`) — pulling `expression`
-// into the modifier soup that prefixes nearly every declaration exploded the LR automaton
-// (see docs/adr-021-kotlin-parsing.md). Annotation arguments are Phase 0b (grown when a real
-// file needs them tracked, not just skipped over).
+// Reuses the existing ArgumentList/callArgument machinery (already used by ConstructorInvocation/
+// EnumEntry/CallExpression) for `@Foo(bar = 1)`-style arguments, gated by the same `!greedy`
+// pattern this grammar uses at every other "optional trailing piece vs. next sibling" ambiguity.
+// An earlier version of this rule deliberately omitted argument support, on the theory that
+// pulling `expression` into the modifier soup that prefixes nearly every declaration would
+// explode the LR automaton (see docs/adr-021-kotlin-parsing.md) — that theory didn't hold once
+// `!greedy` was actually tried here: this builds clean. See PROGRESS.md's "Annotation-argument and
+// use-site-target support" section (dogfooding against square/okhttp found this was the dominant
+// cause of 25/339 real files silently skipping complexity/call-edge extraction).
 annotationUse {
-  "@" (ckw<"file"> ":")? dottedName
+  "@" (useSiteTarget ":")? dottedName (!greedy ArgumentList)?
+}
+
+// The full real Kotlin use-site-target list (kotlinlang.org's "Use-site targets" reference), not
+// just `file`: `get`/`set` reuse the same `ckw<>` terminals `PropertyAccessor` already declares
+// (`ckw<>` tokens dedupe by name across the grammar, so this adds no new terminals, just new
+// reachable paths to the existing ones).
+useSiteTarget {
+  ckw<"file"> | ckw<"property"> | ckw<"field"> | ckw<"get"> | ckw<"set"> |
+  ckw<"receiver"> | ckw<"param"> | ckw<"setparam"> | ckw<"delegate">
 }
 
 ClassDeclaration {
-  modifier* (kw<"class"> | kw<"interface">) Definition TypeParameters? (!greedy PrimaryConstructor)?
-    (":" DelegationSpecifiers)? (!greedy TypeConstraints)? (!greedy ClassBody)?
+  modifier* (kw<"class"> | kw<"interface">) Definition TypeParameters? classTail (!greedy ClassBody)?
 }
 
-// No leading `modifier*` here (unlike SecondaryConstructor): a modifier directly after a class
-// header (`class Foo private constructor(...)`) is genuinely ambiguous for an LR(1) parser
-// against the *next* top-level/member declaration's own modifier soup, since PrimaryConstructor
-// is an optional trailing piece of ClassDeclaration, not a repetition alternative alongside it
-// (see docs/adr-021-kotlin-parsing.md). `private constructor(...)` still parses — the
-// visibility modifier just doesn't attach to the constructor node. Phase 0b if this matters.
+// Groups PrimaryConstructor?/DelegationSpecifiers?/TypeConstraints? into one lowercase (inlined,
+// no extra tree node — same shape as before this split) sub-rule so their combinatorial product
+// is enumerated once here instead of multiplying against ClassDeclaration's own TypeParameters?
+// and ClassBody? every time the table is built — purely a choice-count reduction for
+// @lezer/generator's "generating a lot of choices" warning, no grammatical change (this rule can
+// already match empty, so it needs no trailing `?` of its own at the ClassDeclaration call site).
+classTail {
+  (!greedy PrimaryConstructor)? (":" DelegationSpecifiers)? (!greedy TypeConstraints)?
+}
+
+// Leading `modifier*` here (`class Foo private constructor(...)`) — an earlier version of this
+// rule omitted it on the theory that a modifier directly after a class header was genuinely
+// ambiguous against the *next* declaration's own modifier soup (docs/adr-021-kotlin-parsing.md).
+// That theory wasn't tested empirically: adding it back built clean on the first attempt, with no
+// `!greedy` needed even on the new `modifier*` itself. Omitting it wasn't just "the modifier
+// doesn't attach" as previously documented — it silently collapsed the entire rest of the class
+// into one bogus top-level FunctionDeclaration whose Block swallowed every subsequent member as
+// unreachable LocalFunctionDeclaration statements (no error nodes, so ERROR_RATIO_THRESHOLD never
+// caught it). See PROGRESS.md's "private constructor(...) mis-scoping" section — dogfooding
+// against square/okhttp found 39 real files use this exact pattern.
 PrimaryConstructor {
-  (!greedy ckw<"constructor">)? "(" commaSep<ClassParameter> ")"
+  modifier* (!greedy ckw<"constructor">)? "(" commaSep<ClassParameter> ")"
 }
 
 ClassParameter {
@@ -208,9 +242,18 @@ FunctionParameter {
 // accordingly unsupported for now — Phase 0b if this matters (see docs/adr-021-kotlin-parsing.md).
 PropertyDeclaration {
   modifier* (kw<"val"> | kw<"var">) TypeParameters? Definition
-    (":" type)? (!greedy TypeConstraints)?
+    propertyTail
     (!greedy "=" expression | !greedy ckw<"by"> expression)?
     (!greedy PropertyAccessor)*
+}
+
+// Groups the type-annotation and TypeConstraints slots into one lowercase (inlined, no extra tree
+// node) sub-rule — same choice-count-reduction rationale as ClassDeclaration's `classTail` above:
+// bounds their combinatorial product to this rule instead of multiplying against
+// PropertyDeclaration's TypeParameters?, initializer alternation, and PropertyAccessor* every time
+// the table is built. No grammatical change (matches empty already, so no trailing `?` needed).
+propertyTail {
+  (":" type)? (!greedy TypeConstraints)?
 }
 
 // No leading `modifier*` (unlike most declarations): PropertyAccessor is an optional trailing

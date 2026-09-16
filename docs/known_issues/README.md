@@ -11,6 +11,7 @@ dependencies.
 | 7 | [`07-per-language-analysis-semantics.md`](07-per-language-analysis-semantics.md) | Analyses treat every language like JS/TS; JVM data shapes, idiom exclusion, and the per-language config surface still go undetected/unbuilt (CSS vars + TS types shipped in phase 1) |
 | 8 | [`08-cross-language-reliability.md`](08-cross-language-reliability.md) | Umbrella: uneven feature parity across languages. **8a/8b/8d shipped** (parity matrix + `LANGUAGE_FIDELITY` + `analyze` `fidelity`; `example/full-house/conformance.test.ts` drift guard; per-tool `caveats`; resolver try/catch + robustness tests). **8c partially shipped** (JVM import-symbol tracking; Kotlin test-tag strategy). Remaining 8c: Kotlin call edges/complexity, Groovy audit, Coffee/LS/Lua |
 | 9 | [`09-duplicate-clone-family-noise.md`](09-duplicate-clone-family-noise.md) | `find_duplicates` reports one row per LCP-tree node instead of per clone family; connected-component clustering for the remaining non-nested cases still open (dominance filter shipped) |
+| 11 | [`11-disk-cache-not-invalidated-by-mokosh-version.md`](11-disk-cache-not-invalidated-by-mokosh-version.md) | `clear_cache` only drops in-memory state; the on-disk per-package workspace cache is keyed off the target repo's source digest only, so it silently keeps serving stale results after a mokosh code change until `mokosh-cache/` is deleted by hand |
 
 ## Fixed
 

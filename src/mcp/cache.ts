@@ -664,6 +664,11 @@ export class SessionState {
    *   mid-session and calling `clear_cache` would rebuild the graph but keep applying the
    *   stale config. Use after editing source files (or config) mid-session to ensure
    *   subsequent queries reflect the updated state.
+   *   NOTE: in-memory only — does not touch the on-disk per-package workspace cache
+   *   (`<root>/mokosh-cache/workspace/`, see `src/graph/workspace/disk-cache.ts`), which is keyed
+   *   off the target repo's own source digest and so stays "fresh" (and gets re-hydrated) across a
+   *   mokosh code/build change with no target-repo edits. See
+   *   docs/known_issues/11-disk-cache-not-invalidated-by-mokosh-version.md — fix planned next.
    * @param root - Absolute path of the project root to invalidate.
    * @returns `true` if a cached graph existed and was removed, `false` if nothing was cached.
    */
