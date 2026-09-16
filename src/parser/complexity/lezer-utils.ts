@@ -59,3 +59,27 @@ export function errorRatio(tree: Tree, content: string): number {
   });
   return errorChars / content.length;
 }
+
+/**
+ * @description Reports whether a subtree contains *any* error node — the localized, zero-
+ *   tolerance twin of {@link errorRatio}'s whole-file percentage threshold. A percentage doesn't
+ *   work at function scope: dogfooding OkHttp surfaced a real Kotlin case
+ *   (`DiskLruCache.close`) where a `Block` failed to close at its own `}` and silently swallowed
+ *   several subsequent sibling declarations — including one hitting this grammar's documented
+ *   "no local classes" gap — inflating that one function's cyclomatic complexity from ~4 to 46.
+ *   The error nodes involved were real but nearly zero-width (the generator's recovery inserts a
+ *   point error rather than marking a wide span), so a *ratio* against that swallowed span's
+ *   length stayed under 1% — well under any file-level threshold — even though the shape was
+ *   completely wrong. A function body is small enough that *any* error node inside it is already
+ *   a reliable "don't trust this" signal, unlike a whole file where one unrelated gap elsewhere
+ *   shouldn't void every other function.
+ * @param {SyntaxNode} node - The subtree to inspect (typically a function/method body).
+ * @returns {boolean} `true` if any descendant (or the node itself) is an error node.
+ */
+export function nodeHasError(node: SyntaxNode): boolean {
+  let found = false;
+  node.cursor().iterate((n) => {
+    if (n.type.isError) found = true;
+  });
+  return found;
+}

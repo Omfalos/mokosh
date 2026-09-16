@@ -1,11 +1,12 @@
-# Kotlin grammar (Phase 0) — progress snapshot
+# Kotlin grammar — progress snapshot
 
 Resume point for the "first-party Kotlin Lezer grammar" work (plan name: **"Kotlin support: call
 edges + complexity via a first-party Lezer grammar"**, saved at
 `/Users/karolmachulski/.claude/plans/gleaming-petting-goose.md` — see that file for the full
 multi-phase plan).
-This file covers **Phase 0 only** (author the grammar + build step + ADR). Phases 1/2 (hybrid
-integration into `src/parser/lang/kotlin.ts`, complexity, call edges) are **not started**.
+Phases 0 (grammar + build step + ADR), 1 (hybrid integration + call edges), and 2 (complexity) are
+all **shipped**. Remaining work is Phase 0b (grammar coverage growth, as-needed) — see "How to
+resume" at the bottom.
 
 ## Status: grammar builds clean and parses real Kotlin correctly
 
@@ -360,11 +361,47 @@ in `src/graph/language-support.ts` (now `"partial"`, matching Java's level), the
 baseline (`Repositories.kt`'s `Core.shout(...)` aliased-import call now shows up: kotlin's
 `withCallEdges` is 1/3).
 
+## Phase 2 — shipped (2026-09-16)
+
+`computeCyclomaticComplexity`/`computeCognitiveComplexity`/`collectFunctionComplexity` added to
+`src/parser/complexity/kotlin.ts`, mirroring `complexity/java.ts`'s shape. Handles this grammar's
+own quirks (documented inline in the file's module doc comment): `&&`/`||` surface as bare
+literal-token nodes rather than a wrapping `LogicOp`-style node; `else if` reaches the tree one
+level deeper than Java's shape (`ExpressionStatement > IfExpression`); every brace body —
+including a plain `if`/`while`/`for`/`when` control-flow body — is tagged `LambdaLiteral`, not
+`Block`, so a `isControlFlowBodyBrace` check excludes those from the closure-nesting penalty a
+real lambda gets.
+
+A **per-function** error gate (`!nodeHasError(body)`, zero-tolerance, not a percentage) was added
+to `collectFunctionComplexity` specifically — motivated by a real OkHttp case
+(`DiskLruCache.close`) where a file-wide error ratio stayed under 1% while that one function's body
+alone was severely corrupted, inflating cyclomatic complexity from ~4 to 46. **This gate does not
+apply to `collectCallEdges`** — an early draft added the same gate there too, which broke Phase 1's
+`collectInfixMisparseEdges` recovery path (that function exists specifically to recover edges from
+bodies *containing* error nodes, so a zero-tolerance gate silently zeroed out the two dedicated
+regression tests for it). Caught by running the full suite after the gate helper was wired up; fixed
+by scoping the gate to `collectFunctionComplexity` only. Lesson for any future per-node-type gate
+in this file: check whether a recovery function downstream expects to see error nodes before
+gating its caller on their absence.
+
+Also fixed in the same pass: the gate helper was originally written against a function name
+(`nodeErrorRatio`) that was never defined in `lezer-utils.ts` (only `errorRatio`, whole-tree, and
+`nodeHasError`, boolean, exist) — a `ReferenceError` on every call, silently swallowed by
+`kotlin.ts`'s failure-isolation try/catch, so `functions`/call edges both silently degraded to
+`undefined`/regressed with no visible error. Caught by the qualified-method-naming test returning
+`undefined` and the conformance baseline's `withCallEdges` dropping 1→0.
+
+Closed out: `FUNCTION_COMPLEXITY_TYPES` gained `"kotlin"`, `LANGUAGE_FIDELITY.kotlin.complexity`
+flipped `"none"`→`"partial"`, `FIDELITY_CAVEAT.kotlin.complexity` rewritten to describe the
+error-density gate, `docs/language-support.md` + `docs/known_issues/08-cross-language-reliability.md`
++ `docs/plans/jvm-support-followups.md` updated, dedicated `kotlin.complexity.test.ts` (12 tests),
+`example/full-house` conformance baseline regenerated. Full suite (`npm test`, 1810 tests) and
+`npm run typecheck` both pass clean.
+
 ## How to resume
 
-Move to Phase 2 (complexity) per the main plan file
-(`/Users/karolmachulski/.claude/plans/gleaming-petting-goose.md`). Phase 2's own complexity scoring
-will walk the same tree and inherits the same newline-sensitivity gap for any construct that cares
-about statement boundaries — the `InfixExpression` mis-nesting shapes documented above are the
-concrete case to watch for, and the same tree-walking-recovery approach (rather than another
-grammar-level attempt) is the proven path if it causes trouble there too.
+Phase 2 is done. Remaining work is Phase 0b (grammar coverage growth, as-needed) per the main plan
+file (`/Users/karolmachulski/.claude/plans/gleaming-petting-goose.md`) — no specific trigger queued;
+add rules when a real construct trips the error-density gate or a corpus file. The known
+`InfixExpression` gap (a *with-arguments* constructor call immediately following another statement
+with no separator still loses its edge, see Phase 1 above) remains open and untouched by Phase 2.

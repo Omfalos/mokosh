@@ -55,6 +55,7 @@ export const FUNCTION_COMPLEXITY_TYPES: ReadonlySet<FileType> = new Set<FileType
   "go",
   "python",
   "java",
+  "kotlin",
 ]);
 
 /** File types with a dedicated test-tag strategy (`src/tags/strategies/`) — a framework-aware
@@ -185,7 +186,7 @@ export const LANGUAGE_FIDELITY: Record<FileType, LanguageFidelity> = {
   python: f("full", "partial", "partial", "full", "full", "partial", "partial", "full"),
   go: f("full", "partial", "none", "full", "full", "partial", "partial", "full"),
   java: f("partial", "partial", "partial", "partial", "full", "partial", "partial", "full"),
-  kotlin: f("partial", "partial", "partial", "partial", "none", "partial", "partial", "full"),
+  kotlin: f("partial", "partial", "partial", "partial", "partial", "partial", "partial", "full"),
   scala: f("partial", "partial", "partial", "none", "none", "partial", "partial", "full"),
   groovy: f("partial", "partial", "partial", "none", "none", "partial", "partial", "full"),
   coffeescript: f("partial", "partial", "none", "none", "none", "partial", "partial", "none"),
@@ -244,7 +245,8 @@ const FIDELITY_CAVEAT: Partial<Record<FileType, Partial<Record<keyof LanguageFid
         "one symbol per import (the FQN's last segment); wildcard imports carry none, and re-exports aren't tracked",
       callEdges:
         "static/qualified calls and constructors only (via the first-party Kotlin grammar, ADR-021), not virtual dispatch; single-level qualifiers only (`a.b()`, not `a.b.c()`); wildcard-imported qualifiers don't resolve; the grammar has no newline-sensitivity (ASI), so two consecutive statements with no separator can mis-nest — qualified calls (`Bar.other(2)`) and no-argument constructor calls (`Bar()`) as the second statement are recovered, but a *with-arguments* constructor call there (`Bar(1)`) still loses its edge",
-      complexity: "not computed — Kotlin needs its own grammar (issue 8c)",
+      complexity:
+        "via the first-party Kotlin grammar (ADR-021); skipped entirely (no score, not a wrong one) above the 5% error-node-density gate shared with call edges",
     },
     scala: {
       importResolution:

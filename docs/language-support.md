@@ -40,7 +40,7 @@ graph, under `languageCoverage[].fidelity`.
 | `python` | full | partial | partial | full | full | partial | partial | full |
 | `go` | full | partial | none | full | full | partial | partial | full |
 | `java` | partial | partial | partial | partial | full | partial | partial | full |
-| `kotlin` | partial | partial | partial | partial | none | partial | partial | full |
+| `kotlin` | partial | partial | partial | partial | partial | partial | partial | full |
 | `scala` | partial | partial | partial | none | none | partial | partial | full |
 | `groovy` | partial | partial | partial | none | none | partial | partial | full |
 | `coffeescript` | partial | partial | none | none | none | partial | partial | none |
@@ -88,17 +88,24 @@ Groovy (ScalaTest, JUnit/Spock), and Kotlin via the shared JUnit strategy
 **Scala / Groovy still have no call edges and no complexity** — the Java `@lezer` scanner is
 hand-rolled and doesn't port; each needs its own grammar (tracked as issue 8c).
 
-**Kotlin call edges** are now `partial`, via a first-party Kotlin `@lezer` grammar
-([ADR-021](./adr-021-kotlin-parsing.md)) rather than a port of Java's scanner. Same scope as
-Java's: static/qualified calls and constructor calls (incl. through an `as`-aliased import),
-resolved only when the qualifier is a known local import — not virtual dispatch, and only
-single-level qualifiers (`a.b()`, not `a.b.c()`). The grammar has no newline-sensitivity (ASI), so
-two statements in a row with no separator can mis-nest into one bogus tree shape; call-edge
-extraction recovers the qualified-call and no-argument-constructor-call shapes from that mis-nest,
-but a with-arguments constructor call (`Bar(1)`) as the second statement still loses its edge —
-see `src/parser/lang/kotlin/PROGRESS.md` for the underlying grammar limitation. Complexity is
-still `none` — Kotlin needs its own complexity/call-edge extraction to be added in a follow-up
-(the grammar and call edges are Phase 1 of that plan; complexity is Phase 2).
+**Kotlin call edges and complexity** are now both `partial`, via a first-party Kotlin `@lezer`
+grammar ([ADR-021](./adr-021-kotlin-parsing.md)) rather than a port of Java's scanner. Call edges
+are same scope as Java's: static/qualified calls and constructor calls (incl. through an
+`as`-aliased import), resolved only when the qualifier is a known local import — not virtual
+dispatch, and only single-level qualifiers (`a.b()`, not `a.b.c()`). The grammar has no
+newline-sensitivity (ASI), so two statements in a row with no separator can mis-nest into one
+bogus tree shape; call-edge extraction recovers the qualified-call and no-argument-constructor-call
+shapes from that mis-nest, but a with-arguments constructor call (`Bar(1)`) as the second statement
+still loses its edge — see `src/parser/lang/kotlin/PROGRESS.md` for the underlying grammar
+limitation. Complexity (`src/parser/complexity/kotlin.ts`) mirrors `complexity/java.ts`'s
+cyclomatic + cognitive scoring, with two Kotlin-specific quirks handled explicitly: this grammar
+gives no tree node at all to `&&`/`||` (an unnamed literal token is simply absent from the tree —
+their presence is instead read from the source text between a `BinaryExpression`'s two operand
+children), and every `{ ... }` brace — including an ordinary `if`/`while`/`for`/`when-entry` body,
+not just a real closure — is tagged `LambdaLiteral`, so a control-flow body brace is explicitly
+excluded from the "nested lambda adds a closure-nesting penalty" rule. Both call edges and
+complexity are skipped entirely (not degraded to a wrong number) above the same 5%
+error-node-density gate.
 
 **CoffeeScript / LiveScript / Lua** — resolution falls back to generic relative-path handling.
 No call edges, no complexity (backfill planned — see the language coverage roadmap). LiveScript

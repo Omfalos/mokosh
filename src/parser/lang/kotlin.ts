@@ -2,12 +2,19 @@
  *  declarations (imports/exports/tags/category — unchanged from the pre-grammar scanner, since
  *  the tree has no `typealias` rule and a tree-based export path would regress that construct),
  *  plus mokosh's own first-party @lezer grammar (see src/parser/lang/kotlin/PROGRESS.md,
- *  docs/adr-021-kotlin-parsing.md) layered on top purely additively for call-edge extraction. Any
- *  parse failure or high error-node density degrades silently to the regex-only output — never
- *  worse than before the grammar existed. */
+ *  docs/adr-021-kotlin-parsing.md) layered on top purely additively for call-edge extraction and
+ *  complexity scoring. Any parse failure or high error-node density degrades silently to the
+ *  regex-only output — never worse than before the grammar existed. Complexity is computed
+ *  whenever the error-ratio gate passes, regardless of category; call edges are additionally
+ *  skipped for test files (see {@link CALL_EDGES_ENABLED}). */
 
 import type { ExportedSymbol, ImportEdge } from "../../types/node";
-import { collectCallEdges } from "../complexity/kotlin";
+import {
+  collectCallEdges,
+  collectFunctionComplexity,
+  computeComplexity,
+  ERROR_RATIO_THRESHOLD,
+} from "../complexity/kotlin";
 import { errorRatio } from "../complexity/lezer-utils";
 import type { ParseResult, RawCallEdge } from "../types";
 import {
@@ -25,12 +32,6 @@ import { parser as kotlinParser } from "./kotlin/index";
  *  build the call-edge resolution map below — `ImportEdge` itself never retains it, matching the
  *  JVM-wide convention documented in `jvm-scan.ts`'s `importSymbolFromSpecifier`. */
 const IMPORT_RE = /^\s*import\s+([\w.]+(?:\.\*)?)(?:\s+as\s+(\w+))?\s*$/;
-
-/** Above this error-node-span ratio, the tree is untrustworthy enough that call-edge extraction
- *  is skipped entirely rather than risk emitting wrong edges — see `docs/adr-021-kotlin-parsing.md`
- *  and the Phase 1 corpus gate result it's based on (OkHttp: 1.02% overall, worst single-file
- *  outliers ~22%, all attributable to documented grammar scope cuts). */
-const ERROR_RATIO_THRESHOLD = 0.05;
 
 /** Call-edge extraction is implemented and correct for what it can see (no false positives
  *  demonstrated). A real grammar bug (no ASI/newline-sensitivity — consecutive bare-call
@@ -72,13 +73,15 @@ const PROP_DECL_RE = new RegExp(
  *   `ImportEdge` per `import` line plus a synthetic same-package edge (see {@link jvmPackageEdge}),
  *   collects top-level `class` / `interface` / `object` / `typealias` / `fun` / `val` names as
  *   exports, reads `// @tag name` markers, and — additively, via mokosh's own Kotlin grammar —
- *   resolvable call edges (see {@link collectCallEdges}). Call-edge extraction is skipped for test
- *   files, on a grammar-parse failure, or above {@link ERROR_RATIO_THRESHOLD} error-node density;
- *   in every one of those cases the rest of the result is identical to the pre-grammar scanner.
+ *   file/function complexity (see {@link computeComplexity}, {@link collectFunctionComplexity})
+ *   and resolvable call edges (see {@link collectCallEdges}). Complexity and call edges are both
+ *   skipped on a grammar-parse failure or above {@link ERROR_RATIO_THRESHOLD} error-node density;
+ *   call-edge extraction is additionally skipped for test files. In every one of those cases the
+ *   rest of the result is identical to the pre-grammar scanner.
  * @param filePath - Path to the `.kt` / `.kts` file; used for test-file classification.
  * @param content - Raw Kotlin source text.
  * @returns Parsed imports, exports, comment-marker tags, resolved category, and (when resolvable)
- *   raw call edges.
+ *   complexity, per-function complexity, and raw call edges.
  */
 export function parseKotlin(filePath: string, content: string): ParseResult {
   const tags = scanTagMarkers(content);
@@ -131,15 +134,19 @@ export function parseKotlin(filePath: string, content: string): ParseResult {
   );
 
   let rawCallEdges: RawCallEdge[] | undefined;
-  if (CALL_EDGES_ENABLED && category !== "test") {
-    try {
-      const tree = kotlinParser.parse(content);
-      if (errorRatio(tree, content) <= ERROR_RATIO_THRESHOLD) {
+  let complexityResult: ReturnType<typeof computeComplexity> | undefined;
+  let functions: ReturnType<typeof collectFunctionComplexity> | undefined;
+  try {
+    const tree = kotlinParser.parse(content);
+    if (errorRatio(tree, content) <= ERROR_RATIO_THRESHOLD) {
+      complexityResult = computeComplexity(tree.topNode, content);
+      functions = collectFunctionComplexity(tree, content);
+      if (CALL_EDGES_ENABLED && category !== "test") {
         rawCallEdges = collectCallEdges(tree, content, localNames);
       }
-    } catch {
-      // Grammar parse failure — degrade to the regex-only result, exactly as before the grammar.
     }
+  } catch {
+    // Grammar parse failure — degrade to the regex-only result, exactly as before the grammar.
   }
 
   return {
@@ -148,5 +155,7 @@ export function parseKotlin(filePath: string, content: string): ParseResult {
     tags: Array.from(tags).map((name) => ({ name, kind: "comment-marker" as const })),
     category,
     ...(rawCallEdges && rawCallEdges.length > 0 ? { rawCallEdges } : {}),
+    ...(complexityResult ?? {}),
+    ...(functions && functions.length > 0 ? { functions } : {}),
   };
 }

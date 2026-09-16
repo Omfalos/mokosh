@@ -57,6 +57,18 @@ Umbrella / tracking issue. Found dogfooding v0.5.0 (2026-09-03).
   trailing `;`, `enum class`/`: SuperType()` instead of Java's `enum`/`extends`). All three of
   Kotlin/Scala/Groovy now have a framework-aware test-tag strategy;
   `LANGUAGE_FIDELITY.kotlin.testTags` flipped `"none"` → `"full"`.
+- **8c — Kotlin complexity.** `src/parser/complexity/kotlin.ts` gained cyclomatic + cognitive
+  scoring (`computeComplexity`, `collectFunctionComplexity`), mirroring `complexity/java.ts`'s
+  shape but reusing the same error-ratio gate call edges already use (see ADR-021) — a low-
+  confidence parse skips complexity entirely rather than emitting a wrong score. Two grammar
+  quirks needed explicit handling: `&&`/`||` get no tree node at all (an unnamed literal token
+  under this grammar's `op<>` macro is never emitted — the operator has to be read from the
+  source text between a `BinaryExpression`'s two operand children instead), and every `{ ... }`
+  brace, including an ordinary `if`/`while`/`for`/`when`-entry body and not just a real closure,
+  is tagged `LambdaLiteral` — the "nested lambda adds a closure-nesting penalty" rule now
+  explicitly excludes a control-flow-body brace so a plain `if (x) { ... }` isn't miscounted as a
+  closure. `FUNCTION_COMPLEXITY_TYPES` gained `kotlin`; `LANGUAGE_FIDELITY.kotlin.complexity`
+  flipped `"none"` → `"partial"`. Kotlin now has call-edge + complexity parity with Java.
 - **Bugs found + fixed by the drift guard:** `FUNCTION_COMPLEXITY_TYPES` was missing `java`
   even though `src/parser/complexity/java.ts` fully populates per-function complexity — added.
   New `TEST_TAG_STRATEGY_TYPES` set added as the source of truth for the `testTags` axis.
@@ -69,10 +81,9 @@ Umbrella / tracking issue. Found dogfooding v0.5.0 (2026-09-03).
 
 ## Not done (issue stays open for 8c only)
 
-- **8c** — closing the remaining gaps: Kotlin call edges + complexity (needs a real grammar —
-  spike first; see `docs/adr-021-kotlin-parsing.md` once it lands), Groovy resolution/category
-  audit, Coffee/LS/Lua complexity + call edges, and the LiveScript export-tracking table fix
-  above. (JVM import-symbol tracking and the Kotlin test-tag strategy, also originally scoped
+- **8c** — closing the remaining gaps: Groovy resolution/category audit, Coffee/LS/Lua complexity
+  + call edges, and the LiveScript export-tracking table fix above. (Kotlin call edges +
+  complexity, JVM import-symbol tracking, and the Kotlin test-tag strategy, all originally scoped
   under 8c, are now shipped — see above.) The conformance harness now makes each of these a
   visible, regression-locked baseline change.
 - **8a harness scope** — `full-house` is one fixture with one file per language; per-language

@@ -62,13 +62,19 @@ calls through a variable are not captured (documented in ADR-017 limitations).
 
 ### 3. Coarse Kotlin / Scala complexity
 
-**Why:** no pure-JS AST, so today there is *zero* complexity signal for Kotlin (Android is
-Kotlin-first) and Scala. Approximate-but-present beats absent.
+**Kotlin — superseded, done** (2026-09-15). Kotlin got a real pure-JS AST after all (a
+first-party `@lezer` grammar, see ADR-021), so the brace-matched approximation below was never
+built for it: `src/parser/complexity/kotlin.ts` has real cyclomatic + cognitive scoring
+(`if`/`when`/`for`/`while`/`&&`/`||`/`?:`/`catch`, gated on the same error-ratio check call edges
+use), same shape as `complexity/java.ts`. `FUNCTION_COMPLEXITY_TYPES` gained `kotlin`;
+`LANGUAGE_FIDELITY.kotlin.complexity` is `"partial"`.
+
+**Scala — still open.** No pure-JS AST, so there is still *zero* complexity signal for Scala.
+Approximate-but-present beats absent.
 
 **Approach:** brace-matched cyclomatic approximation — find function bodies by brace matching in
-the existing scanner, count `if` / `when` / `for` / `while` / `&&` / `||` / `?:` / `catch`.
-~80% right, cheap. Ship for Kotlin at least. Leave `CALL_EDGE_TYPES` unset (call edges still
-need an AST).
+the existing scanner, count `if` / `match` / `for` / `while` / `&&` / `||` / `catch`. ~80% right,
+cheap. Leave `CALL_EDGE_TYPES` unset (call edges still need an AST).
 
 ### 4. Gradle / sbt dependency versions + multi-module (ADR-017 Phase 5–6)
 

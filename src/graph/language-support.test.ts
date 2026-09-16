@@ -240,7 +240,7 @@ describe("LANGUAGE_FIDELITY", { tags: ["LANGUAGE_FIDELITY", "FileType"] }, () =>
     expect(LANGUAGE_FIDELITY.typescript.duplication).toBe("partial"); // generic token pipeline
     expect(LANGUAGE_FIDELITY.java.importResolution).toBe("partial"); // index-based, issue 3
     expect(LANGUAGE_FIDELITY.kotlin.callEdges).toBe("partial");
-    expect(LANGUAGE_FIDELITY.kotlin.complexity).toBe("none");
+    expect(LANGUAGE_FIDELITY.kotlin.complexity).toBe("partial");
     for (const axis of AXES) expect(LANGUAGE_FIDELITY.unknown[axis]).toBe("none");
   });
 
@@ -292,12 +292,15 @@ describe("languageSupportNote", { tags: ["languageSupportNote", "Graph", "FileNo
     ).toBeUndefined();
   });
 
-  test("functionComplexity: go/python/ts supported, kotlin not", () => {
+  test("functionComplexity: go/python/ts/kotlin supported, scala not", () => {
     expect(
       languageSupportNote(makeGraph([makeNode("a.go", "go")]), "functionComplexity"),
     ).toBeUndefined();
     expect(
       languageSupportNote(makeGraph([makeNode("A.kt", "kotlin")]), "functionComplexity"),
+    ).toBeUndefined();
+    expect(
+      languageSupportNote(makeGraph([makeNode("A.scala", "scala")]), "functionComplexity"),
     ).toContain("per-function complexity");
   });
 
@@ -311,11 +314,11 @@ describe("languageSupportNote", { tags: ["languageSupportNote", "Graph", "FileNo
   });
 
   test("accepts an array of graphs (workspace) — undefined if any has a supported language", () => {
-    const kt = makeGraph([makeNode("A.kt", "kotlin")]);
+    const scala = makeGraph([makeNode("A.scala", "scala")]);
     const ts = makeGraph([makeNode("b.ts", "typescript")]);
-    expect(languageSupportNote([kt, ts], "functionComplexity")).toBeUndefined();
+    expect(languageSupportNote([scala, ts], "functionComplexity")).toBeUndefined();
     expect(
-      languageSupportNote([kt, makeGraph([makeNode("B.kt", "kotlin")])], "functionComplexity"),
+      languageSupportNote([scala, makeGraph([makeNode("B.scala", "scala")])], "functionComplexity"),
     ).toBeDefined();
   });
 
