@@ -1,5 +1,6 @@
 /** Maps file extensions to FileType enum values for use by the parser registry and graph builder. */
 import path from "node:path";
+import { fileTypeForExtension } from "../languages";
 import type { FileType } from "../types/parse";
 
 /**
@@ -9,59 +10,7 @@ import type { FileType } from "../types/parse";
  * @returns The `FileType` string corresponding to the file's language.
  */
 export function getFileType(filePath: string): FileType {
-  const ext = path.extname(filePath).toLowerCase();
-  switch (ext) {
-    case ".js":
-    case ".jsx":
-    case ".mjs":
-    case ".cjs":
-      return "javascript";
-    case ".ts":
-    case ".tsx":
-      return "typescript";
-    case ".css":
-      return "css";
-    case ".scss":
-    case ".sass":
-      return "scss";
-    case ".less":
-      return "less";
-    case ".styl":
-      return "stylus";
-    case ".coffee":
-      return "coffeescript";
-    case ".ls":
-      return "livescript";
-    case ".lua":
-      return "lua";
-    case ".py":
-      return "python";
-    case ".go":
-      return "go";
-    case ".java":
-      return "java";
-    case ".kt":
-    case ".kts":
-      return "kotlin";
-    case ".scala":
-    case ".sc":
-      return "scala";
-    case ".groovy":
-    case ".gradle":
-      return "groovy";
-    case ".cpp":
-    case ".cc":
-    case ".cxx":
-    case ".c":
-      return "unknown";
-    case ".feature":
-      return "gherkin";
-    case ".md":
-    case ".mdx":
-      return "markdown";
-    default:
-      return "unknown";
-  }
+  return fileTypeForExtension(path.extname(filePath).toLowerCase());
 }
 
 /**

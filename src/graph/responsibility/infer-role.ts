@@ -1,4 +1,5 @@
 /** Infers a coarse semantic role for a file node from its path and graph category. */
+import { getAdapter } from "../../languages";
 import type { FileNode } from "../../types/node";
 import type { ModuleRole } from "./types";
 
@@ -47,7 +48,7 @@ export function inferRole(node: FileNode): ModuleRole {
     if (rule.basenames?.includes(basename)) return rule.role;
   }
 
-  return "other";
+  return getAdapter(node.type).hooks?.roleHint?.(node) ?? "other";
 }
 
 /**

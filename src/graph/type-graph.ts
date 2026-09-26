@@ -1,9 +1,10 @@
 /** Builds and queries a TypeGraph of interface, class, enum, and type-alias exports and the files that reference them. */
+import type { TypeKind } from "../languages";
+import { getAdapter } from "../languages";
 import type { ExportedSymbol, FileNode } from "../types/node";
 import type { Graph } from "./model";
 
-/** Structural kind of a type export. */
-export type TypeKind = "interface" | "class" | "enum" | "type";
+export type { TypeKind };
 
 /**
  * A single type-like export extracted from a TypeScript source file.
@@ -62,44 +63,41 @@ export interface TypeQueryResult {
 }
 
 /**
- * Infers the `TypeKind` from an export's signature string.
- * Matches the prefix patterns produced by `extractSignature` in the TS parser.
+ * Default (TS/JS) type-kind rule, from the prefix patterns produced by `extractSignature` in the
+ * TS parser. Structural types (interface / class / enum) are type-like; plain functions and
+ * values are not.
  *
  * @param signature - The signature string from `ExportedSymbol.signature`, if present.
- * @returns The inferred `TypeKind`.
+ * @returns The `TypeKind`, or `undefined` when the export is not type-like.
  */
-function inferKind(signature: string | undefined): TypeKind {
-  if (!signature) return "type";
+function jsTypeKind(signature: string | undefined): TypeKind | undefined {
+  if (!signature) return undefined;
   if (signature.startsWith("interface ")) return "interface";
   if (signature.startsWith("class ")) return "class";
   if (signature.startsWith("enum ")) return "enum";
-  return "type";
+  return undefined;
 }
 
 /**
- * Returns `true` when a symbol is a type-like export that should appear in the type graph.
- *
- * Structural types (interface / class / enum) are always included.
- * In `type-only` files every export is treated as a type.
- * Plain functions and values (signatures without a structural prefix) are excluded
- * unless they live in a `type-only` file.
+ * Resolves the type kind of an export, or `undefined` when it should not appear in the type graph.
+ * In `type-only` files every export is a type (kind `"type"` unless the signature says otherwise).
  *
  * @param sym - The exported symbol to test.
- * @param category - The file's category from the import graph.
- * @returns `true` if the symbol should be a `TypeNode`.
+ * @param node - The file defining it.
+ * @returns The `TypeKind`, or `undefined` to exclude the symbol.
  */
-function isTypeExport(sym: ExportedSymbol, category: FileNode["category"]): boolean {
-  if (category === "type-only") return true;
-  const sig = sym.signature ?? "";
-  return sig.startsWith("interface ") || sig.startsWith("class ") || sig.startsWith("enum ");
+function typeKindOf(sym: ExportedSymbol, node: FileNode): TypeKind | undefined {
+  const kind = (getAdapter(node.type).hooks?.typeKind ?? jsTypeKind)(sym.signature);
+  if (kind) return kind;
+  return node.category === "type-only" ? "type" : undefined;
 }
 
 /**
  * Builds a type-level view of the import graph by extracting all type-like exports
  * and the import edges that connect them.
  *
- * Only TypeScript and JavaScript files are considered — other file types carry no
- * type information usable for this graph.
+ * Only languages whose adapter declares the `typeGraph` capability (TypeScript, JavaScript,
+ * Kotlin, Java) are considered — other file types carry no type information usable here.
  *
  * @param graph - The import graph to derive the type graph from.
  * @returns A `TypeGraph` with all type nodes and their dependency edges.
@@ -109,14 +107,15 @@ export function buildTypeGraph(graph: Graph): TypeGraph {
 
   // Pass 1: collect type nodes from all TS/JS files.
   for (const node of graph.nodes.values()) {
-    if (node.type !== "typescript" && node.type !== "javascript") continue;
+    if (!getAdapter(node.type).capabilities.typeGraph) continue;
     for (const exp of node.exports) {
-      if (!isTypeExport(exp, node.category)) continue;
+      const kind = typeKindOf(exp, node);
+      if (!kind) continue;
       const key = `${node.path}::${exp.name}`;
       types.set(key, {
         name: exp.name,
         file: node.path,
-        kind: inferKind(exp.signature),
+        kind,
         ...(exp.doc ? { doc: exp.doc } : {}),
       });
     }
@@ -125,7 +124,7 @@ export function buildTypeGraph(graph: Graph): TypeGraph {
   // Pass 2: build edges from import edges whose symbols resolve to known types.
   const edges: TypeEdge[] = [];
   for (const node of graph.nodes.values()) {
-    if (node.type !== "typescript" && node.type !== "javascript") continue;
+    if (!getAdapter(node.type).capabilities.typeGraph) continue;
     for (const imp of node.imports) {
       if (!imp.toPath || imp.isExternal || !imp.symbols?.length) continue;
       for (const sym of imp.symbols) {

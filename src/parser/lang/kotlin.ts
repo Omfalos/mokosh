@@ -8,6 +8,7 @@
  *  whenever the error-ratio gate passes, regardless of category; call edges are additionally
  *  skipped for test files (see {@link CALL_EDGES_ENABLED}). */
 
+import { extractLeadingDoc } from "../../languages/hooks/jvm-doc";
 import type { ExportedSymbol, ImportEdge } from "../../types/node";
 import {
   collectCallEdges,
@@ -26,7 +27,7 @@ import {
   scanTagMarkers,
   stripJvmComments,
 } from "./jvm-scan";
-import { parser as kotlinParser } from "./kotlin/index";
+import { parser as kotlinParser, scriptParser as kotlinScriptParser } from "./kotlin/index";
 
 /** `import a.b.C`, `import a.b.*`, `import a.b.C as D`. The alias (group 3) is captured only to
  *  build the call-edge resolution map below — `ImportEdge` itself never retains it, matching the
@@ -58,6 +59,9 @@ const TYPE_DECL_RE = new RegExp(
 const FUN_DECL_RE = new RegExp(
   `^(?:@[\\w.]+(?:\\([^)]*\\))?\\s+)*${MODIFIERS}fun\\s+(?:<[^>]*>\\s*)?(?:[A-Za-z_][\\w.]*(?:<[^>]*>)?\\.)?([A-Za-z_][A-Za-z0-9_]*)\\s*[(<]`,
 );
+
+/** Name of the synthetic function that carries a `.kts` script's top-level complexity. */
+const SCRIPT_FUNCTION_NAME = "<script>";
 
 /** Top-level `val` / `var` / `const val`, anchored at column 0. */
 const PROP_DECL_RE = new RegExp(
@@ -138,10 +142,23 @@ export function parseKotlin(filePath: string, content: string): ParseResult {
   let complexityResult: ReturnType<typeof computeComplexity> | undefined;
   let functions: ReturnType<typeof collectFunctionComplexity> | undefined;
   try {
-    const tree = kotlinParser.parse(content);
+    const isScript = filePath.endsWith(".kts");
+    const tree = (isScript ? kotlinScriptParser : kotlinParser).parse(content);
     if (errorRatio(tree, content) <= ERROR_RATIO_THRESHOLD) {
       complexityResult = computeComplexity(tree.topNode, content);
       functions = collectFunctionComplexity(tree, content);
+      if (isScript) {
+        // A script's statements live outside any `fun`; attribute them to one synthetic entry.
+        functions = [
+          {
+            name: SCRIPT_FUNCTION_NAME,
+            line: 1,
+            complexity: complexityResult.complexity,
+            cognitiveComplexity: complexityResult.cognitiveComplexity,
+          },
+          ...functions,
+        ];
+      }
       if (CALL_EDGES_ENABLED && category !== "test") {
         rawCallEdges = collectCallEdges(tree, content, localNames);
       }
@@ -150,9 +167,12 @@ export function parseKotlin(filePath: string, content: string): ParseResult {
     // Grammar parse failure — degrade to the regex-only result, exactly as before the grammar.
   }
 
+  const description = extractLeadingDoc(content);
+
   return {
     imports,
     exports,
+    ...(description ? { description } : {}),
     tags: Array.from(tags).map((name) => ({ name, kind: "comment-marker" as const })),
     category,
     ...(rawCallEdges && rawCallEdges.length > 0 ? { rawCallEdges } : {}),

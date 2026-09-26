@@ -41,12 +41,14 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import Piscina from "piscina";
 import { DEFAULT_IGNORE_DIRS } from "../../const";
+import { typesInFamily } from "../../languages";
 import { LOCK_FILE_NAMES } from "../../parser/lockfile";
 import { matchDupGroup } from "../../query/dup-filter";
 import { parseDupQuery } from "../../query/dup-parser";
 import type { DuplicateQuery } from "../../query/types";
 import type { FileType } from "../../types/parse";
 import type { Graph } from "../model";
+
 import { buildDuplicateClusters, type DuplicateCluster } from "./clusters";
 import { type DuplicateFamily, getDuplicateFamily } from "./families";
 import { hasGeneratedMarker, isGeneratedPath } from "./generated";
@@ -92,6 +94,10 @@ export {
   summarizeDuplicates,
   topDir,
 } from "./shape";
+
+/** JS-like languages whose source feeds the JSX/object-literal/type-def duplicate extractors. */
+const JS_FAMILY = typesInFamily("js");
+
 export type { DuplicateGroup, DuplicateOccurrence, DuplicateSignal } from "./shingle";
 export type { StyleSourceFile } from "./style-blocks";
 export type { CachedFileTokens, DuplicationTokenCache } from "./token-cache-store";
@@ -508,7 +514,7 @@ export async function findDuplicates(
         // TS-only for interface/type extraction below, but object-literal extraction
         // (findObjectLiteralDuplicates) runs on both — const object literals are equally common
         // in plain JS, unlike interface/type declarations which are TS-only syntax.
-        if (node.type === "typescript" || node.type === "javascript") {
+        if (JS_FAMILY.has(node.type)) {
           if (sourceForTypeDefs === undefined) {
             try {
               sourceForTypeDefs = await readFile(path.join(rootDir, node.path), "utf8");

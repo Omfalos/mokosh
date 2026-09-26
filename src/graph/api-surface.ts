@@ -1,23 +1,12 @@
 /** Detects entry-point files and builds an API surface describing all public exports reachable from them. */
 import fs from "node:fs";
 import path from "node:path";
-import type { ExportedSymbol, FileNode } from "../types/node";
-import type { FileType } from "../types/parse";
+import type { ExportKind } from "../languages";
+import { detectNonJsEntryPoints, exportKindFor } from "../languages";
+import type { ExportedSymbol } from "../types/node";
 import type { Graph } from "./model";
 
-/**
- * Coarse kind of a public export derived from its type signature prefix.
- * Used to distinguish runtime values from type-only exports without parsing the full signature.
- */
-export type ExportKind =
-  | "function"
-  | "class"
-  | "interface"
-  | "type"
-  | "enum"
-  | "const"
-  | "namespace"
-  | "unknown";
+export type { ExportKind };
 
 /** A single named export surfaced by an entry point, resolved to its original defining file. */
 export interface PublicExport {
@@ -182,40 +171,6 @@ function resolveExportsValue(value: unknown, graph: Graph): string | null {
 }
 
 /**
- * Infers a coarse `ExportKind` from the leading keyword of a type signature string.
- *
- * @param {string | undefined} signature - Raw signature string from an `ExportedSymbol`.
- * @returns {ExportKind} Inferred kind, or `"unknown"` when the signature is absent or unrecognised.
- */
-function inferExportKind(signature: string | undefined): ExportKind {
-  if (!signature) return "unknown";
-  const trimmed = signature.trimStart();
-  if (trimmed.startsWith("interface ")) return "interface";
-  if (trimmed.startsWith("class ") || trimmed.startsWith("object ")) return "class";
-  if (trimmed.startsWith("enum ")) return "enum";
-  if (trimmed.startsWith("type ") || trimmed.startsWith("typealias ")) return "type";
-  if (trimmed.startsWith("namespace ")) return "namespace";
-  if (
-    trimmed.startsWith("const ") ||
-    trimmed.startsWith("let ") ||
-    trimmed.startsWith("var ") ||
-    trimmed.startsWith("readonly ") ||
-    trimmed.startsWith("val ")
-  )
-    return "const";
-  // Function signatures: leading `(`, async keyword, or contains `=>`
-  if (
-    trimmed.startsWith("(") ||
-    trimmed.startsWith("async ") ||
-    trimmed.startsWith("function ") ||
-    trimmed.startsWith("fun ") ||
-    trimmed.includes("=>")
-  )
-    return "function";
-  return "unknown";
-}
-
-/**
  * Walks the `export * from` and named `export { … } from` chains starting at each entry
  * point and returns every symbol name accessible to consumers of those entry points.
  *
@@ -360,63 +315,9 @@ export function detectAllEntryPoints(graph: Graph, root: string): string[] {
   }
 
   // Non-JS projects have no package.json convention — fall back to a per-language heuristic.
-  if (found.length === 0) return detectNonJsEntryPoints(graph);
+  if (found.length === 0) return detectNonJsEntryPoints(graph.nodes.values());
 
   return found;
-}
-
-const JVM_TYPES = new Set<FileType>(["java", "kotlin", "scala", "groovy"]);
-
-/** Path-based test detection, for languages/layouts the category classifier may not cover
- *  (notably Go's `*_test.go` convention). */
-function looksLikeTest(relPath: string): boolean {
-  return (
-    relPath.endsWith("_test.go") ||
-    /(^|\/)(test|tests|__tests__|testdata)\//.test(relPath) ||
-    /[._-](test|spec)\.[^/]+$/.test(relPath)
-  );
-}
-
-/**
- * @description Entry-point heuristic for non-JS projects, which have no `package.json`
- *   `exports`/`main` to read. The "public API" of a Go/Python/JVM module is the set of exported
- *   symbols across its source files, so every non-test source file is treated as an entry point:
- *   - **Python**: the shallowest `__init__.py` files (package roots) if any exist, else every module.
- *   - **Go**: every non-`*_test.go` file.
- *   - **JVM** (java/kotlin/scala/groovy): every non-test source file — covers a single-repo JVM
- *     project not detected as a Gradle/sbt workspace.
- *   The first language with matching nodes wins; a genuinely polyglot repo is analysed one
- *   language at a time via its own `analyze`/query anyway.
- * @param {Graph} graph - The built dependency graph.
- * @returns {string[]} Project-relative entry-point paths, sorted; empty if no non-JS source is present.
- */
-function detectNonJsEntryPoints(graph: Graph): string[] {
-  const nodes = [...graph.nodes.values()];
-  const sourcesOf = (match: (type: FileType) => boolean): FileNode[] =>
-    nodes.filter(
-      (node) => match(node.type) && node.category !== "test" && !looksLikeTest(node.path),
-    );
-
-  const python = sourcesOf((type) => type === "python");
-  if (python.length > 0) {
-    const inits = python.filter((node) => node.path.replace(/^.*\//, "") === "__init__.py");
-    if (inits.length > 0) {
-      const minDepth = Math.min(...inits.map((node) => node.path.split("/").length));
-      return inits
-        .filter((node) => node.path.split("/").length === minDepth)
-        .map((node) => node.path)
-        .sort();
-    }
-    return python.map((node) => node.path).sort();
-  }
-
-  const go = sourcesOf((type) => type === "go");
-  if (go.length > 0) return go.map((node) => node.path).sort();
-
-  const jvm = sourcesOf((type) => JVM_TYPES.has(type));
-  if (jvm.length > 0) return jvm.map((node) => node.path).sort();
-
-  return [];
 }
 
 /**
@@ -532,7 +433,7 @@ function buildPublicExports(
     const publicExport: PublicExport = {
       name,
       definedIn,
-      kind: inferExportKind(symbol?.signature),
+      kind: exportKindFor(graph.nodes.get(definedIn)?.type, symbol?.signature),
     };
     if (symbol?.doc) publicExport.doc = symbol.doc;
     if (symbol?.signature) publicExport.signature = symbol.signature;

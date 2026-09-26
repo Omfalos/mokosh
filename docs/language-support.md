@@ -4,7 +4,8 @@ mokosh parses 17 languages, but not to the same depth. This page is the authorit
 what each language's analysis actually extracts, so you can tell **before** trusting a result
 whether a tool will give call-level precision, degrade to import-level, or find nothing.
 
-The table is generated from `LANGUAGE_FIDELITY` in `src/graph/language-support.ts` and kept in
+The table mirrors `LANGUAGE_FIDELITY`, which is derived from the language adapters in
+`src/languages/adapters/` ([ADR-022](./adr-022-language-adapters.md)), and is kept in
 exact sync with it by a test (`src/graph/language-support.test.ts`) — editing one without the
 other fails CI. `analyze` (and `mokosh --graph`) echo the same data per language present in the
 graph, under `languageCoverage[].fidelity`.

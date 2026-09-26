@@ -3,6 +3,7 @@
 
 import type { SyntaxNode, Tree } from "@lezer/common";
 import { parser } from "@lezer/java";
+import { extractLeadingDoc } from "../../languages/hooks/jvm-doc";
 import type { ExportedSymbol, ImportEdge } from "../../types/node";
 import {
   collectFunctionComplexity,
@@ -16,6 +17,14 @@ import {
   importSymbolFromSpecifier,
   jvmPackageEdge,
 } from "./jvm-scan";
+
+/** Node name → the signature keyword `get_api_surface` / the type graph classify on. */
+const JAVA_TYPE_KEYWORD: Record<string, string> = {
+  ClassDeclaration: "class",
+  InterfaceDeclaration: "interface",
+  EnumDeclaration: "enum",
+  AnnotationTypeDeclaration: "interface",
+};
 
 const TAG_RE = /\/\/\s*@tag\s+([a-zA-Z0-9_-]+)/;
 
@@ -239,7 +248,9 @@ export function parseJava(filePath: string, content: string): ParseResult {
           const nameNode = cursor.node.getChild("Definition");
           if (nameNode) {
             const name = content.slice(nameNode.from, nameNode.to);
-            if (!exportMap.has(name)) exportMap.set(name, { name });
+            if (!exportMap.has(name)) {
+              exportMap.set(name, { name, signature: `${JAVA_TYPE_KEYWORD[cursor.name]} ${name}` });
+            }
           }
         }
         break;
@@ -261,9 +272,12 @@ export function parseJava(filePath: string, content: string): ParseResult {
   const rawCallEdges =
     category === "test" ? [] : collectRawCallEdges(tree, content, importedTypeMap(imports));
 
+  const description = extractLeadingDoc(content);
+
   return {
     imports,
     exports: Array.from(exportMap.values()),
+    ...(description ? { description } : {}),
     tags: Array.from(tags).map((name) => ({ name, kind: "comment-marker" as const })),
     category,
     rawCallEdges,

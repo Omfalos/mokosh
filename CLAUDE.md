@@ -79,6 +79,7 @@ src/
   index.ts / cli.ts / mcp.ts   entry points (see table above)
   const.ts, config.ts, types.ts, git.ts, coverage.ts   shared low-level helpers
   parser.ts           aggregates all language parsers
+  languages/          per-language adapters (extensions, capabilities, fidelity, hooks) + registry + dispatch
   graph.ts            thin re-export of src/graph/
   parse-worker.ts, duplication-worker.ts   piscina task handlers (parsing / tokenizing) run in worker threads
   watch-ignore.ts     shared fs.watch ignore pattern (MCP session cache + CLI --watch)
@@ -193,12 +194,15 @@ Releases are cut from `main` via the **Release** GitHub Actions workflow (workfl
 
 Run `/pre-update` — it calls `get_affected` to show blast radius before any edits.
 
-## Adding a new language parser
+## Adding a new language
 
-1. Create `src/parser/lang/<lang>.ts` — implement `ParseResult parse(filePath, source)`.
-2. Register it in `src/parser/registry.ts`.
-3. Add the file extension to `DEFAULT_EXTENSIONS` in `src/const.ts` and to the `FileType` enum in `src/types/parse.ts`.
-4. Add the extension to `src/parser/file-type.ts` extension → `FileType` mapping.
+Each language is one `LanguageAdapter` in `src/languages/` (see `docs/adr-022-language-adapters.md`):
+
+1. Create `src/parser/lang/<lang>.ts` — implement `ParseResult parse(filePath, source)` and register it in `src/parser.ts`.
+2. Add the value to the `FileType` enum in `src/types/parse.ts`.
+3. Add an adapter to `src/languages/adapters/` (extensions, `capabilities`, `fidelity`, `caveats`, optional `hooks`) and list it in `LANGUAGE_ADAPTERS` (`src/languages/registry.ts`). Extension mapping, the `*_TYPES` capability sets and `LANGUAGE_FIDELITY` are all derived from it.
+4. Add the extension to `DEFAULT_EXTENSIONS` in `src/const.ts` (a test checks every entry resolves to a language).
+5. Tools never switch on `node.type`: if one needs language knowledge, add a hook to `LanguageHooks` (`exportKind`, `entryPoints`, `isTestPath`, `typeKind`, `roleHint`) and call it through `src/languages/dispatch.ts`.
 
 ## Docs
 
@@ -210,4 +214,4 @@ Run `/pre-update` — it calls `get_affected` to show blast radius before any ed
 - `traversal.md` — graph traversal semantics
 - `lock-files.md` — lock file parsing
 - `releasing.md` — release process and commit conventions
-- `adr-001-styles-parsing.md` through `adr-021-kotlin-parsing.md` — ADRs for key architecture/parser decisions
+- `adr-001-styles-parsing.md` through `adr-022-language-adapters.md` — ADRs for key architecture/parser decisions

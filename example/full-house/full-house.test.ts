@@ -248,7 +248,7 @@ describe("full-house example: JVM languages", { tags: ["example", "jvm"] }, () =
 
     expect(app?.type).toBe("java");
     expect(app?.category).toBe("logic");
-    expect(app?.exports).toEqual([{ name: "App" }]);
+    expect(app?.exports).toEqual([{ name: "App", signature: "class App" }]);
     expect(app?.tags).toContainEqual({ name: "app", kind: "comment-marker" });
     expect(app?.imports).toContainEqual(
       expect.objectContaining({
