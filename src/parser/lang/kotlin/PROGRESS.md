@@ -5,7 +5,8 @@ edges + complexity via a first-party Lezer grammar"**, saved at
 `/Users/karolmachulski/.claude/plans/gleaming-petting-goose.md` — see that file for the full
 multi-phase plan).
 Phases 0 (grammar + build step + ADR), 1 (hybrid integration + call edges), and 2 (complexity) are
-all **shipped**. Remaining work is Phase 0b (grammar coverage growth, as-needed) — see "How to
+all **shipped**, and the no-ASI `InfixExpression` gap is **closed** (2026-09-21, "Newline-separated
+statements" below). Remaining work is Phase 0b (grammar coverage growth, as-needed) — see "How to
 resume" at the bottom.
 
 ## Status: grammar builds clean and parses real Kotlin correctly
@@ -354,6 +355,8 @@ Remaining known gap (documented, not silently guessed at): a *with-arguments* co
 parses as a valid, error-free `ParenthesizedExpression` with no signal distinguishing it from a
 real parenthesized expression, unlike the empty-parens case.
 
+**Closed 2026-09-21** by the grammar-level fix below — this tree-walking workaround (`collectInfixMisparseEdges`) was **deleted** the same day.
+
 Closed out: `CALL_EDGE_TYPES`/`LANGUAGE_FIDELITY.kotlin.callEdges`/`FIDELITY_CAVEAT.kotlin.callEdges`
 in `src/graph/language-support.ts` (now `"partial"`, matching Java's level), the
 `docs/language-support.md` row + prose split (Kotlin now differs from Scala/Groovy), the dedicated
@@ -524,10 +527,285 @@ accept a leading modifier (`PropertyAccessor` has the identical "no leading `mod
 `docs/adr-021-kotlin-parsing.md`'s scope-cuts table) — worth trying the same fix if it turns out to
 matter in practice, but out of scope for this pass.
 
+## Per-function complexity gate narrowed for the InfixExpression no-ASI gap (2026-09-16)
+
+Follow-up dogfooding found `find_complex_functions` returning 0 entries for okhttp's `Hpack.kt`
+(HTTP/2 header compression, 681 lines) despite it being the module's single most complex file by
+file-level aggregate (complexity 66, cognitive 152 — ~6x the next-highest hit). Traced to this
+grammar's documented, already-ruled-out-as-grammar-fixable no-ASI gap (see "Attempt 3" above): a
+bare-call statement immediately followed by another statement starting with a plain identifier
+(`dynamicTable.fill(null)` then `nextHeaderIndex = dynamicTable.size - 1` — no separator, very
+common in dense low-level code) gets misparsed as one `InfixExpression`, the second statement's
+leading identifier swallowed as the bare infix-function-call operand. `Hpack.kt` had 9 real
+functions; `collectFunctionComplexity`'s zero-tolerance `!nodeHasError(body)` gate zeroed out 7 of
+them, since this shape is peppered throughout nearly every function in a file this statement-dense
+— while the file-level aggregate (walks every node type-agnostically) stayed correct, producing the
+same visible inconsistency as the `private constructor(...)` bug above.
+
+**Not re-attempting the grammar fix** — "Attempt 3" already proved this exact ambiguity is
+upstream of anything a `!greedy`/precedence marker can reach (confirmed via `@lezer/lr`'s
+`defaultReduce` optimization firing before any external tokenizer even runs, via `LOG=parse`/
+`stateSlot`/`hasAction`, not just theorized). A 4th attempt at the same shape would repeat a proven
+dead end.
+
+**Fix:** narrowed the per-function gate in `collectFunctionComplexity`
+(`src/parser/complexity/kotlin.ts`) instead of loosening it — added
+`hasComplexityRelevantConstruct(body, content)`, the same node-type checks
+`computeCyclomaticComplexity` already uses (`IfExpression`/`CatchClause`/`Elvis`/loop/non-`else`
+`WhenEntry`/`&&`/`||`). The gate now only skips a function when it has an error node **and** a
+decision point exists somewhere in its body — a plain assignment/call chain with zero decision
+points can't have had one hidden or duplicated by the malformed shape either, so the type-agnostic
+complexity walk's result is provably safe to trust regardless of the tree's actual shape there.
+Verified this doesn't reopen the original `DiskLruCache.close` bug this gate was built for
+(complexity silently inflated 4→46 by a swallowed sibling `if`): re-checked that exact function
+against the current grammar — it has its own genuine `if (!initialized || closed)`, so it's still
+correctly gated (absent from `functions`) under the narrowed check, while a smaller nearby function
+(`Snapshot.close`) that has no decision point now correctly surfaces.
+
+**Result:** two new regression tests in `kotlin.complexity.test.ts` (plain misparse shape now
+recovers; the same shape next to a real decision point stays gated). Corpus-wide re-scan across all
+339 okhttp files: functions surfaced by `collectFunctionComplexity` went from 2,605 → 4,396 (+69%);
+files with real content (`complexity > 3`) still fully gated (0 functions) dropped from 13 → 7 (the
+remaining 7 are genuine true-positive cases — a decision point sits near an error). Full suite
+(1818 tests) and `npm run typecheck` pass clean.
+
+## Newline-separated statements (2026-09-21) — the no-ASI gap, closed at the grammar
+
+**Attempt 4 succeeded** where 1–3 failed, by inverting the approach. Attempts 2–3 put a special
+same-line-identifier token on the *shift* side of `InfixExpression`; the parser had already
+reduced (default-reduce) before any tokenizer ran. `@lezer/python`'s way — an explicit separator
+token on the *follow* side — does not have that problem: the state after a complete expression has
+`Nl` as a valid lookahead, so it is multi-action and the tokenizer is consulted.
+
+- `tokens.js` `nlTokens` (external tokenizer, declared **before** `@tokens` so it claims a line
+  break ahead of the built-in `whitespace` skip) emits `Nl` for a line break or `;`, only when
+  `stack.canShift(Nl)`, and not when the next non-comment token is `.` (not `..`), `?.`, `?:`,
+  `&&`, `||`, `as`, `else` (not `else ->`), `catch` or `finally`. `canShift` also handles "the
+  previous line ended in an operator/comma/`=`" and "inside call arguments/parens" for free — no
+  bracket-depth tracking, and `trackStrings` is untouched.
+- `kotlin.grammar`: `stmts { Nl? (statement (Nl statement)* Nl?)? }` in `Block` and
+  `LambdaLiteral`; `whenEntries` (same shape) in `WhenExpression`. Class bodies and top-level
+  declarations need nothing — every member starts with a keyword/modifier. Built clean, no LR
+  conflicts, no new `!greedy` markers.
+- **`when` entries were the first miss.** The initial port covered only `Block`/`LambdaLiteral`;
+  brace-less branches (`A -> readA(1)` newline `B -> readB(2)`) still collapsed, and the leftover
+  workaround then *fabricated* edges from them. Found via the recovery-path counter below, not by a
+  test.
+- **`else ->` was the second miss.** Treating every `else` as a continuation suppressed `Nl`
+  before a `when` branch's `else ->` (a comment between the branches made it visible). Fixed by
+  peeking for `->` after `else`.
+- Same pass: trailing commas (`commaSep`/`commaSep1`), and `jumpStatement` (`return`/`break`/
+  `continue`/`throw`) as an `Elvis` right operand.
+
+**Measure error *nodes*, not just the error-span ratio.** A first pass compared error-span ratios
+and reported "previously clean files now erroring"; those were files whose errors are zero-width
+recovery nodes (span 0). `corpus2`-style counting of `type.isError` nodes is the honest metric.
+
+| Corpus | Error nodes: before → after | Files with none: before → after |
+|---|---|---|
+| OkHttp (573) | 19,526 → 3,991 | 60 → 270 |
+| kotlinx.coroutines (1,039) | 18,055 → 8,809 | 173 → 414 |
+
+Parse time unchanged (~0.6 s/corpus). Residual error mass in the worst files is the documented cut
+list: extension functions/properties and receiver function types (`CoroutineScope.() -> Unit`,
+`(suspend () -> T).startCoroutine`) dominate; labeled returns/lambdas (`callback@{`, `return@x`)
+and explicit call type arguments (`g<A, B>()` — silently parses as chained comparisons, no error
+node) are next.
+
+**`collectInfixMisparseEdges` fire counter.** Temporary instrumentation (removed) plus a kill
+switch, diffing `rawCallEdges` with the recovery on/off over every `.kt` file: after the grammar
+fix it recovers **0 genuine edges and 14 false positives** (10 from brace-less `when` branches —
+gone after the `when` fix — and 4 from `return@transform emit(value)`, where the imported alias
+`transform` is read as a qualifier). It has 500 (OkHttp) / 426 (coroutines) genuine same-line
+`InfixExpression` nodes to inspect per run, so it is not idle — it is just wrong. **Deleted** (with its `iterChildren` helper and the `walkBody` branch); its two dedicated tests
+stay and pass on the grammar alone. `hasComplexityRelevantConstruct` (the narrowed per-function
+complexity gate) is kept: it is still correct for any remaining error shape that can't hide a
+decision point, only its comments no longer cite the old cause.
+
+**Conformance:** the `example/full-house` baseline is inline in `conformance.test.ts` and already
+matched; no regeneration was needed. Second corpus: `Kotlin/kotlinx.coroutines` `master` tarball
+(local only, not committed).
+
+## Extension functions and properties (2026-09-21)
+
+The dominant residual error source after the `Nl` fix (OkHttp: 223 extension functions + 19
+properties; coroutines: 757 + 51). Planned as a two-spike effort; the first spike sufficed.
+
+- **Spike A1 (failed, silently):** `(ReceiverType ".")? Definition` with `ReceiverType { NullableType |
+  simpleType }`. Built with **no conflicts**, and mis-parsed every case: `ScopedTypeName` swallowed
+  `String.f` whole, leaving nothing for `Definition` — exactly the ADR's warning. A clean build was
+  again necessary but not sufficient.
+- **Spike A2 (worked):** a flat `(ReceiverSegment ("." | SafeNav))* Definition` prefix, where
+  `ReceiverSegment { Identifier (<type args>)? }`. Built clean, no `!greedy`, no conflicts, no
+  external tokenizer. All 15 target shapes parse with 0 errors: plain, generic (`<T> List<T>.f`),
+  `Map<K, V>.f`, nullable (`Foo?.f`), qualified (`a.b.Foo.f`), extension properties with getters
+  and setters, an extension inside a class body, and the non-extension controls.
+  **Spike B (lookahead marker token) was not needed.**
+- **Why it works:** the ADR diagnosed an Identifier-vs-Definition reduce/reduce from LALR state
+  merging. Making the receiver its own node type (`ReceiverSegment`, wrapping `Identifier`) removes
+  the shared production, so the parser only has to look at the next token: `.`/`?.` → another
+  segment, `(` (or `:`/`=`/`by`/an accessor for a property) → this identifier is the name.
+- **No wrapper node, by design.** The receiver is several sibling `ReceiverSegment` nodes, so the
+  declaration's only direct-child `Definition` is its own name and every `getChild("Definition")`
+  consumer (`complexity/kotlin.ts`) works unchanged. Extension functions are named by that bare
+  name (`commonName`), matching the line scanner's export naming. Nothing in `src/` needed editing
+  except tests.
+- `SafeNav` is a separator because `Foo?.f` tokenizes as `Foo` `?.` `f`.
+
+| Corpus | Error span: before → after | Error nodes | Files with none |
+|---|---|---|---|
+| OkHttp | 0.238% → 0.113% | 3,991 → 3,615 | 270 → 297 |
+| kotlinx.coroutines | 0.600% → 0.229% | 8,809 → 8,072 | 414 → 474 |
+
+Error *span* fell by more than half; error *node* count fell less because many remaining nodes are
+tiny (zero-width) recovery nodes from other gaps. A few files got more nodes (`Combine.kt` 38 → 64,
+`-MainCommon.kt` 35 → 41): the extension header now parses and recovery reaches the *next*
+unsupported construct (a receiver function type in a parameter, `return@let`) instead of being
+derailed earlier.
+
+Tests: the "high error-density file" test used `fun String.shout()` as its unsupported example — it
+now uses destructuring. Added extension function/property naming tests, an extension-in-a-class
+test, and a call-edge test.
+
+## Function types (2026-09-21)
+
+`suspend () -> T`, `Foo.() -> Unit`, `suspend FlowCollector<R>.(T) -> Unit`, `(() -> Unit)?`, named
+parameters `(a: Int) -> Unit`, and `fun (suspend () -> T).run()` were all errors (coroutines: 304
+`: suspend` types, 186 + 164 receiver function types, ~150 of 1,039 files). Done as three spikes in
+one pass (S1 `suspend`/named/parenthesized, S2 receivers, S3 function-type extension receivers); all
+three worked with the tokenizer-marker fallback unused. See ADR-021 "Function types" for the design.
+
+- **One production** for function type and parenthesized type: `"(" commaSep<functionParam> ")"
+  (!greedy "->" type)?`. Two separate rules conflict at the `)` (they only diverge on the next
+  token); one rule with an optional arrow doesn't. No arrow = parenthesized type.
+- **Two `!greedy`s carry Kotlin semantics**, not just conflict-resolution: `() -> Unit?` returns a
+  nullable (found as a shift/reduce on `?`), and `{ x: (Int) -> Int -> x }` reads the first arrow as
+  the function type's (a shift/reduce on `->`, between a lambda parameter's type and the lambda's own
+  arrow). Both were surfaced by the generator, then verified by tree shape.
+- **Receiver prefix starts from `TypeName | ScopedTypeName | GenericType`, not `simpleType`.** The
+  old comment blamed navigation `.`; the real cause was the forced reduce to `simpleType` before the
+  `.` clashing with `ScopedTypeName`'s shift. Same nonterminals → both shift → next token decides.
+- **`ParenReceiver`** for extensions on function types: reusing `FunctionType` there hit a
+  reduce/reduce with `ReceiverSegment` (it can now start with an identifier), so a dedicated
+  `"(" type ")"` rule is used — after `fun`, `(` is unambiguous.
+- A stale comment claiming a nullable function type "gets its own rule" was removed: no such rule
+  existed and `(() -> Unit)?` errored.
+
+| Corpus | Error span | Error nodes | Files with none |
+|---|---|---|---|
+| OkHttp | 0.113% → 0.113% | 3,615 → 3,600 | 297 → 298 |
+| kotlinx.coroutines | 0.229% → 0.183% | 8,072 → 6,035 | 474 → 536 |
+
+13 files show more nodes (`SafeCollector.common.kt`, `ThreadContext.kt`, `RouteSelector.kt`); each
+is a later gap being reached, not a regression: star projections, explicit call type arguments,
+labels. 28 type shapes × 3 positions and 17 context shapes were checked for errors and, for the
+tricky ones, tree shape.
+
+**New findings, sized on the corpora (lines, OkHttp / coroutines):** explicit call type arguments
+(`emptyList<Proxy>()`) 458 / 1,549 — errors, and `arrayOfNulls<Any>(n)` silently parses as chained
+comparisons with no error node; star projections (`List<*>`, `Map<String, *>`) 38 / 361.
+
+## Spec coverage audit (2026-09-26)
+
+Compared `kotlin.grammar` against the Kotlin language spec's syntax grammar
+(https://kotlinlang.org/spec/syntax-and-grammar.html; construct list obtained via a summarizing
+fetch, not the raw grammar) and ran 38 spec-derived snippets through
+`node scripts/kotlin-grammar-smoke-test.mjs <file.kt>`. The ADR's cut list was **incomplete**: it
+missed several common constructs. "Error nodes" below is the smoke-test count for a minimal
+one-to-three-line snippet. `0` is necessary but not sufficient; check the tree shape too (see the
+silent mis-parse notes above).
+
+### Errors on valid Kotlin
+
+| Spec construct | Snippet | Error nodes | In ADR? |
+|---|---|---|---|
+| Declaration-site `out` variance | `class Box<out T>` | 1 | No |
+| Variance in type arguments | `Comparable<in Int>` | 1 | No |
+| Star projection | `List<*>` | 2 | Yes |
+| Functional interface | `fun interface Cb` | 1 | No |
+| Explicit type args on constructor call | `HashMap<String, Int>()` | 2 | Yes |
+| Labels (`return@`/`break@`/`label@`) | `return@forEach`, `outer@ for` | 2, 4 | Yes |
+| `this@Label` | `this@A` | 1 | No |
+| Typed super call | `super<I>.f()` | 1 | No |
+| Destructuring (decl, `for`) | `val (a, b) = p` | 10 | Yes |
+| Destructuring lambda parameter | `{ (a, b): Pair<Int, Int> -> a }` | 4 | Yes |
+| Anonymous function | `fun(x: Int): Int { ... }` | 9 | No |
+| Local class | `fun f() { class L {} }` | 2 | Yes |
+| `when` subject binding | `when (val x = g())` | 11 | No |
+| `when` guard conditions | `is String if x.isEmpty() ->` | 3 | No |
+| Annotation on enum entry | `@Deprecated("x") A` | 3 | No |
+| Annotation with type arguments | `@Foo<Bar> class A` | 1 | No |
+| Collection literal in annotation | `@Foo(values = [1, 2])` | 1 | No |
+| Annotation on a type | `x: @Foo String` | 2 | No |
+| Annotation on a supertype | `class A : @Foo I` | 2 | No |
+| Annotation on lambda parameter | `{ @Foo x: Int -> x }` | 3 | No |
+| Definitely non-null type | `T & Any` | 2 | No |
+| Unicode escape in char literal | `'A'` (tokenizer allows one char after `\`) | 1 | No |
+| Nested block comments | `/* a /* b */ c */` | 2 | No |
+| Shebang line | `#!/usr/bin/env kotlin` | 5 | No |
+| Script top-level statements (`.kts`) | `println("hi")` | 3 | No |
+| Context receivers | `context(Foo) fun f()` | 2 | Yes |
+| Qualified/generic callable references | `a.b::c`, `List<Int>::size` | 4 | Yes |
+
+### Parses without errors but not necessarily correctly
+
+- `listOf<Int>(1)` — 0 error nodes; per the notes above it reads as chained comparisons (tree not
+  re-inspected in this audit).
+- `private set` — 0 errors, modifier does not attach to the accessor (documented cut).
+- `set(value) { ... }` — 0 errors even though `PropertyAccessor` requires a typed parameter
+  (`FunctionParameter`); unexplained, tree not inspected. Check before trusting.
+- `contract { ... }` — parses as an ordinary call with a lambda; no dedicated node.
+
+### Confirmed fine (0 errors)
+
+`value class`, `data object`, `vararg` + spread (`*a`), receiver lambda types
+(`String.(Int) -> Unit`), `<in T>` on a declaration, `@Suppress val y = 1` on a local, getters with
+parentheses.
+
+### Not tested
+
+Operator-overloading forms (semantic, not syntactic), and numeric/string literal edge cases; the
+grammar text looks right for both.
+
+`out`/`in` variance, `fun interface`, `when (val x = ...)`, anonymous functions and `this@Outer` are
+the notable additions: all are common Kotlin and none was on the ADR's cut list.
+
+## Spec-coverage gaps closed (2026-09-26)
+
+`kotlin.spec-coverage.test.ts` now covers every row of the audit above; all but script top-level
+statements pass. The rows in the "Errors on valid Kotlin" table are fixed except that one — the table
+is kept as the record of what was found, not the current state.
+
+- **Annotation type arguments** (`@Foo<Bar> class A`): `annotationUse` gained an
+  `AnnotationTypeArguments` (node name `TypeArguments`). It needs its own external token,
+  `AnnotationTypeArgsOpen` (tokens.js), because a call's `TypeArgsOpen` requires `(`/`{`/`::` after
+  the closing `>`; this one is only shiftable directly after `@Name`, so any follower is fine. A
+  real ambiguity remains with `class A @Foo<B> (x)` (annotation arguments vs. primary constructor);
+  resolved toward annotation arguments with a new `annotationEnd` precedence below `greedy`.
+- **Context receivers** (`context(Foo) fun f()`): a `ContextReceivers` modifier; `context(1)` in a
+  body is still an ordinary call (regression-tested).
+- **Annotated lambda parameters** (`{ @Foo x: Int -> x }`): `LambdaParamAnnotation`, opened by a
+  `ParamAt` token that the tokenizer emits only when a parameter name and then `:`, `,` or `->`
+  follow the annotations — otherwise `{ @Suppress val y = 1 }` is a reduce/reduce conflict.
+- **Still open: script top-level statements** (`.kts`). Deferred: statements collide with every
+  declaration prefix at `Program`; likely needs a separate script-mode `@top` rather than widening
+  `topLevelDeclaration`.
+
+Corpus check after these changes: `kotlin-corpus-gate.mjs` on okhttp (573 files) — error-span ratio
+0.032%, 496/573 files clean; `parser.js` 65,279 → 67,730 bytes; build still ~18s.
+
 ## How to resume
 
-Phase 2 is done. Remaining work is Phase 0b (grammar coverage growth, as-needed) per the main plan
-file (`/Users/karolmachulski/.claude/plans/gleaming-petting-goose.md`) — no specific trigger queued;
-add rules when a real construct trips the error-density gate or a corpus file. The known
-`InfixExpression` gap (a *with-arguments* constructor call immediately following another statement
-with no separator still loses its edge, see Phase 1 above) remains open and untouched by Phase 2.
+Phases 0–2, newline separation, extension receivers and function types are done. The audit above
+adds items missing from the list below — declaration-site `out` variance, `fun interface`,
+`when (val x = ...)`, anonymous functions and `this@Label` — that likely belong ahead of #3–#4.
+Next, by size:
+1. **Explicit call type arguments** (`f<T>(x)`) — the biggest gap by far, and it can silently
+   produce wrong trees (`a < b > (c)` reads the same). Needs disambiguation from comparison; the
+   `Nl`-style lookahead-marker tokenizer (scan a balanced `<…>` followed by `(`) is the likely tool.
+2. **Star projections** (`List<*>`) — a type-argument alternative; small.
+3. **`@label`** (`return@x`, `callback@{`, `fold@{`) — was blocked on newline-sensitivity, which now
+   exists.
+4. `private set`/`get` modifiers.
+Add rules when a real construct trips the error-density gate or a corpus file; measure with error
+*nodes* and error *span* on at least two corpora before and after.

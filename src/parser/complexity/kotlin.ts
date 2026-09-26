@@ -21,9 +21,9 @@ import { childrenOf, lineAt, nodeHasError } from "./lezer-utils";
  *  stay low while one function's body alone is severely corrupted with only near-zero-width error
  *  nodes (see {@link nodeHasError}'s doc comment for the real OkHttp case, `DiskLruCache.close`,
  *  that motivated it: cyclomatic complexity inflated from ~4 to 46 with an error ratio of under
- *  1%). `collectCallEdges` does *not* apply that per-function gate: `collectInfixMisparseEdges`
- *  specifically recovers edges from bodies containing error nodes, so a zero-tolerance gate there
- *  would suppress the edges it exists to recover. */
+ *  1%). `collectCallEdges` does *not* apply that per-function gate: an edge comes from a single
+ *  `CallExpression` node, so an error elsewhere in the body can't corrupt it the way it can inflate
+ *  a whole-body complexity count. */
 export const ERROR_RATIO_THRESHOLD = 0.05;
 
 const TYPE_DECL_NODES = new Set(["ClassDeclaration", "ObjectDeclaration", "CompanionObject"]);
@@ -100,69 +100,6 @@ function readCallee(callExpr: SyntaxNode, content: string): Callee | null {
 }
 
 /**
- * @description Recovers qualified calls the grammar mis-nests under `InfixExpression` for
- *   consecutive bare-call statements with no separator (`Foo.stat(1)\nBar.other(2)`) — a known,
- *   grammar-level parse limitation (see `src/parser/lang/kotlin/PROGRESS.md`'s "consecutive
- *   bare-call statements collapse into one garbage InfixExpression" section: this grammar has no
- *   ASI/newline-sensitivity, so `InfixExpression`'s bare-`Identifier` operator swallows the next
- *   statement's qualifier, producing `Identifier("Bar") ⚠(".") CallExpression("other(2)")` as
- *   three siblings instead of one `NavigationExpression`-based `CallExpression`). Three
- *   grammar-level fixes were attempted and reverted (see PROGRESS.md) — each hit a different
- *   Lezer-automaton dead end, so this recovers the specific documented shapes at the tree-walking
- *   level instead:
- *   1. A direct-child `Identifier` immediately followed (skipping only error nodes) by a
- *      `CallExpression` whose own callee is an unqualified bare name — recovered as a qualified
- *      call using the `Identifier` as qualifier.
- *   2. A direct-child capitalized `Identifier` immediately followed by an empty, erroring
- *      `ParenthesizedExpression` (`Bar()` with no arguments swallows the `(`/`)` as a
- *      would-be-parenthesized-expression with nothing inside, since `Bar` itself was already
- *      consumed as the operator slot instead of starting its own `CallExpression`) — recovered as
- *      a bare constructor call, same convention as {@link walkBody}'s capitalized-bare-call
- *      branch. A *non-empty* swallowed constructor call (`Bar(1)`) is **not** recoverable this way
- *      — `(1)` parses as a valid, error-free `ParenthesizedExpression` with no signal distinguishing
- *      it from a real one, so that shape stays an undercount (documented, not silently guessed at).
- *   Both are gated on `localNames` exactly like every other edge here, so a genuinely valid infix
- *   expression whose right operand happens to be a bare call (`x shouldBe someHelper()`) can't be
- *   misread as a qualified call — `"shouldBe"` won't resolve as an import, so nothing is emitted.
- * @param infixNode - An `InfixExpression` node (real or grammar-mis-nested).
- * @param callerName - The already-qualified caller name to attach to every emitted edge.
- * @param content - Full source text.
- * @param localNames - Simple/aliased local name → FQN specifier map.
- * @param edges - Accumulator array, appended to in place.
- */
-function collectInfixMisparseEdges(
-  infixNode: SyntaxNode,
-  callerName: string,
-  content: string,
-  localNames: ReadonlyMap<string, string>,
-  edges: RawCallEdge[],
-): void {
-  for (let child = infixNode.firstChild; child; child = child.nextSibling) {
-    if (child.type.name !== "Identifier") continue;
-    let next = child.nextSibling;
-    while (next?.type.isError) next = next.nextSibling;
-    if (!next) continue;
-    const qualifier = content.slice(child.from, child.to);
-    if (next.type.name === "CallExpression") {
-      const bareCallee = readCallee(next, content);
-      if (!bareCallee || bareCallee.qualifier) continue;
-      const toSpecifier = localNames.get(qualifier);
-      if (toSpecifier) edges.push({ from: callerName, to: bareCallee.name, toSpecifier });
-    } else if (next.type.name === "ParenthesizedExpression" && /^[A-Z]/.test(qualifier)) {
-      const isEmptyErroring =
-        next.firstChild != null && [...iterChildren(next)].every((c) => c.type.isError);
-      if (!isEmptyErroring) continue;
-      const toSpecifier = localNames.get(qualifier);
-      if (toSpecifier) edges.push({ from: callerName, to: "new", toSpecifier });
-    }
-  }
-}
-
-function* iterChildren(node: SyntaxNode): Generator<SyntaxNode> {
-  for (let child = node.firstChild; child; child = child.nextSibling) yield child;
-}
-
-/**
  * @description Walks a function/constructor body and records one `RawCallEdge` per resolvable
  *   call: a qualified call (`Core.shout(x)`, `Core?.shout(x)`) whose qualifier resolves via
  *   `localNames`, or a bare call to a capitalized name that resolves via `localNames` — Kotlin's
@@ -194,8 +131,6 @@ function walkBody(
         if (toSpecifier) edges.push({ from: callerName, to: "new", toSpecifier });
       }
     }
-  } else if (bodyNode.type.name === "InfixExpression") {
-    collectInfixMisparseEdges(bodyNode, callerName, content, localNames, edges);
   }
   let child = bodyNode.firstChild;
   while (child) {
@@ -278,10 +213,8 @@ export function collectCallEdges(
     // `functionBody` is a lowercase (inline) rule with no node of its own; its two alternatives
     // surface directly as a child: a real `Block` node, or (for `fun f() = expr()`) whichever
     // concrete node `expression`'s `[@isGroup=Expression]` tag lets `getChild` find generically.
-    // No per-function error gate here (unlike collectFunctionComplexity below): walkBody's
-    // collectInfixMisparseEdges specifically recovers edges from bodies that *do* contain error
-    // nodes (the InfixExpression mis-nesting shapes documented in PROGRESS.md's Phase 1), so a
-    // zero-tolerance gate at this level would suppress the very edges it exists to recover.
+    // No per-function error gate here (unlike collectFunctionComplexity below): an edge is read
+    // from one `CallExpression` node, so an error elsewhere in the body can't corrupt it.
     const body = cursor.node.getChild("Block") ?? cursor.node.getChild("Expression");
     if (body) walkBody(body, callerName, content, localNames, edges);
   } while (cursor.next());
@@ -557,6 +490,44 @@ export function computeComplexity(
  * @param content - Full source text.
  * @returns Per-function complexity entries, in traversal order.
  */
+/**
+ * @description Reports whether any node in `body` is a construct `computeCyclomaticComplexity`
+ *   would count (`IfExpression`, `CatchClause`, `Elvis`, a loop, a non-`else` `WhenEntry`, or a
+ *   `&&`/`||` `BinaryExpression`) — the same node-type checks as that function, mirrored here as a
+ *   boolean short-circuit. Used to narrow {@link collectFunctionComplexity}'s per-function error
+ *   gate: a body with an error node is trusted only when it *also* has none of these constructs
+ *   anywhere in it, so a genuinely wrong count (a swallowed sibling `if`/loop counted as this
+ *   function's own, the original `DiskLruCache.close` bug this gate was built for) still can't slip
+ *   through, while a body whose error nodes sit only among plain assignment/call statements is
+ *   safe to trust — such a region can't introduce or hide a decision point, so the type-agnostic
+ *   complexity walk is unaffected regardless of the malformed tree shape around it. (This gate was
+ *   originally motivated by the grammar's old no-ASI `InfixExpression` collapse, since fixed by the
+ *   `Nl` statement separators; it still applies to any remaining unsupported construct.)
+ * @param body - The function/constructor body to inspect.
+ * @param content - Full source text, needed to read `&&`/`||` operator text (see
+ *   {@link invisibleBinaryOperator}).
+ * @returns `true` if any complexity-relevant construct exists anywhere in `body`.
+ */
+function hasComplexityRelevantConstruct(body: SyntaxNode, content: string): boolean {
+  let found = false;
+  body.cursor().iterate((ref) => {
+    if (found) return false;
+    const name = ref.type.name;
+    if (name === "IfExpression" || name === "CatchClause" || name === "Elvis") {
+      found = true;
+    } else if (LOOP_NODES.has(name)) {
+      found = true;
+    } else if (name === "WhenEntry") {
+      if (ref.node.firstChild?.type.name !== "else") found = true;
+    } else if (name === "BinaryExpression") {
+      const op = invisibleBinaryOperator(ref.node, content);
+      if (op === "&&" || op === "||") found = true;
+    }
+    return !found;
+  });
+  return found;
+}
+
 export function collectFunctionComplexity(tree: Tree, content: string): FunctionComplexity[] {
   const results: FunctionComplexity[] = [];
   const cursor = tree.cursor();
@@ -577,8 +548,10 @@ export function collectFunctionComplexity(tree: Tree, content: string): Function
     // whichever concrete node `expression`'s `[@isGroup=Expression]` tag lets getChild find.
     const body = cursor.node.getChild("Block") ?? cursor.node.getChild("Expression");
     // Per-function gate — see ERROR_RATIO_THRESHOLD's doc comment: this is what actually caught
-    // the OkHttp `DiskLruCache.close` case (complexity 46 instead of ~4).
-    if (body && !nodeHasError(body)) {
+    // the OkHttp `DiskLruCache.close` case (complexity 46 instead of ~4). Narrowed via
+    // {@link hasComplexityRelevantConstruct} so a body whose errors can't hide a decision point
+    // isn't skipped unnecessarily — see that function's doc comment.
+    if (body && (!nodeHasError(body) || !hasComplexityRelevantConstruct(body, content))) {
       const { complexity, cognitiveComplexity } = computeComplexity(body, content);
       results.push({ name, line: lineAt(content, cursor.from), complexity, cognitiveComplexity });
     }

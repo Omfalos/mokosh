@@ -144,6 +144,30 @@ class Client {
     expect(rawCallEdges).toHaveLength(2);
   });
 
+  test("regression: a with-arguments constructor call as the second statement keeps its edge", () => {
+    // Previously lost: `(1)` parsed as an error-free ParenthesizedExpression continuing the
+    // previous statement. Fixed at the grammar by `Nl` statement separators (tokens.js `nlTokens`).
+    const { rawCallEdges } = parseKotlin(
+      "src/main/kotlin/p/Client.kt",
+      `package p
+import a.b.Foo
+import a.b.Bar
+class Client {
+  fun run() {
+    Foo.stat(1)
+    Bar(1)
+  }
+}`,
+    );
+    expect(rawCallEdges).toEqual(
+      expect.arrayContaining([
+        { from: "Client.run", to: "stat", toSpecifier: "a.b.Foo" },
+        { from: "Client.run", to: "new", toSpecifier: "a.b.Bar" },
+      ]),
+    );
+    expect(rawCallEdges).toHaveLength(2);
+  });
+
   test("a genuine same-line infix expression is not misread as a qualified call", () => {
     const { rawCallEdges } = parseKotlin(
       "src/main/kotlin/p/Client.kt",
@@ -160,5 +184,79 @@ class Client {
       ]),
     );
     expect(rawCallEdges).toHaveLength(2);
+  });
+
+  test("regression: an imported constant used as a `when` condition is not read as a qualifier", () => {
+    // Brace-less consecutive branches used to collapse into an InfixExpression, and the (since
+    // removed) tree-walking recovery then fabricated `TYPE_PING.readPing` from
+    // `TYPE_PING -> readPing(...)`.
+    const { rawCallEdges } = parseKotlin(
+      "src/main/kotlin/p/Client.kt",
+      `package p
+import a.b.TYPE_PING
+import a.b.TYPE_GOAWAY
+class Client {
+  fun read(type: Int) {
+    when (type) {
+      TYPE_PING -> readPing(1)
+      TYPE_GOAWAY -> readGoAway(2)
+      else -> other()
+    }
+  }
+}`,
+    );
+    expect(rawCallEdges ?? []).toEqual([]);
+  });
+  test("calls inside an extension function are attributed to it by its own name", () => {
+    const { rawCallEdges } = parseKotlin(
+      "src/main/kotlin/p/Ext.kt",
+      `package p
+import a.b.Foo
+fun String.shout() {
+  Foo.stat(1)
+}`,
+    );
+    expect(rawCallEdges).toEqual([{ from: "shout", to: "stat", toSpecifier: "a.b.Foo" }]);
+  });
+
+  const edgesOf = (body: string) =>
+    parseKotlin(
+      "src/main/kotlin/p/Client.kt",
+      `package p
+import a.b.Foo
+import a.b.Bar
+class Client {
+  fun run() { ${body} }
+}`,
+    ).rawCallEdges;
+
+  test("explicit type arguments on a qualified call keep the edge", () => {
+    expect(edgesOf("Foo.stat<String>(1)")).toEqual([
+      { from: "Client.run", to: "stat", toSpecifier: "a.b.Foo" },
+    ]);
+    expect(edgesOf("val x = Foo.make<Int, String>(1)")).toEqual([
+      { from: "Client.run", to: "make", toSpecifier: "a.b.Foo" },
+    ]);
+  });
+
+  test("a generic constructor call is a constructor edge", () => {
+    expect(edgesOf("Bar<Int>()")).toEqual([
+      { from: "Client.run", to: "new", toSpecifier: "a.b.Bar" },
+    ]);
+  });
+
+  test("calls inside a labeled lambda are still attributed to the enclosing function", () => {
+    expect(edgesOf("list.forEach loop@{ Foo.stat(it) }")).toEqual([
+      { from: "Client.run", to: "stat", toSpecifier: "a.b.Foo" },
+    ]);
+    expect(edgesOf("run { Foo.stat(1); return@run }")).toEqual([
+      { from: "Client.run", to: "stat", toSpecifier: "a.b.Foo" },
+    ]);
+  });
+
+  test("a destructuring declaration's initializer keeps its edge", () => {
+    expect(edgesOf("val (a, b) = Foo.pair()")).toEqual([
+      { from: "Client.run", to: "pair", toSpecifier: "a.b.Foo" },
+    ]);
   });
 });

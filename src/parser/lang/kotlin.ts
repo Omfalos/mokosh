@@ -33,16 +33,12 @@ import { parser as kotlinParser } from "./kotlin/index";
  *  JVM-wide convention documented in `jvm-scan.ts`'s `importSymbolFromSpecifier`. */
 const IMPORT_RE = /^\s*import\s+([\w.]+(?:\.\*)?)(?:\s+as\s+(\w+))?\s*$/;
 
-/** Call-edge extraction is implemented and correct for what it can see (no false positives
- *  demonstrated). A real grammar bug (no ASI/newline-sensitivity — consecutive bare-call
- *  statements with no separator collapse into one garbage `InfixExpression`, a very common
- *  Kotlin shape) survived three grammar-level fix attempts, each hitting a different Lezer
- *  automaton dead end (see `src/parser/lang/kotlin/PROGRESS.md`'s "Phase 1" section) — so the
- *  recovery lives in {@link collectCallEdges}'s `collectInfixMisparseEdges` instead, at the
- *  tree-walking level: the common mis-nested shapes (qualified calls, no-argument constructor
- *  calls) are recovered from the mis-parsed tree, leaving only a narrower residual gap
- *  (with-arguments constructor calls in that exact position) documented in
- *  `LANGUAGE_FIDELITY.kotlin` (`src/graph/language-support.ts`). */
+/** Call-edge extraction is implemented and correct for what it can see. Consecutive statements
+ *  used to collapse into one garbage `InfixExpression`; the grammar now separates statements with a
+ *  newline-aware `Nl` token (see `docs/adr-021-kotlin-parsing.md`, "Newline-separated
+ *  statements"), which replaced an earlier tree-walking workaround. Remaining gaps are unsupported
+ *  syntax (labeled returns, star projections, explicit call type arguments), documented in `LANGUAGE_FIDELITY.kotlin`
+ *  (`src/graph/language-support.ts`). */
 const CALL_EDGES_ENABLED = true;
 
 /** Leading modifier soup shared by type and function declarations. */

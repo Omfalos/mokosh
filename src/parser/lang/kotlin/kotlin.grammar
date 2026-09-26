@@ -32,6 +32,9 @@
   // statement's annotation?). Always resolved by preferring to shift into the current rule's own
   // optional suffix. See docs/adr-021-kotlin-parsing.md.
   greedy
+  // Below `greedy`: marks the *reduce* side of `@Foo<T>` followed by `(`, so the shift into the
+  // annotation's own ArgumentList wins over a primary constructor's parenthesis.
+  annotationEnd
 }
 
 // File-level annotations (`@file:OptIn(Foo::class)`) precede `package` in real Kotlin — before
@@ -42,7 +45,7 @@
 // superset-acceptance convention elsewhere (e.g. ImportHeader's stray wildcard, ClassBody's
 // ungated enum-entry list) rather than tracking the semantic file-vs-declaration distinction.
 @top Program {
-  (!greedy annotationUse)* PackageHeader? ImportHeader* topLevelDeclaration*
+  Shebang? (!greedy annotationUse)* PackageHeader? ImportHeader* topLevelDeclaration*
 }
 
 PackageHeader {
@@ -75,7 +78,12 @@ modifier {
   ckw<"external"> | ckw<"override"> | ckw<"lateinit"> | ckw<"tailrec"> | ckw<"vararg"> |
   ckw<"suspend"> | ckw<"inner"> | ckw<"enum"> | ckw<"annotation"> | ckw<"inline"> |
   ckw<"value"> | ckw<"infix"> | ckw<"operator"> | ckw<"data"> | ckw<"noinline"> |
-  ckw<"crossinline"> | ckw<"reified"> | kw<"in"> | annotationUse
+  ckw<"crossinline"> | ckw<"reified"> | kw<"in"> | annotationUse | ContextReceivers
+}
+
+// `context(Foo, Bar) fun f()`.
+ContextReceivers {
+  ckw<"context"> "(" commaSep1<type> ")"
 }
 
 // Reuses the existing ArgumentList/callArgument machinery (already used by ConstructorInvocation/
@@ -88,7 +96,7 @@ modifier {
 // use-site-target support" section (dogfooding against square/okhttp found this was the dominant
 // cause of 25/339 real files silently skipping complexity/call-edge extraction).
 annotationUse {
-  "@" (useSiteTarget ":")? dottedName (!greedy ArgumentList)?
+  "@" (useSiteTarget ":")? dottedName (AnnotationTypeArguments !annotationEnd (!greedy ArgumentList)? | !greedy ArgumentList)?
 }
 
 // The full real Kotlin use-site-target list (kotlinlang.org's "Use-site targets" reference), not
@@ -101,7 +109,7 @@ useSiteTarget {
 }
 
 ClassDeclaration {
-  modifier* (kw<"class"> | kw<"interface">) Definition TypeParameters? classTail (!greedy ClassBody)?
+  modifier* (kw<"class"> | kw<"interface"> | kw<"fun"> kw<"interface">) Definition TypeParameters? classTail (!greedy ClassBody)?
 }
 
 // Groups PrimaryConstructor?/DelegationSpecifiers?/TypeConstraints? into one lowercase (inlined,
@@ -175,7 +183,13 @@ ClassBody {
 }
 
 EnumEntry {
-  Definition (!greedy ArgumentList)? (!greedy ClassBody)?
+  EnumEntryAnnotation* Definition (!greedy ArgumentList)? (!greedy ClassBody)?
+}
+
+// `@SerializedName("x") FOO` — `EntryAt` (tokens.js) is only emitted when what follows the annotation
+// is an entry name, which keeps it from being confused with a member's leading annotation.
+EnumEntryAnnotation {
+  EntryAt (useSiteTarget ":")? dottedName (!greedy ArgumentList)?
 }
 
 classMemberDeclaration {
@@ -210,17 +224,19 @@ InitBlock {
   ckw<"init"> Block
 }
 
-// No receiver-type prefix here (unlike an earlier version of this grammar): `(receiverType
-// ".")? Definition` has the exact same Identifier-vs-Definition state-merge ambiguity already
-// cut from PropertyDeclaration below, but here it doesn't error at build time — it silently
-// mis-parses instead (`fun Foo.bar()` reduces `Foo.bar` entirely as a type, via ScopedTypeName,
-// leaving nothing for Definition, then cascades into garbage error-recovery for everything after).
-// Caught by testing against real/synthetic .kt files, not by the generator; restricting
-// receiverType to exclude ScopedTypeName didn't fix it, confirming the ambiguity is the same
-// Identifier/Definition one, not a ScopedTypeName-specific greediness issue. Extension functions
-// are accordingly unsupported for now — Phase 0b if this matters (see docs/adr-021-kotlin-parsing.md).
+// Extension functions (`fun String.shout()`, `fun <T> List<T>.first()`, `fun a.b.Foo?.f()`): the
+// receiver is a flat `(ReceiverSegment ("." | SafeNav))*` prefix before `Definition`, NOT a
+// `receiverType "."` wrapper. A wrapper built from `simpleType` silently mis-parses — its
+// ScopedTypeName alternative swallows `Foo.bar` whole, leaving nothing for `Definition`, with no
+// build-time error. Flat segments let the parser decide on the token after each identifier: `.`
+// or `?.` means another receiver segment, `(` (or, for properties, `:`/`=`/`by`/an accessor)
+// means that identifier was the name. `SafeNav` is a separator because `Foo?.f` tokenizes as
+// `Foo` `?.` `f`, never as `?` then `.`. There is deliberately no wrapping node: the receiver is
+// several `ReceiverSegment` siblings, so the declaration's only direct-child `Definition` (what
+// `getChild("Definition")` reads) is still its own name. A receiver that is itself a function type
+// (`fun (suspend () -> T).f()`) is a `ParenReceiver`, tried before the segments.
 FunctionDeclaration {
-  modifier* kw<"fun"> TypeParameters? Definition
+  modifier* kw<"fun"> TypeParameters? (ParenReceiver ".")? (ReceiverSegment ("." | SafeNav))* Definition
     "(" commaSep<FunctionParameter> ")" (":" type)? (!greedy TypeConstraints)? (!greedy functionBody)?
 }
 
@@ -232,19 +248,15 @@ FunctionParameter {
   modifier* Definition ":" type ("=" expression)?
 }
 
-// No receiver-type prefix here (unlike FunctionDeclaration): `(receiverType ".")? Definition`
-// makes the leading identifier reduce, at the same LALR state, to either `Identifier` (start of
-// receiverType's TypeName) or `Definition` (the bare property name) — a genuine reduce/reduce
-// conflict, since Identifier and Definition are structurally identical (`identifier |
-// backtickIdentifier`) and state-merging conflates their follow sets here. FunctionDeclaration's
-// analogous prefix doesn't conflict because its Definition is always immediately followed by the
-// unambiguous "(" of the parameter list. Extension properties (`val String.foo get() = ...`) are
-// accordingly unsupported for now — Phase 0b if this matters (see docs/adr-021-kotlin-parsing.md).
+// Extension properties (`val String.foo get() = ...`, `val <T> List<T>.last: T`) use the same flat
+// receiver prefix as FunctionDeclaration above. The receiver segments are their own nodes
+// (`ReceiverSegment`, not `Identifier`), which is what avoids the Identifier-vs-Definition
+// reduce/reduce this rule used to hit at the leading identifier.
 PropertyDeclaration {
-  modifier* (kw<"val"> | kw<"var">) TypeParameters? Definition
+  modifier* (kw<"val"> | kw<"var">) TypeParameters? (ParenReceiver ".")? (ReceiverSegment ("." | SafeNav))* Definition
     propertyTail
     (!greedy "=" expression | !greedy ckw<"by"> expression)?
-    (!greedy PropertyAccessor)*
+    (AccessorNl? !greedy PropertyAccessor | AccessorNl ModifiedAccessor)*
 }
 
 // Groups the type-annotation and TypeConstraints slots into one lowercase (inlined, no extra tree
@@ -270,7 +282,19 @@ propertyTail {
 // the parens removes the ambiguous production instead of fighting it.
 PropertyAccessor {
   !greedy ckw<"get"> !greedy "(" ")" (":" type)? functionBody? |
-  !greedy ckw<"set"> !greedy "(" FunctionParameter ")" functionBody?
+  !greedy ckw<"set"> !greedy "(" SetterParameter ")" functionBody?
+}
+
+// `private set` / `protected get()` — an accessor with visibility modifiers. Only reachable after
+// `AccessorNl` (the tokenizer emits it before a modified accessor), which is what keeps these
+// modifiers from being ambiguous against the next member's own modifier list.
+ModifiedAccessor {
+  modifier+ (ckw<"get"> | ckw<"set">) ("(" SetterParameter? ")" (":" type)? functionBody?)?
+}
+
+// A setter parameter's type is optional (`set(value) { ... }`), unlike a function parameter.
+SetterParameter {
+  modifier* Definition (":" type)?
 }
 
 TypeAlias {
@@ -282,7 +306,12 @@ TypeParameters {
 }
 
 TypeParameter {
-  modifier* Definition (":" type)?
+  modifier* ckw<"out">? Definition (":" type)?
+}
+
+// Type-argument projection: `List<*>`, `Comparable<in T>`, `Producer<out T>`.
+typeArg {
+  "*" | (kw<"in"> | ckw<"out">)? type
 }
 
 // No standalone Block or IfStatement alternative here: Kotlin has no bare `{ ... }` block
@@ -297,6 +326,19 @@ statement[@isGroup=Statement] {
   ForStatement |
   WhileStatement |
   DoWhileStatement |
+  LabeledStatement |
+  jumpStatement
+}
+
+// `outer@ for (...) { ... }` — a label on a loop.
+LabeledStatement {
+  LabelDef (ForStatement | WhileStatement | DoWhileStatement)
+}
+
+// Also reachable as the right operand of `?:` (`x ?: return null`, `?: throw ...`, `?: continue`) —
+// in real Kotlin these are expressions, here they stay statements everywhere else to avoid a
+// dual representation (see `IfStatement`/`IfExpression` above), so `?:` names them directly.
+jumpStatement {
   ReturnStatement |
   BreakStatement |
   ContinueStatement |
@@ -336,13 +378,28 @@ AssignmentStatement {
 // difference — removing the piece (once confirmed grammatically unnecessary here) succeeded
 // where marking it kept failing.
 declarationStatement {
-  LocalPropertyDeclaration | LocalFunctionDeclaration | ObjectDeclaration | TypeAlias
+  LocalPropertyDeclaration | LocalFunctionDeclaration | LocalClassDeclaration | ObjectDeclaration | TypeAlias
+}
+
+// `val (a, b) = pair`, `for ((k, v) in map)` — each entry may carry its own type.
+DestructuringDeclaration {
+  "(" commaSep1<destructuringEntry> ")"
+}
+
+destructuringEntry {
+  Definition (":" type)?
 }
 
 LocalPropertyDeclaration {
-  modifier* (kw<"val"> | kw<"var">) Definition
+  modifier* (kw<"val"> | kw<"var">) (Definition | DestructuringDeclaration)
     (":" type)?
     (!greedy "=" expression | !greedy ckw<"by"> expression)?
+}
+
+// A local class needs its body: without it, "the header is complete" and "the next statement starts"
+// compete for the same token, which no precedence marker can reach (see the note above).
+LocalClassDeclaration {
+  modifier* (kw<"class"> | kw<"interface">) Definition TypeParameters? classTail ClassBody
 }
 
 LocalFunctionDeclaration {
@@ -350,8 +407,20 @@ LocalFunctionDeclaration {
     "(" commaSep<FunctionParameter> ")" (":" type)? (!greedy TypeConstraints)? functionBody
 }
 
+// Statements in a brace body are separated by `Nl`, an external token (tokens.js `nlTokens`) for a
+// line break or `;` — not by plain whitespace. Kotlin has no ASI *grammar*, but a newline does end a
+// statement unless the next token continues the expression (`.`, `?.`, `?:`, `&&`, `||`, `as`,
+// `else`, `catch`, `finally`), and without it `Foo.a(1)` / `Bar(2)` on consecutive lines collapsed
+// into one `InfixExpression` chain (see PROGRESS.md, "Attempts 1-3"). `Nl` is only ever offered
+// where the automaton can shift it (`stack.canShift`), so line breaks inside call arguments and
+// parentheses stay insignificant. Class bodies and top-level declarations don't need it: every
+// member starts with a keyword or modifier, so they were never ambiguous.
+stmts {
+  Nl? (statement (Nl statement)* Nl?)?
+}
+
 Block {
-  "{" statement* "}"
+  "{" stmts "}"
 }
 
 // No `Block` alternative here (unlike an earlier version of this grammar): `Block` and a bare
@@ -371,7 +440,7 @@ ExpressionStatement {
 }
 
 ForStatement {
-  kw<"for"> "(" modifier* Definition (":" type)? kw<"in"> expression ")" controlBody
+  kw<"for"> "(" modifier* (Definition | DestructuringDeclaration) (":" type)? kw<"in"> expression ")" controlBody
 }
 
 WhileStatement {
@@ -391,15 +460,15 @@ DoWhileStatement {
 // CallableReference). Labeled non-local jumps (common inside lambdas passed to `forEach` etc.)
 // are a real Phase 0b gap — see docs/adr-021-kotlin-parsing.md.
 ReturnStatement {
-  kw<"return"> (!greedy expression)?
+  kw<"return"> (LabelAt Identifier)? (!greedy expression)?
 }
 
 BreakStatement {
-  kw<"break">
+  kw<"break"> (LabelAt Identifier)?
 }
 
 ContinueStatement {
-  kw<"continue">
+  kw<"continue"> (LabelAt Identifier)?
 }
 
 ThrowStatement {
@@ -413,6 +482,7 @@ expression[@isGroup=Expression] {
   IsExpression |
   AsExpression |
   PrefixExpression |
+  LabeledLambda |
   LambdaLiteral |
   baseExpression
 }
@@ -422,7 +492,7 @@ BinaryExpression {
   expression !compare op<Compare, "<" | ">" | "<=" | ">="> expression |
   expression !and op<Logic, "&&"> expression |
   expression !or op<Logic, "||"> expression |
-  expression !elvis Elvis expression |
+  expression !elvis Elvis (expression | jumpStatement) |
   expression !plus op<Arith, "+" | "-"> expression |
   expression !times op<Arith, "*" | "/" | "%"> expression
 }
@@ -450,19 +520,35 @@ PrefixExpression {
 baseExpression {
   literal |
   StringTemplate |
-  kw<"this"> |
-  kw<"super"> |
+  ThisExpression |
+  SuperExpression |
   Identifier |
   ParenthesizedExpression |
   IfExpression |
   WhenExpression |
   TryExpression |
   ObjectLiteral |
+  AnonymousFunction |
+  CollectionLiteral |
   CallableReference |
   NavigationExpression |
   CallExpression |
   IndexingExpression |
   PostfixUnaryExpression
+}
+
+// `this@Outer`, `super<Base>.f()`, `super@Outer.f()`.
+ThisExpression {
+  kw<"this"> (LabelAt Identifier)?
+}
+
+SuperExpression {
+  kw<"super"> (!typeArgs "<" type ">")? (LabelAt Identifier)?
+}
+
+// `callback@{ ... }` / `fold@ { ... }` — a labeled lambda used as an expression or argument.
+LabeledLambda {
+  LabelDef LambdaLiteral
 }
 
 ParenthesizedExpression {
@@ -474,11 +560,32 @@ IfExpression {
 }
 
 WhenExpression {
-  kw<"when"> ("(" expression ")")? "{" WhenEntry* "}"
+  kw<"when"> ("(" WhenSubject ")")? "{" whenEntries "}"
+}
+
+// Brace-less branches (`A -> readA(1)` newline `B -> readB(2)`) need the same `Nl` separator as a
+// statement list: `controlBody` is a single statement, so without it the next entry's leading
+// condition was swallowed as an infix operand of the previous branch's body.
+whenEntries {
+  Nl? (WhenEntry (Nl? WhenEntry)* Nl?)?
 }
 
 WhenEntry {
-  (commaSep1<whenCondition> | kw<"else">) "->" controlBody
+  (whenConditions WhenGuard? | kw<"else">) "->" controlBody
+}
+
+whenConditions {
+  whenCondition (!greedy "," whenCondition)* (!greedy ",")?
+}
+
+// `when (val x = f()) { ... }` — the subject may bind a variable.
+WhenSubject {
+  (kw<"val"> Definition (":" type)? "=")? expression
+}
+
+// `is String if x.isEmpty() -> ...` — a guard on a when branch.
+WhenGuard {
+  kw<"if"> expression
 }
 
 whenCondition {
@@ -499,6 +606,16 @@ FinallyClause {
   kw<"finally"> Block
 }
 
+// `[1, 2]` — an array literal (only valid in annotation arguments).
+CollectionLiteral {
+  "[" commaSep<expression> "]"
+}
+
+// `fun(x: Int): Int { ... }` — an anonymous function expression.
+AnonymousFunction {
+  kw<"fun"> "(" commaSep<FunctionParameter> ")" (":" type)? functionBody
+}
+
 ObjectLiteral {
   kw<"object"> (":" DelegationSpecifiers)? ClassBody
 }
@@ -509,7 +626,7 @@ ObjectLiteral {
 // reachable from the same baseExpression start position (see docs/adr-021-kotlin-parsing.md).
 // Qualified/generic callable references are a Phase 0b addition.
 CallableReference {
-  Identifier !postfix "::" (Identifier | kw<"class">) |
+  baseExpression !postfix TypeArguments? "::" (Identifier | kw<"class">) |
   "::" (Identifier | kw<"class">)
 }
 
@@ -518,7 +635,19 @@ NavigationExpression {
 }
 
 CallExpression {
-  baseExpression !postfix (ArgumentList (!postfix TrailingLambda)? | TrailingLambda)
+  baseExpression !postfix (TypeArguments? ArgumentList (!postfix TrailingLambda)? | TypeArguments? TrailingLambda)
+}
+
+// `listOf<Int>(1)`, `HashMap<String, Int>()`, `foo<T> { }`. The `<` is its own token (see tokens.js)
+// because it is indistinguishable from a comparison until the matching `>` and what follows it.
+TypeArguments {
+  TypeArgsOpen commaSep1<typeArg> ">"
+}
+
+// `@Foo<Bar>` — same node as a call's type arguments; its own open token (see tokens.js) because
+// no `(`/`{`/`::` follows the closing `>`.
+AnnotationTypeArguments[@name=TypeArguments] {
+  AnnotationTypeArgsOpen commaSep1<typeArg> ">"
 }
 
 ArgumentList {
@@ -530,19 +659,31 @@ callArgument {
 }
 
 TrailingLambda {
-  LambdaLiteral
+  LabelDef? LambdaLiteral
 }
 
 LambdaLiteral {
-  "{" (lambdaParameters "->")? statement* "}"
+  "{" (lambdaParameters "->")? stmts "}"
 }
 
 lambdaParameters {
   commaSep1<lambdaParameter>
 }
 
+// `@Foo` on a lambda parameter — `ParamAt` (tokens.js) is only emitted when a parameter name follows
+// the annotation, which keeps it apart from an annotated declaration at the start of the body.
+LambdaParamAnnotation {
+  ParamAt (useSiteTarget ":")? dottedName (!greedy ArgumentList)?
+}
+
 lambdaParameter {
-  Definition (":" type)?
+  LambdaParamAnnotation* (Definition | LambdaDestructuring) (":" type)?
+}
+
+// `{ (a, b) -> ... }`. The `(` is its own token (see tokens.js) because a lambda body may also start
+// with a parenthesized expression, and the two only differ after the closing paren.
+LambdaDestructuring[@name=DestructuringDeclaration] {
+  DestructureOpen commaSep1<destructuringEntry> ")"
 }
 
 IndexingExpression {
@@ -561,28 +702,62 @@ literal {
   kw<"null">
 }
 
-// No generic `"(" type ")"` parenthesized-type form: it would need to stay ambiguous with
-// FunctionType's own `"(" commaSep<type> ")" "->" type` until *after* the closing paren (both
-// reduce the same single `type` inside identical parens, and an LR(1) parser can't defer that
-// reduction past the shared prefix — see docs/adr-021-kotlin-parsing.md). `(Foo)` as a bare
-// parenthesized type is accordingly unsupported (rare in practice); the one common real pattern
-// that needs parens — a nullable function type, `(() -> Unit)?` — gets its own rule instead.
+// Function types, parenthesized types and nullable function types (`(() -> Unit)?`) all start with
+// the same `(`, and an LR(1) parser can't defer the choice past a shared prefix — a separate
+// `"(" type ")"` rule conflicts with FunctionType's own `"(" commaSep<type> ")"` at the closing
+// paren. So there is ONE production: the parenthesized list, then an optional `-> type`. No arrow
+// means it was a parenthesized type (`(Foo)`, `(suspend () -> T)`), which is why `NullableType` and
+// `ParenReceiver` accept a `FunctionType`. `!greedy` on the arrow makes `{ x: (Int) -> Int -> x }`
+// read `(Int) -> Int` as the parameter's function type, as Kotlin does.
 type {
   FunctionType |
   NullableType |
-  simpleType
+  simpleType |
+  DefinitelyNonNullType |
+  AnnotatedType
 }
 
+// `T & Any`.
+DefinitelyNonNullType {
+  simpleType !greedy "&" simpleType
+}
+
+// `x: @Foo String`, `class A : @Foo I`.
+AnnotatedType {
+  annotationUse type
+}
+
+// `!greedy` on the `?`: `() -> Unit?` is a function returning `Unit?`, not a nullable function
+// (that needs parens, `(() -> Unit)?`), so the `?` attaches to the return type.
 NullableType {
-  simpleType "?"
+  (simpleType | FunctionType) !greedy "?"
 }
 
-// No receiver-qualified form (`Foo.() -> Unit`, common in DSL builders): its leading `simpleType
-// "."` shares a prefix with plain NavigationExpression's `baseExpression "."`, which produced a
-// spurious shift/reduce conflict wherever a `type` position is reachable from inside a larger
-// expression (e.g. after `is`/`!is`). Phase 0b if this matters — see docs/adr-021-kotlin-parsing.md.
+// Function-type parameters may be named (`(timeout: Int) -> Unit`).
+functionParam {
+  (Identifier ":")? type
+}
+
+// `suspend` and an optional receiver are both prefixes of the same production: `suspend
+// Foo.(Int) -> Unit`. The receiver starts from `TypeName | ScopedTypeName | GenericType` directly,
+// NOT from `simpleType`: reducing to `simpleType` first forces a reduce before the `.`, which
+// conflicts with ScopedTypeName's own shift of that same `.` (the "spurious conflict" an earlier
+// version of this grammar hit). Starting from the same nonterminals lets both shift the `.`, and
+// the next token — `(` versus an identifier — picks FunctionType or ScopedTypeName.
 FunctionType {
-  "(" commaSep<type> ")" "->" type
+  ckw<"suspend">? ((TypeName | ScopedTypeName | GenericType) ".")?
+    "(" commaSep<functionParam> ")" (!greedy "->" type)?
+}
+
+// A parenthesized receiver on an extension declaration: `fun (suspend () -> T).run()`. After `fun`
+// (and optional type parameters) a `(` can only start this, so it needs no lookahead.
+ParenReceiver {
+  "(" type ")"
+}
+
+// One dotted segment of an extension receiver, with optional type arguments (`List<T>`).
+ReceiverSegment {
+  Identifier (!typeArgs "<" commaSep1<typeArg> ">")?
 }
 
 simpleType {
@@ -600,7 +775,7 @@ ScopedTypeName {
 }
 
 GenericType[@dynamicPrecedence=1] {
-  (TypeName | ScopedTypeName) !typeArgs "<" commaSep1<type> ">"
+  (TypeName | ScopedTypeName) !typeArgs "<" commaSep1<typeArg> ">"
 }
 
 Definition {
@@ -617,9 +792,11 @@ ckw<term> { @extend[@name={term}]<identifier, term> }
 
 op<tag, expr> { expr }
 
-commaSep<expr> { (expr ("," expr)*)? }
+// Both accept a trailing comma (`foo(a, b,)`, valid since Kotlin 1.4 and the norm in ktlint-formatted
+// code with one argument per line).
+commaSep<expr> { (expr ("," expr)* ","?)? }
 
-commaSep1<expr> { expr ("," expr)* }
+commaSep1<expr> { expr ("," expr)* ","? }
 
 @skip {} {
   StringTemplate {
@@ -633,6 +810,18 @@ Interpolation {
 }
 
 @skip { LineComment | BlockComment | whitespace | ";" }
+
+// Declared before `@tokens` so it is tried ahead of the built-in whitespace skip: it has to claim
+// a line break before `whitespace` swallows it.
+// Block comments nest in Kotlin (`/* a /* b */ c */`), which a regular token can't express.
+@external tokens commentTokens from "./tokens.js" { BlockComment }
+
+@external tokens nlTokens from "./tokens.js" { Nl, AccessorNl }
+
+// An `@` glued to the preceding identifier/keyword (`return@f`, `this@A`, `outer@ for`) is a label
+// marker; an annotation's `@` never directly follows an identifier character. Telling them apart in
+// the tokenizer avoids an unresolvable conflict with the next declaration's leading annotation.
+@external tokens labelTokens from "./tokens.js" { LabelAt, LabelDef, DestructureOpen, TypeArgsOpen, AnnotationTypeArgsOpen, EntryAt, ParamAt }
 
 @tokens {
   whitespace {
@@ -676,7 +865,7 @@ Interpolation {
   @precedence { FloatingPointLiteral, IntegerLiteral }
 
   CharacterLiteral[isolate] {
-    "'" (![\\'\n] | "\\" ![\n]) "'"
+    "'" (![\\'\n] | "\\u" $[0-9A-Fa-f]+ | "\\" ![\n]) "'"
   }
 
   StringStartTriple { '"""' }
@@ -704,18 +893,15 @@ Interpolation {
   NotIs { "!is" }
   NotIn { "!in" }
 
+  Shebang[isolate] {
+    "#!" ![\n]*
+  }
+
   LineComment[isolate] {
     "//" ![\n]*
   }
 
-  BlockComment[isolate] { "/*" blockCommentRest }
-
-  blockCommentRest { ![*] blockCommentRest | "*" blockCommentAfterStar }
-
-  blockCommentAfterStar { "/" | "*" blockCommentAfterStar | ![/*] blockCommentRest }
-
   @precedence { LineComment, Asterisk }
-  @precedence { BlockComment, Asterisk }
   @precedence { LineComment, "/" }
   @precedence { FloatingPointLiteral, "." }
   @precedence { Elvis, "?" }

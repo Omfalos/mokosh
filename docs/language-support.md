@@ -92,12 +92,12 @@ hand-rolled and doesn't port; each needs its own grammar (tracked as issue 8c).
 grammar ([ADR-021](./adr-021-kotlin-parsing.md)) rather than a port of Java's scanner. Call edges
 are same scope as Java's: static/qualified calls and constructor calls (incl. through an
 `as`-aliased import), resolved only when the qualifier is a known local import — not virtual
-dispatch, and only single-level qualifiers (`a.b()`, not `a.b.c()`). The grammar has no
-newline-sensitivity (ASI), so two statements in a row with no separator can mis-nest into one
-bogus tree shape; call-edge extraction recovers the qualified-call and no-argument-constructor-call
-shapes from that mis-nest, but a with-arguments constructor call (`Bar(1)`) as the second statement
-still loses its edge — see `src/parser/lang/kotlin/PROGRESS.md` for the underlying grammar
-limitation. Complexity (`src/parser/complexity/kotlin.ts`) mirrors `complexity/java.ts`'s
+dispatch, and only single-level qualifiers (`a.b()`, not `a.b.c()`). Statements in a
+brace body and `when` branches are separated by a newline-aware `Nl` token
+([ADR-021](./adr-021-kotlin-parsing.md), "Newline-separated statements"), so consecutive calls
+each keep their own edge, including with-arguments constructor calls (`Bar(1)`). The remaining gap
+is unsupported syntax: labeled returns (`return@x`), star projections (`List<*>`) and explicit call type arguments (`emptyList<T>()`) parse with
+error nodes, which can drop edges in that region. Complexity (`src/parser/complexity/kotlin.ts`) mirrors `complexity/java.ts`'s
 cyclomatic + cognitive scoring, with two Kotlin-specific quirks handled explicitly: this grammar
 gives no tree node at all to `&&`/`||` (an unnamed literal token is simply absent from the tree —
 their presence is instead read from the source text between a `BinaryExpression`'s two operand

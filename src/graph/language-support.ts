@@ -244,9 +244,9 @@ const FIDELITY_CAVEAT: Partial<Record<FileType, Partial<Record<keyof LanguageFid
       importSymbols:
         "one symbol per import (the FQN's last segment); wildcard imports carry none, and re-exports aren't tracked",
       callEdges:
-        "static/qualified calls and constructors only (via the first-party Kotlin grammar, ADR-021), not virtual dispatch; single-level qualifiers only (`a.b()`, not `a.b.c()`); wildcard-imported qualifiers don't resolve; the grammar has no newline-sensitivity (ASI), so two consecutive statements with no separator can mis-nest — qualified calls (`Bar.other(2)`) and no-argument constructor calls (`Bar()`) as the second statement are recovered, but a *with-arguments* constructor call there (`Bar(1)`) still loses its edge",
+        "static/qualified calls and constructors only (via the first-party Kotlin grammar, ADR-021), not virtual dispatch; single-level qualifiers only (`a.b()`, not `a.b.c()`); wildcard-imported qualifiers don't resolve; statements are newline-separated in the grammar, so consecutive calls each keep their edge — the remaining gaps are unsupported syntax (labeled returns `return@x`, star projections `List<*>`, explicit call type arguments `f<T>()`), which parse with error nodes and can drop edges in that region",
       complexity:
-        "via the first-party Kotlin grammar (ADR-021); skipped entirely (no score, not a wrong one) above the 5% error-node-density gate shared with call edges",
+        "via the first-party Kotlin grammar (ADR-021); skipped entirely (no score, not a wrong one) above the 5% error-node-density gate shared with call edges; a function whose own body contains an error node and a decision point is omitted from the per-function list",
     },
     scala: {
       importResolution:

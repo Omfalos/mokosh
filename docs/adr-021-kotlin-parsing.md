@@ -92,17 +92,17 @@ documented inline in `kotlin.grammar` next to the relevant rule, and are recover
 
 | Cut | Why |
 |---|---|
-| No extension functions or properties (`fun String.shout()`, `val String.foo get() = ...`) | The receiver-type prefix's leading identifier reduces, at the same LALR state, to either `Identifier` (start of the receiver type) or `Definition` (the declaration's own name with no receiver) — a genuine reduce/reduce conflict from state-merging, since both are structurally identical one-token productions. For `PropertyDeclaration` this is a **hard build-time error**; for `FunctionDeclaration` the identical root cause does **not** error at build time — it silently mis-parses instead (`fun Foo.bar()` reduces `Foo.bar` whole as a `ScopedTypeName`, leaving nothing for the function name). The most commonly-hit gap in this list — extension functions/properties are idiomatic, everyday Kotlin. |
+| ~~No extension functions or properties~~ **Fixed 2026-09-21** — `fun String.shout()`, `fun <T> List<T>.f()`, `fun a.b.Foo?.f()`, `val String.p get() = ...` now parse via a flat `(ReceiverSegment ("." \| SafeNav))*` prefix before `Definition`. The original diagnosis (an Identifier-vs-Definition state-merge) was right that a `receiverType "."` *wrapper* fails — its `ScopedTypeName` alternative silently swallows `Foo.bar` whole — but wrong that it was unfixable: separate `ReceiverSegment` nodes let the parser decide on the token after each identifier (`.`/`?.` → another segment, `(` or `:`/`=`/`by`/accessor → the name), with no conflicts and no external tokenizer. See "Extension receivers" below. Receiver *function* types (`Foo.() -> Unit`, `(suspend () -> T).f()`) remain a cut. |
 | ~~No annotation-argument support~~ **Fixed 2026-09-16** — `@Foo(bar = 1)`/`@get:JvmName(...)` etc. now parse via the existing `ArgumentList` machinery plus the full real use-site-target list, gated by `!greedy`. The original "pulling `expression` into the modifier soup explodes the LR automaton" theory didn't hold once actually tried — see PROGRESS.md's "Annotation-argument and use-site-target support" section. | — |
-| No bare parenthesized type `(Foo)` | Would stay ambiguous with `FunctionType`'s own `"(" commaSep<type> ")" "->" type` until *after* the closing paren; LR(1) can't defer that reduction past the shared prefix. The one common real pattern needing parens — a nullable function type, `(() -> Unit)?` — gets its own rule instead. |
-| No receiver-qualified function type (`Foo.() -> Unit`) | Shares a prefix with plain navigation (`baseExpression "."`), producing a spurious conflict wherever a `type` position is reachable from inside a larger expression. |
+| ~~No bare parenthesized type `(Foo)`~~ **Fixed 2026-09-21** — parenthesized, function and nullable-function types are now ONE production, `"(" commaSep<functionParam> ")" (!greedy "->" type)?`; no arrow means a parenthesized type. The original conflict was real for two separate rules (they diverge only after the closing paren), and disappears when the arrow is optional inside a single rule. |
+| ~~No receiver-qualified function type (`Foo.() -> Unit`)~~ **Fixed 2026-09-21** — `FunctionType` starts with `((TypeName \| ScopedTypeName \| GenericType) ".")?` directly, not `simpleType`; the earlier "spurious conflict" came from reducing to `simpleType` before the `.`. Also `suspend` prefix, named parameters, and `fun (suspend () -> T).f()` (`ParenReceiver`). See "Function types" below. |
 | ~~No modifiers directly before `constructor`~~ **Fixed 2026-09-16** — `private constructor(...)` now attaches its modifier correctly; the original theory ("ambiguous against the next sibling's modifier soup") didn't hold once tried, and the gap was worse than "doesn't attach": it silently swallowed the rest of the class body. See PROGRESS.md. No modifiers directly before `get`/`set` still applies (`private set` still parses, modifier still doesn't attach) — not yet attempted. | Same ambiguity class as the constructor case, untested for `get`/`set` specifically. |
 | No qualified or generic callable references (only bare `Foo::bar` / `::bar`) | Using `simpleType?` instead of a bare `Identifier` would make `TypeName` and `baseExpression`'s own `Identifier` alt reduce-reduce-ambiguous on every bare identifier. |
-| No `@label` support at all (`return@x`/`break@x`/`continue@x`) | Without newline-sensitivity, a bare `return`/`break`/`continue` immediately followed by `@` is ambiguous between "this statement's own label" and "an annotation starting the next statement" — kept resisting `!greedy` resolution via a deep interaction with `CallableReference`. Labeled non-local jumps (common inside lambdas passed to `forEach` etc.) are a real, moderately common gap. |
+| No `@label` support at all (`return@x`/`break@x`/`continue@x`) | Before `Nl` statement separators existed (see "Newline-separated statements" below), without newline-sensitivity, a bare `return`/`break`/`continue` immediately followed by `@` is ambiguous between "this statement's own label" and "an annotation starting the next statement" — kept resisting `!greedy` resolution via a deep interaction with `CallableReference`. Labeled non-local jumps (common inside lambdas passed to `forEach` etc.) are a real, moderately common gap. |
 | No local (nested-in-function-body) class declarations | Hits the generator's own internal `statement+ -> statement+ statement+` grouping (its binary splitting of `statement*` for incremental reparsing) — no precedence marker reaches a conflict whose competing side is generator-internal rather than a sibling rule this grammar controls. |
 | Local functions and local properties use narrower dedicated rules (`LocalFunctionDeclaration`, `LocalPropertyDeclaration`), not the full `FunctionDeclaration`/`PropertyDeclaration` | Same `statement+` wall as local classes, but sidestepped instead of cut outright: a local function's body is never actually optional in real Kotlin, so requiring it removes the "reduce without a body" path the wall was blocking. Local properties additionally can't have accessors, type parameters, or type constraints in real Kotlin anyway, so the narrower rule matches the language, not just LR(1)'s limits — dropping `TypeConstraints` specifically also happened to be what it took to unblock a separate, recurring `"="`-vs-`AssignmentStatement` conflict that no `!greedy` placement fixed. |
 | `PropertyAccessor`'s trailing `"(" ... ")"` is mandatory, not optional | A bare `get`/`set` with no parens at all isn't valid Kotlin anyway, and making it optional hit the same `statement+` wall as local classes. |
-| Destructuring declarations, contracts, context receivers, delegated-property edge cases | Not attempted — out of scope for Phase 0, deferred by the original plan from the start, not discovered via a conflict. |
+| Destructuring declarations, contracts, delegated-property edge cases (context receivers, annotation type arguments and annotated lambda parameters were later added — see PROGRESS.md) | Not attempted — out of scope for Phase 0, deferred by the original plan from the start, not discovered via a conflict. |
 
 ## Silent mis-parses (not caught by the generator)
 
@@ -126,6 +126,137 @@ external string-content tokenizer never engaged. `"x"` parsed as two empty strin
 sandwiching a bare identifier, no exception anywhere. Renamed to `StringStart`/`StringStartTriple`.
 **Any external tokenizer or context tracker that references a grammar token by name from JS needs
 that token capitalized**, independent of whether it should produce a visible tree node.
+
+## Newline-separated statements (`Nl`) — 2026-09-21
+
+The grammar originally treated newlines as plain whitespace (`;` was pure `@skip`), so two
+statements in a row with no separator were indistinguishable from one statement continuing:
+`Foo.a(1)` / `Bar.b(2)` collapsed into a single `InfixExpression` chain, and `Bar(1)` on the next
+line parsed as a valid, error-free `ParenthesizedExpression` continuing the previous statement.
+Three grammar attempts to fix this by giving `InfixExpression` its own same-line identifier token
+failed (`@lezer/lr`'s default-reduce optimization reduces before any external tokenizer runs; see
+PROGRESS.md "Attempts 1-3"), so call-edge extraction carried a tree-walking workaround
+(`collectInfixMisparseEdges`).
+
+The fix that worked is `@lezer/python`'s approach: an explicit statement-separator token on the
+follow side, not a special operand token on the shift side. `nlTokens` (`tokens.js`) is an external
+tokenizer, declared ahead of `@tokens`, that emits `Nl` for a line break or `;`:
+
+- **Only where the automaton can shift it** (`stack.canShift(Nl)`). Line breaks inside call
+  arguments and parentheses therefore stay insignificant with no bracket-depth tracking, and the
+  existing string-template `ContextTracker` is untouched.
+- **Not before a continuation token**: `.` (but not `..`), `?.`, `?:`, `&&`, `||`, `as`, `else`
+  (but not a `when` branch's `else ->`), `catch`, `finally`. Comments between the break and the
+  next token are skipped when peeking.
+- **A `;` always separates.**
+
+The grammar uses it in the three places a run of statement-like siblings has no leading keyword to
+tell them apart: `Block` and `LambdaLiteral` (`stmts`), and `when` entries (`whenEntries`) —
+brace-less branches (`A -> readA(1)` newline `B -> readB(2)`) otherwise swallowed the next entry's
+condition as an infix operand, undercounting `WhenEntry` decision points in complexity. Class
+bodies and top-level declarations were never affected, since every member starts with a keyword or
+modifier.
+
+Two smaller gaps fixed in the same pass, found by the corpus runs: trailing commas
+(`commaSep`/`commaSep1` accept a trailing `","`), and `?: return`/`?: throw`/`?: continue`/
+`?: break` (`Elvis`'s right operand accepts `jumpStatement`; the jump nodes stay statements
+everywhere else to avoid a reduce/reduce against an expression-side duplicate).
+
+**Measured** (error *nodes*, including zero-width recovery nodes, which an error-span ratio misses):
+
+| Corpus | Before | After |
+|---|---|---|
+| OkHttp (573 files) error nodes / files with none | 19,526 / 60 | 3,991 / 270 |
+| kotlinx.coroutines (1,039 files) error nodes / files with none | 18,055 / 173 | 8,809 / 414 |
+
+Parse time is unchanged (~0.6 s per corpus). The remaining error mass in the worst files is the
+documented cut list (at that point, overwhelmingly extension functions/properties and function types).
+
+**Consequence for `collectInfixMisparseEdges`.** With the grammar fixed it recovers nothing real:
+across both corpora it produced 0 genuine recoveries and 14 false-positive edges — 10 from
+brace-less `when` branches (`TYPE_PING -> readPing(...)`, where an imported constant was read as a
+qualifier; the `when` fix removed all 10) and 4 from labeled returns (`return@transform emit(v)`,
+where an imported alias was read as a qualifier; still present, since `@label` is unsupported). The
+earlier "no false positives demonstrated" claim held only for statement-list code. It was deleted
+the same day; `@label` support is also worth retrying now that a bare `return` followed by a newline
+and `@Foo` is no longer ambiguous.
+
+## Extension receivers — 2026-09-21
+
+Extension functions and properties were the most-hit gap: OkHttp has 223 extension functions and 19
+properties, kotlinx.coroutines 757 and 51, and each one corrupted the parse of what followed it.
+
+The fix is a flat receiver prefix, `(ReceiverSegment ("." | SafeNav))* Definition`, in both
+`FunctionDeclaration` and `PropertyDeclaration`, where `ReceiverSegment { Identifier (<type args>)? }`.
+Two design points, both found by trying the obvious approach first:
+
+- **No wrapper node.** A `ReceiverType { simpleType }` wrapper built the ADR's original way parses
+  without a build error and silently mis-parses: `ScopedTypeName` reduces `String.f` whole, leaving
+  nothing for `Definition`. The receiver is instead several sibling `ReceiverSegment` nodes, so the
+  declaration's only direct-child `Definition` is still its own name and every consumer that reads
+  `getChild("Definition")` works unchanged. Extension functions are therefore named by that bare
+  name (`commonName`, not `Headers.commonName`), matching how the line scanner already exports them.
+- **`SafeNav` is a separator.** `Foo?.f` tokenizes as `Foo` `?.` `f`, never `?` then `.`, so a
+  nullable receiver needs no `?` of its own.
+
+No external tokenizer was needed: the fallback (a lookahead marker token, as for `Nl`) stayed unused.
+
+**Measured** (error span ratio / error nodes / files with no error nodes):
+
+| Corpus | Before | After |
+|---|---|---|
+| OkHttp | 0.238% / 3,991 / 270 | 0.113% / 3,615 / 297 |
+| kotlinx.coroutines | 0.600% / 8,809 / 414 | 0.229% / 8,072 / 474 |
+
+A handful of files show *more* error nodes afterwards (e.g. `Combine.kt` 38 → 64): the extension
+header now parses and recovery reaches the next unsupported construct (a receiver function type in
+a parameter, `return@let`) instead of being derailed earlier.
+
+## Function types — 2026-09-21
+
+`suspend () -> T`, `Foo.() -> Unit`, `suspend FlowCollector<R>.(T) -> Unit`, `(() -> Unit)?`,
+named parameters (`(timeout: Int) -> Unit`) and extensions on function types
+(`fun (suspend () -> T).run()`) were all errors. kotlinx.coroutines has 304 `: suspend …` types, 186
+plain and 164 `suspend` receiver function types, 40 named-parameter and 24 nullable function types,
+across ~150 of its 1,039 files; OkHttp has about 10. Three pieces, all in the type grammar:
+
+1. **One production for function and parenthesized types.** `FunctionType { suspend? (recv ".")?
+   "(" commaSep<functionParam> ")" (!greedy "->" type)? }` — the same `(` starts both, and only the
+   arrow tells them apart, so the arrow is optional. No arrow = a parenthesized type, which is what
+   makes `(() -> Unit)?` work (`NullableType { (simpleType | FunctionType) !greedy "?" }`). Two
+   `!greedy`s carry Kotlin's own semantics: `() -> Unit?` returns a nullable `Unit` (the `?`
+   attaches to the return type), and in `{ x: (Int) -> Int -> x }` the first arrow belongs to the
+   function type, the second to the lambda.
+2. **Receiver function types.** `FunctionType` begins with `(TypeName | ScopedTypeName |
+   GenericType) "."` — the same nonterminals `ScopedTypeName` uses — rather than `simpleType`. The
+   old comment blamed a conflict with navigation `.`; the real cause was reducing to `simpleType`
+   before the `.`, which conflicts with `ScopedTypeName` shifting it. With the same prefix both
+   shift the `.`, and the next token (`(` versus an identifier) chooses. No lookahead-marker
+   tokenizer was needed.
+3. **`ParenReceiver { "(" type ")" }`** before an extension declaration's receiver segments. The
+   first attempt reused `FunctionType` there and hit a reduce/reduce against `ReceiverSegment`
+   (FunctionType can now start with an identifier); after `fun`, a `(` can only start a
+   `ParenReceiver`, so a dedicated rule needs no lookahead.
+
+A stale grammar comment claimed a nullable function type "gets its own rule"; no such rule
+existed and `(() -> Unit)?` errored. Removed.
+
+**Verified beyond a clean build:** 28 type shapes in three positions (parameter, `val`, return
+type), 17 context shapes (`is`/`as?`/`!is`, lambda parameters, generics, defaults), and tree
+shapes for the tricky ones — 0 errors and the right structure, with `Foo.Bar`, `Foo<A>.Bar` and
+`Map<String, List<Int>>` unchanged.
+
+**Measured** (error span / error nodes / files with no error nodes):
+
+| Corpus | Before | After |
+|---|---|---|
+| OkHttp | 0.113% / 3,615 / 297 | 0.113% / 3,600 / 298 |
+| kotlinx.coroutines | 0.229% / 8,072 / 474 | 0.183% / 6,035 / 536 |
+
+Coroutines error nodes fall by a quarter; OkHttp barely moves, as expected. A few files show *more*
+nodes (`SafeCollector.common.kt` 30 → 69): the function-type header now parses and recovery reaches
+the next unsupported construct — star projections (`SafeCollector<*>.f`), explicit call type
+arguments (`emptyList<Proxy>()`) and labels (`fold@{`) — not a regression.
 
 ## Build-and-runtime module-format mismatches
 
@@ -161,10 +292,10 @@ tutorials assume ESM):
 
 **Negative / trade-offs**
 
-- **No extension functions or properties** — likely the single most commonly-hit gap, since
-  they're idiomatic Kotlin. A `.kt` file leaning heavily on extension-oriented style (common in
-  Kotlin stdlib-adjacent code, e.g. OkHttp-style codebases) will show more error nodes than one
-  that doesn't.
+- **No explicit call type arguments** (`emptyList<Proxy>()`, `arrayOfNulls<Any>(n)`) and **no star
+  projections** (`List<*>`) — now the largest known gaps (458 / 1,549 call-type-argument lines and
+  38 / 361 star-projection lines in OkHttp / kotlinx.coroutines). `arrayOfNulls<Any>(n)` silently
+  parses as chained comparisons, with no error node.
 - The grammar is meaningfully more restrictive than real Kotlin in several corners (see the cut
   table) — this is a parser for mokosh's specific needs, not a general-purpose Kotlin frontend.
 - Two of the cuts (local classes, mandatory `PropertyAccessor` parens) exist purely because of a
@@ -174,9 +305,10 @@ tutorials assume ESM):
 - One more first-party grammar to maintain (`kotlin.grammar` plus its external tokenizer), on top
   of the existing per-language parsers, complexity extractors, and duplication tokenizer.
 
-## Next steps (Phase 1/2, not started)
+## Next steps
 
-Hybrid integration into `src/parser/lang/kotlin.ts` (replacing the ADR-017 scanner's parse layer
-while keeping its resolver/classification behavior), then complexity + cognitive complexity +
-call-edge extraction mirroring `src/parser/complexity/go.ts` / `java.ts`, then a conformance
-baseline. See `src/parser/lang/kotlin/PROGRESS.md` for the detailed resume plan.
+Phases 1 (hybrid integration + call edges) and 2 (complexity) have shipped, the conformance baseline
+is in place, and the temporary tree-walking workaround (`collectInfixMisparseEdges`) has been
+removed. What remains is grammar coverage growth: explicit call type arguments, star projections and
+`@label` first. See
+`src/parser/lang/kotlin/PROGRESS.md` for the detailed history.
