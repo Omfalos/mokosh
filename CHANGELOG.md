@@ -1,3 +1,18 @@
+## [0.5.3](https://github.com/Omfalos/mokosh/compare/v0.5.2...v0.5.3) (2026-09-26)
+
+### Features
+
+* **lang:** add first-party Kotlin Lezer grammar with call-edge extraction ([0d570b9](https://github.com/Omfalos/mokosh/commit/0d570b9c9051b308759bd0002b10f406b7d16687))
+* **lang:** add Kotlin complexity scoring via first-party grammar ([116e8ad](https://github.com/Omfalos/mokosh/commit/116e8ad2a6c9c6f73be66a9a32fcd7c0d601332b))
+* **lang:** extend Kotlin grammar with spec-coverage gaps ([6c5f967](https://github.com/Omfalos/mokosh/commit/6c5f967cc0449fd58eda661f3fe6216701b0a126))
+* **lang:** parse Kotlin .kts scripts with a Script top rule ([1e7251f](https://github.com/Omfalos/mokosh/commit/1e7251f641e0fc0f76871f1d76ca3a7dff32e0c9))
+
+### Bug Fixes
+
+* keep mokosh-cache out of git and rename duplication coverage fields ([4574929](https://github.com/Omfalos/mokosh/commit/4574929d6b317dfa3691958922402e7ebb9c3451))
+* **lang:** classify Kotlin export kinds and dedupe JVM import edges ([6a12abc](https://github.com/Omfalos/mokosh/commit/6a12abce9f050a9f77b37cc6d6b1cd88f83670c0))
+* **lang:** fix Kotlin grammar choice-count, annotation, and constructor mis-parses ([3e3af12](https://github.com/Omfalos/mokosh/commit/3e3af128c8afe11ab58e47d8ccc5b0cb5051340d))
+
 ## [0.5.2](https://github.com/Omfalos/mokosh/compare/v0.5.1...v0.5.2) (2026-09-11)
 
 ### Features
