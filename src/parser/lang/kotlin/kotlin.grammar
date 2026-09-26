@@ -48,6 +48,21 @@
   Shebang? (!greedy annotationUse)* PackageHeader? ImportHeader* topLevelDeclaration*
 }
 
+// `.kts` scripts (Gradle build files) are a sequence of top-level *statements* — `plugins { ... }`,
+// `if (...) { ... }`, `println("hi")` — not declarations, so they get their own top rule
+// (selected with `parser.configure({ top: "Script" })`, see `index.ts`) rather than widening
+// `Program`, whose `topLevelDeclaration*` repetition can't also take statements without
+// reduce/reduce conflicts. The body reuses the exact `Nl`-separated statement shape of a `Block`,
+// so every statement construct (calls, lambdas, `if`, `val`/`fun` locals, …) parses identically to
+// a function body. Unlike `Program`, the tokenizer may emit `Nl` after a file annotation, the
+// package header and each import (it can't know a statement list is not yet open), so those
+// positions accept an optional `Nl`. Top-level `class`/`object` in a script is unsupported (same local-class gap as
+// function bodies — see the comment above `statement`).
+@top Script {
+  Shebang? Nl? (!greedy annotationUse Nl?)* (PackageHeader Nl?)? (ImportHeader Nl?)*
+  (statement (Nl statement)* Nl?)?
+}
+
 PackageHeader {
   kw<"package"> dottedName
 }

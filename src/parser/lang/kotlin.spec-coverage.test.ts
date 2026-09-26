@@ -1,8 +1,8 @@
 import { describe, expect, test } from "vitest";
-import { parser } from "./kotlin/index";
+import { parser, scriptParser } from "./kotlin/index";
 
-function parse(source: string) {
-  const tree = parser.parse(source);
+function parse(source: string, script = false) {
+  const tree = (script ? scriptParser : parser).parse(source);
   const errors: string[] = [];
   const names = new Set<string>();
   tree.iterate({
@@ -14,13 +14,13 @@ function parse(source: string) {
   return { errors, names };
 }
 
-function expectClean(source: string): void {
-  expect(parse(source).errors).toEqual([]);
+function expectClean(source: string, script = false): void {
+  expect(parse(source, script).errors).toEqual([]);
 }
 
 // `supported` cases are valid Kotlin per the language spec (audit: src/parser/lang/kotlin/PROGRESS.md
-// "Spec coverage audit") that the grammar now parses. `remaining` cases are known gaps and fail
-// until the grammar is extended; the suite stays red on purpose for those.
+// "Spec coverage audit") that the grammar now parses. A known gap belongs in a `remaining` list
+// asserted with `expectClean` so the suite stays red until the grammar is extended.
 const supported: Array<[string, string]> = [
   ["value class", "@JvmInline value class V(val x: Int)"],
   ["data object", "data object O"],
@@ -70,7 +70,14 @@ const supported: Array<[string, string]> = [
   ["`context` as an ordinary call", "fun f() { context(1) }"],
 ];
 
-const remaining: Array<[string, string]> = [["script top-level statement", 'println("hi")']];
+// `.kts` sources parse with the `Script` top rule (top-level statements), not `Program`.
+const scripts: Array<[string, string]> = [
+  ["top-level call", 'println("hi")'],
+  ["plugins block with calls", 'plugins {\n  kotlin("multiplatform")\n  id("x")\n}'],
+  ["top-level if/else", "if (a) { b() } else { c() }"],
+  ["imports then statements", "import a.b.C\nval x = 1\nfun f() = x\nf()"],
+  ["file annotation and assignment", '@file:Suppress("X")\nx = 2\ntasks.register("t") { }'],
+];
 
 describe("kotlin grammar — spec coverage", { tags: ["kotlin", "grammar", "spec"] }, () => {
   describe("supported", () => {
@@ -79,9 +86,9 @@ describe("kotlin grammar — spec coverage", { tags: ["kotlin", "grammar", "spec
     }
   });
 
-  describe("not yet supported", () => {
-    for (const [name, source] of remaining) {
-      test(name, () => expectClean(source));
+  describe("script (.kts) top-level statements", () => {
+    for (const [name, source] of scripts) {
+      test(name, () => expectClean(source, true));
     }
   });
 

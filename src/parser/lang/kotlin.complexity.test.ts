@@ -637,3 +637,28 @@ class Client {
     ]);
   });
 });
+
+describe("kotlin .kts scripts", { tags: ["kotlin", "parseKotlin", "complexity"] }, () => {
+  const script = `plugins {
+  kotlin("multiplatform")
+  id("x")
+}
+if (a) { b() }
+`;
+
+  test("call blocks like plugins { kotlin(...) } are not reported as functions", () => {
+    const { functions } = parseKotlin("build.gradle.kts", script);
+    expect(functions?.map((fn) => fn.name)).not.toContain("kotlin");
+  });
+
+  test("script-level complexity is attributed to a synthetic <script> function", () => {
+    const { functions, complexity } = parseKotlin("build.gradle.kts", script);
+    const entry = functions?.find((fn) => fn.name === "<script>");
+    expect(entry?.complexity).toBe(complexity);
+  });
+
+  test(".kt files get no synthetic script function", () => {
+    const { functions } = parseKotlin("A.kt", "package p\nfun f() { if (a) { b() } }\n");
+    expect(functions?.map((fn) => fn.name)).toEqual(["f"]);
+  });
+});

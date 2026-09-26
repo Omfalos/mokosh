@@ -200,6 +200,10 @@ export function collectCallEdges(
   const cursor = tree.cursor();
   do {
     if (cursor.name !== "FunctionDeclaration" && cursor.name !== "SecondaryConstructor") continue;
+    // Error recovery (notably in `.kts` scripts, whose top-level statements the grammar can't
+    // parse) can fabricate a `FunctionDeclaration` around a call like `kotlin("multiplatform")`.
+    // A real declaration always carries its `fun` keyword token.
+    if (cursor.name === "FunctionDeclaration" && !cursor.node.getChild("fun")) continue;
     const owner = enclosingTypeName(cursor.node, content);
     let callerName: string;
     if (cursor.name === "SecondaryConstructor") {
@@ -534,6 +538,10 @@ export function collectFunctionComplexity(tree: Tree, content: string): Function
 
   do {
     if (cursor.name !== "FunctionDeclaration" && cursor.name !== "SecondaryConstructor") continue;
+    // Error recovery (notably in `.kts` scripts, whose top-level statements the grammar can't
+    // parse) can fabricate a `FunctionDeclaration` around a call like `kotlin("multiplatform")`.
+    // A real declaration always carries its `fun` keyword token.
+    if (cursor.name === "FunctionDeclaration" && !cursor.node.getChild("fun")) continue;
     const owner = enclosingTypeName(cursor.node, content);
     let name: string;
     if (cursor.name === "SecondaryConstructor") {

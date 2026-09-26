@@ -5,4 +5,8 @@ import type { LRParser } from "@lezer/lr";
 // require()'d and annotated here instead of using a type-checked `export ... from` re-export.
 const { parser } = require("./generated/parser.js") as { parser: LRParser };
 
-export { parser };
+/** Parser for `.kts` scripts: same grammar, `Script` top rule (top-level statements) instead of
+ *  `Program` (top-level declarations). */
+const scriptParser = parser.configure({ top: "Script" });
+
+export { parser, scriptParser };
