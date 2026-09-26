@@ -30,7 +30,7 @@
  *
  * **Coverage.** `matchCount: 14` still reads as "14 things," not "one relationship" — the same
  * gap SonarQube's duplication check closes by reporting a merged duplication-*density* percentage
- * per file instead of an enumerated match list. {@link DuplicateCluster.coverage} does the same
+ * per file instead of an enumerated match list. {@link DuplicateCluster.fileDuplication} does the same
  * here: union each cluster's occurrence spans per file (so overlapping/adjacent sub-matches count
  * once, not once each) and divide by that file's total line count — turning
  * `matchCount: 14, files: ["ContentExplorer.tsx", "ContentPicker.js"]` into
@@ -45,13 +45,13 @@ export interface DuplicateClusterFileCoverage {
   file: string;
   /** Total lines this cluster's occurrences cover in `file`, after merging overlapping/adjacent
    *  spans across every group in the cluster — never double-counts a line two groups both touch. */
-  coveredLines: number;
+  duplicatedLines: number;
   /** `file`'s total line count, when known (the caller passed `fileLineCounts` and had an entry
    *  for it) — `undefined` otherwise, e.g. a cache-hit file scanned without re-reading its source. */
   totalLines: number | undefined;
-  /** `coveredLines / totalLines * 100`, rounded to one decimal place — `undefined` when
+  /** `duplicatedLines / totalLines * 100`, rounded to one decimal place — `undefined` when
    *  `totalLines` isn't known or is 0. */
-  coveragePct: number | undefined;
+  duplicatedPct: number | undefined;
 }
 
 export interface DuplicateCluster {
@@ -67,9 +67,9 @@ export interface DuplicateCluster {
    *  "how big is this duplication," independent of how many rows it fragmented into. */
   longestMatch: number;
   /** Per-file duplication coverage, same order as `files` — see this module's top-of-file
-   *  comment. Every entry has `coveredLines`; `totalLines`/`coveragePct` are only present when
+   *  comment. Every entry has `duplicatedLines`; `totalLines`/`duplicatedPct` are only present when
    *  `buildDuplicateClusters` was given a line count for that file. */
-  coverage: DuplicateClusterFileCoverage[];
+  fileDuplication: DuplicateClusterFileCoverage[];
 }
 
 interface LineSpan {
@@ -116,16 +116,16 @@ function computeFileCoverage(
     .flatMap((group) => group.occurrences)
     .filter((occ) => occ.file === file)
     .map((occ) => ({ start: occ.startLine, end: occ.endLine }));
-  const coveredLines = mergeLineSpans(spans).reduce(
+  const duplicatedLines = mergeLineSpans(spans).reduce(
     (sum, span) => sum + (span.end - span.start + 1),
     0,
   );
   const totalLines = fileLineCounts?.get(file);
-  const coveragePct =
+  const duplicatedPct =
     totalLines !== undefined && totalLines > 0
-      ? Math.round((coveredLines / totalLines) * 1000) / 10
+      ? Math.round((duplicatedLines / totalLines) * 1000) / 10
       : undefined;
-  return { file, coveredLines, totalLines, coveragePct };
+  return { file, duplicatedLines, totalLines, duplicatedPct };
 }
 
 /**
@@ -139,8 +139,8 @@ function computeFileCoverage(
  *   already-truncated slice) so a cluster's `matchCount` isn't artificially shrunk by an unrelated
  *   cap applied earlier.
  * @param fileLineCounts - Total line counts by file path, when available (`findDuplicates` passes
- *   what it already knows from having read each file). Powers `coverage[].totalLines`/
- *   `coveragePct` — omit to still get `coverage[].coveredLines` with `totalLines`/`coveragePct`
+ *   what it already knows from having read each file). Powers `fileDuplication[].totalLines`/
+ *   `duplicatedPct` — omit to still get `fileDuplication[].duplicatedLines` with `totalLines`/`duplicatedPct`
  *   left `undefined`.
  * @returns Clusters, largest-`longestMatch`-first (ties broken by `matchCount` descending) — not
  *   itself limited; callers slice as needed the same way they already slice `groups`.
@@ -167,7 +167,9 @@ export function buildDuplicateClusters(
       groups: [...clusterGroups].sort((a, b) => b.lines - a.lines),
       matchCount: clusterGroups.length,
       longestMatch,
-      coverage: files.map((file) => computeFileCoverage(file, clusterGroups, fileLineCounts)),
+      fileDuplication: files.map((file) =>
+        computeFileCoverage(file, clusterGroups, fileLineCounts),
+      ),
     });
   }
 

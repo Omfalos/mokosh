@@ -160,16 +160,16 @@ describe("buildDuplicateClusters", () => {
     const clusters = buildDuplicateClusters(groups, new Map([["a.ts", 100]]));
 
     expect(clusters).toHaveLength(1);
-    const aCoverage = clusters[0]?.coverage.find((c) => c.file === "a.ts");
-    expect(aCoverage?.coveredLines).toBe(30); // union of [1,20] and [15,30] = 30 lines, not 36
+    const aCoverage = clusters[0]?.fileDuplication.find((c) => c.file === "a.ts");
+    expect(aCoverage?.duplicatedLines).toBe(30); // union of [1,20] and [15,30] = 30 lines, not 36
     expect(aCoverage?.totalLines).toBe(100);
-    expect(aCoverage?.coveragePct).toBe(30);
+    expect(aCoverage?.duplicatedPct).toBe(30);
 
-    // No line count supplied for b.ts -> coveredLines still computed, pct left undefined.
-    const bCoverage = clusters[0]?.coverage.find((c) => c.file === "b.ts");
-    expect(bCoverage?.coveredLines).toBe(30);
+    // No line count supplied for b.ts -> duplicatedLines still computed, pct left undefined.
+    const bCoverage = clusters[0]?.fileDuplication.find((c) => c.file === "b.ts");
+    expect(bCoverage?.duplicatedLines).toBe(30);
     expect(bCoverage?.totalLines).toBeUndefined();
-    expect(bCoverage?.coveragePct).toBeUndefined();
+    expect(bCoverage?.duplicatedPct).toBeUndefined();
   });
 
   it("computes coverage with no fileLineCounts argument at all", () => {
@@ -184,8 +184,8 @@ describe("buildDuplicateClusters", () => {
     ];
 
     const clusters = buildDuplicateClusters(groups);
-    expect(clusters[0]?.coverage.find((c) => c.file === "a.ts")?.coveredLines).toBe(10);
-    expect(clusters[0]?.coverage.find((c) => c.file === "a.ts")?.totalLines).toBeUndefined();
+    expect(clusters[0]?.fileDuplication.find((c) => c.file === "a.ts")?.duplicatedLines).toBe(10);
+    expect(clusters[0]?.fileDuplication.find((c) => c.file === "a.ts")?.totalLines).toBeUndefined();
   });
 
   it("handles a single-file (same-file self-overlap) group as a one-file cluster", () => {

@@ -7,6 +7,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { ensureCacheDir } from "../../cache-dir";
 import {
   DEFAULT_WORKSPACE_CACHE_SUBDIR,
   DEFAULT_WORKSPACE_GRAPH_CACHE_FILE,
@@ -90,7 +91,7 @@ export function saveWorkspaceCache(
 ): void {
   try {
     const dir = subdir(cacheDir);
-    fs.mkdirSync(dir, { recursive: true });
+    ensureCacheDir(dir);
 
     const serialized: SerializedWorkspaceGraph = wg.serialize();
     const { rootDigest, packageDigests } = computeWorkspacePackageDigests(

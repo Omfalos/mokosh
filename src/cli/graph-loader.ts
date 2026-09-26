@@ -1,6 +1,7 @@
 /** Loads the dependency graph from a JSON disk cache or builds it fresh if the cache is missing. */
 import fs from "node:fs";
 import path from "node:path";
+import { ensureCacheDir } from "../cache-dir";
 import { configToGraphOptions, createImportMap, Graph } from "../index";
 
 /**
@@ -22,9 +23,7 @@ export function loadGraphFromCache(cachePath: string): Graph | null {
  */
 export function saveGraphToCache(graph: Graph, cachePath: string): void {
   const cacheDir = path.dirname(cachePath);
-  if (!fs.existsSync(cacheDir)) {
-    fs.mkdirSync(cacheDir, { recursive: true });
-  }
+  ensureCacheDir(cacheDir);
   fs.writeFileSync(cachePath, JSON.stringify(graph.serialize(), null, 2));
 }
 

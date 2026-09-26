@@ -48,7 +48,7 @@ function groupIdentity(group: DuplicateGroup): string {
 
 /**
  * @description Drops from `groups` every group that is a member of a multi-member cluster in
- *   `clusters` — that cluster already represents it (with a better signal: per-file `coverage`),
+ *   `clusters` — that cluster already represents it (with a better signal: per-file `fileDuplication`),
  *   so returning both is redundant. Groups whose file pair matched only once (no multi-member
  *   cluster) are kept. Used only for the `view: "full"` response, the one path that returns both
  *   lists.
@@ -139,7 +139,7 @@ export function slimDupCluster(cluster: DuplicateCluster): Record<string, unknow
     matchCount: cluster.matchCount,
     longestMatch: cluster.longestMatch,
     ...(longest !== undefined && { longestMatchAt: slimOccurrences(longest) }),
-    coverage: cluster.coverage,
+    fileDuplication: cluster.fileDuplication,
     ...(pkg !== undefined && { package: pkg }),
   };
 }

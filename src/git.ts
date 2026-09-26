@@ -1,5 +1,6 @@
 /** Git integration: changed-file detection via GitProvider and repo-wide commit activity stats via getRepoGitStats. */
 import { execFileSync } from "node:child_process";
+import { DEFAULT_CACHE_DIR } from "./const";
 
 /**
  * @description Contract for querying changed files from a version-control backend.
@@ -56,7 +57,11 @@ export class DefaultGitProvider implements GitProvider {
         }
       });
 
-      return Array.from(new Set(allFiles));
+      // mokosh's own cache is never a "changed file" — even when an older run left it untracked.
+      const cachePrefix = `${DEFAULT_CACHE_DIR}/`;
+      return Array.from(new Set(allFiles)).filter(
+        (filePath) => !filePath.startsWith(cachePrefix) && !filePath.includes(`/${cachePrefix}`),
+      );
     } catch (error) {
       console.error("Error getting git diff:", error);
       return [];

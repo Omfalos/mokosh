@@ -42,7 +42,7 @@ const CLUSTERS: DuplicateCluster[] = [
     groups: GROUPS,
     matchCount: 1,
     longestMatch: 10,
-    coverage: [],
+    fileDuplication: [],
   },
 ];
 

@@ -1,6 +1,7 @@
 /** Pre-computed blast-radius cache: maps each file to the set of files that would be affected if it changed. */
 import fs from "node:fs";
 import path from "node:path";
+import { ensureCacheDir } from "../cache-dir";
 import type { Graph } from "./model";
 
 /**
@@ -115,7 +116,7 @@ export function isChangeImpactCacheValid(cache: ChangeImpactCache, graph: Graph)
  */
 export function saveChangeImpactCache(cache: ChangeImpactCache, cachePath: string): void {
   const dir = path.dirname(cachePath);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  ensureCacheDir(dir);
   const serialized: SerializedChangeImpactCache = {
     graphHash: cache.graphHash,
     impact: [...cache.impact.entries()],

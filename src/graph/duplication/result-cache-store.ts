@@ -19,6 +19,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { ensureCacheDir } from "../../cache-dir";
 import type { DuplicateCluster } from "./clusters";
 import type { DuplicateGroup } from "./shingle";
 
@@ -102,7 +103,9 @@ function isCachedDuplicationResult(value: unknown): value is CachedDuplicationRe
     typeof candidate.digest === "string" &&
     typeof candidate.paramsKey === "string" &&
     Array.isArray(candidate.groups) &&
-    Array.isArray(candidate.clusters)
+    Array.isArray(candidate.clusters) &&
+    // A cache written before `coverage` was renamed `fileDuplication` is stale, not servable.
+    candidate.clusters.every((cluster) => Array.isArray(cluster?.fileDuplication))
   );
 }
 
@@ -156,7 +159,7 @@ export function saveDuplicationResult(
 ): void {
   try {
     const dir = path.dirname(cachePath);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    ensureCacheDir(dir);
     const payload: CachedDuplicationResult = {
       digest,
       paramsKey,

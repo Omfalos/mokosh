@@ -1,6 +1,7 @@
 /** Disk cache for graphs built at a git ref other than the working tree, keyed by commit sha so entries are immutable and never need invalidation. */
 import fs from "node:fs";
 import path from "node:path";
+import { ensureCacheDir } from "../cache-dir";
 import { DEFAULT_BRANCH_GRAPH_CACHE_DIR, DEFAULT_CACHE_DIR } from "../const";
 import { Graph } from "./model";
 
@@ -49,6 +50,6 @@ export function loadBranchGraph(rootDir: string, sha: string): Graph | null {
  */
 export function saveBranchGraph(rootDir: string, sha: string, graph: Graph): void {
   const cacheDir = branchGraphCacheDir(rootDir);
-  if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
+  ensureCacheDir(cacheDir);
   fs.writeFileSync(branchGraphCachePath(rootDir, sha), JSON.stringify(graph.serialize()));
 }

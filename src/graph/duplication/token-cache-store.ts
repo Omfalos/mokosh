@@ -18,6 +18,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+import { ensureCacheDir } from "../../cache-dir";
 import type { NormalizedToken } from "./tokenizer";
 
 /** One file's cached tokenize result, fingerprinted by `mtime`/`size`/`ignoreLiterals` — any
@@ -92,8 +93,6 @@ export function loadTokenCacheFromDisk(cachePath: string): DuplicationTokenCache
  */
 export function saveTokenCacheToDisk(cache: DuplicationTokenCache, cachePath: string): void {
   const cacheDir = path.dirname(cachePath);
-  if (!fs.existsSync(cacheDir)) {
-    fs.mkdirSync(cacheDir, { recursive: true });
-  }
+  ensureCacheDir(cacheDir);
   fs.writeFileSync(cachePath, JSON.stringify([...cache.entries()]));
 }
