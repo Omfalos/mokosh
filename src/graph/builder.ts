@@ -620,7 +620,9 @@ export class GraphBuilder {
       }
     }
 
-    return resolvedImports;
+    return JVM_TYPES.has(getFileType(filePath))
+      ? dedupeLocalEdges(resolvedImports)
+      : resolvedImports;
   }
 
   /**
@@ -662,4 +664,33 @@ export class GraphBuilder {
       this.progressCallback(this.visited.size);
     }
   }
+}
+
+/**
+ * @description Collapses local edges that resolve to the same target file into one. JVM
+ *   resolution expands an import with no matching file name to every file in its package, so N
+ *   such imports (plus the synthetic same-package edge) would otherwise yield N identical edges
+ *   per target. An explicit import wins over the synthetic side-effect edge; `symbols` are merged.
+ *   External edges are left untouched.
+ * @param {ImportEdge[]} edges - Resolved edges of one JVM file.
+ * @returns {ImportEdge[]} Edges with at most one local edge per `toPath`, in first-seen order.
+ */
+function dedupeLocalEdges(edges: ImportEdge[]): ImportEdge[] {
+  const byTarget = new Map<string, ImportEdge>();
+  const out: ImportEdge[] = [];
+  for (const edge of edges) {
+    const key = edge.isExternal ? undefined : edge.toPath;
+    const existing = key === undefined ? undefined : byTarget.get(key);
+    if (key === undefined || !existing) {
+      if (key !== undefined) byTarget.set(key, edge);
+      out.push(edge);
+      continue;
+    }
+    const symbols = [...new Set([...(existing.symbols ?? []), ...(edge.symbols ?? [])])];
+    if (existing.type === "side-effect" && edge.type !== "side-effect") {
+      Object.assign(existing, edge);
+    }
+    if (symbols.length > 0) existing.symbols = symbols;
+  }
+  return out;
 }

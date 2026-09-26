@@ -264,7 +264,10 @@ describe("full-house example: JVM languages", { tags: ["example", "jvm"] }, () =
     const repos = graph.nodes.get("app/src/main/kotlin/com/example/data/Repositories.kt");
 
     expect(repos?.type).toBe("kotlin");
-    expect(repos?.exports).toEqual([{ name: "UserRepo" }, { name: "Session" }]);
+    expect(repos?.exports).toEqual([
+      { name: "UserRepo", signature: "class UserRepo" },
+      { name: "Session", signature: "class Session" },
+    ]);
     // `import com.example.core.CoreUtil as Core` — alias dropped, cross-language edge to Java.
     expect(repos?.imports).toContainEqual(
       expect.objectContaining({

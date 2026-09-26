@@ -191,15 +191,16 @@ function inferExportKind(signature: string | undefined): ExportKind {
   if (!signature) return "unknown";
   const trimmed = signature.trimStart();
   if (trimmed.startsWith("interface ")) return "interface";
-  if (trimmed.startsWith("class ")) return "class";
+  if (trimmed.startsWith("class ") || trimmed.startsWith("object ")) return "class";
   if (trimmed.startsWith("enum ")) return "enum";
-  if (trimmed.startsWith("type ")) return "type";
+  if (trimmed.startsWith("type ") || trimmed.startsWith("typealias ")) return "type";
   if (trimmed.startsWith("namespace ")) return "namespace";
   if (
     trimmed.startsWith("const ") ||
     trimmed.startsWith("let ") ||
     trimmed.startsWith("var ") ||
-    trimmed.startsWith("readonly ")
+    trimmed.startsWith("readonly ") ||
+    trimmed.startsWith("val ")
   )
     return "const";
   // Function signatures: leading `(`, async keyword, or contains `=>`
@@ -207,6 +208,7 @@ function inferExportKind(signature: string | undefined): ExportKind {
     trimmed.startsWith("(") ||
     trimmed.startsWith("async ") ||
     trimmed.startsWith("function ") ||
+    trimmed.startsWith("fun ") ||
     trimmed.includes("=>")
   )
     return "function";

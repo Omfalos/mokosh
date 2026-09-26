@@ -106,3 +106,30 @@ describe("parseKotlin category", { tags: ["parseKotlin", "kotlin"] }, () => {
     );
   });
 });
+
+describe("parseKotlin export signatures", { tags: ["parseKotlin", "kotlin"] }, () => {
+  test("records a Kotlin-native signature per declaration kind", () => {
+    const { exports } = parseKotlin(
+      "src/main/kotlin/com/x/A.kt",
+      `package com.x
+class Foo
+interface Bar
+object Baz
+enum class Color
+typealias Alias = String
+fun run() {}
+const val LIMIT = 1
+`,
+    );
+    const sig = Object.fromEntries(exports.map((exp) => [exp.name, exp.signature]));
+    expect(sig).toEqual({
+      Foo: "class Foo",
+      Bar: "interface Bar",
+      Baz: "object Baz",
+      Color: "enum Color",
+      Alias: "typealias Alias",
+      run: "fun run",
+      LIMIT: "val LIMIT",
+    });
+  });
+});

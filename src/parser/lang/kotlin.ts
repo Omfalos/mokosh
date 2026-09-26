@@ -47,7 +47,7 @@ const MODIFIERS =
 
 /** Top-level type declaration, anchored at column 0. Optional `enum`/`annotation` qualifier before `class`. */
 const TYPE_DECL_RE = new RegExp(
-  `^(?:@[\\w.]+(?:\\([^)]*\\))?\\s+)*${MODIFIERS}(?:(?:enum|annotation)\\s+)?(class|interface|object|typealias)\\s+([A-Za-z_][A-Za-z0-9_]*)`,
+  `^(?:@[\\w.]+(?:\\([^)]*\\))?\\s+)*${MODIFIERS}(?:(enum|annotation)\\s+)?(class|interface|object|typealias)\\s+([A-Za-z_][A-Za-z0-9_]*)`,
 );
 
 /**
@@ -85,7 +85,8 @@ export function parseKotlin(filePath: string, content: string): ParseResult {
   const lines = source.split("\n");
 
   const imports: ImportEdge[] = [];
-  const exportNames = new Set<string>();
+  /** Export name → Kotlin-native signature (`class Foo`, `fun bar`, …), read by `get_api_surface`. */
+  const exportNames = new Map<string, string>();
   /** Simple/aliased local name → FQN specifier, for call-edge resolution only (not retained on
    *  `ImportEdge`). Wildcard imports contribute no local name. */
   const localNames = new Map<string, string>();
@@ -102,29 +103,33 @@ export function parseKotlin(filePath: string, content: string): ParseResult {
       continue;
     }
     const typeDecl = line.match(TYPE_DECL_RE);
-    if (typeDecl?.[2]) {
-      exportNames.add(typeDecl[2]);
+    if (typeDecl?.[3]) {
+      const keyword = typeDecl[1] === "enum" ? "enum" : typeDecl[2];
+      exportNames.set(typeDecl[3], `${keyword} ${typeDecl[3]}`);
       continue;
     }
     const funDecl = line.match(FUN_DECL_RE);
     if (funDecl?.[1]) {
-      exportNames.add(funDecl[1]);
+      exportNames.set(funDecl[1], `fun ${funDecl[1]}`);
       continue;
     }
     const propDecl = line.match(PROP_DECL_RE);
-    if (propDecl?.[1]) exportNames.add(propDecl[1]);
+    if (propDecl?.[1]) exportNames.set(propDecl[1], `val ${propDecl[1]}`);
   }
 
   const ownPackage = extractJvmPackage(content, false);
   if (ownPackage) imports.push(jvmPackageEdge(filePath, ownPackage));
 
-  const exports: ExportedSymbol[] = Array.from(exportNames, (name) => ({ name }));
+  const exports: ExportedSymbol[] = Array.from(exportNames, ([name, signature]) => ({
+    name,
+    signature,
+  }));
 
   const category = classifyJvm(
     filePath,
     imports.map((edge) => edge.rawSpecifier),
     {
-      typeNames: [...exportNames],
+      typeNames: [...exportNames.keys()],
       annotations: scanJvmClassifyHints(content).annotations,
     },
   );
