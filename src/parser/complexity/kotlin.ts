@@ -2,11 +2,13 @@
  *  src/parser/lang/kotlin/PROGRESS.md, docs/adr-021-kotlin-parsing.md). Kotlin has no distinct
  *  call-expression node analogous to Java's `MethodInvocation`/`ObjectCreationExpression` split,
  *  and no `new` keyword — every call is a `CallExpression` whose callee shape (bare `Identifier`
- *  vs. single-level `NavigationExpression`) decides whether it's treated as a qualified call or a
- *  constructor call. Mirrors ./java.ts's scope and limitations: only calls against an
- *  imported/aliased simple name resolve; instance calls through a variable/field, multi-level
- *  qualifiers (`a.b.c()`), and virtual dispatch are not attempted. Complexity extraction (Phase 2
- *  of the Kotlin plan) will live in this same file alongside these helpers. */
+ *  vs. single-level `NavigationExpression`) decides whether it's a qualified call, a bare call to
+ *  an imported function, or (bare + capitalized) a constructor call. Mirrors ./java.ts's scope
+ *  and limitations: only calls against an imported/aliased simple name resolve — a bare call to
+ *  a same-package (unimported) sibling's function is not attempted (see
+ *  docs/known_issues/12-call-edge-same-package-resolution.md); nor are instance calls through a
+ *  variable/field, multi-level qualifiers (`a.b.c()`), or virtual dispatch. Complexity extraction
+ *  (Phase 2 of the Kotlin plan) will live in this same file alongside these helpers. */
 import type { SyntaxNode, Tree } from "@lezer/common";
 import type { FunctionComplexity } from "../../types/node";
 import type { RawCallEdge } from "../types";
@@ -102,8 +104,12 @@ function readCallee(callExpr: SyntaxNode, content: string): Callee | null {
 /**
  * @description Walks a function/constructor body and records one `RawCallEdge` per resolvable
  *   call: a qualified call (`Core.shout(x)`, `Core?.shout(x)`) whose qualifier resolves via
- *   `localNames`, or a bare call to a capitalized name that resolves via `localNames` — Kotlin's
- *   constructor-call convention, labeled `"new"` to match Java's (Kotlin has no `new` keyword).
+ *   `localNames`; or a bare call whose name itself resolves via `localNames` — i.e. it names an
+ *   explicitly imported symbol, not a same-package one (see docs/known_issues/12, not fixed
+ *   here). A capitalized bare name is Kotlin's constructor-call convention (labeled `"new"` to
+ *   match Java's, since Kotlin has no `new` keyword); a lowercase bare name is a direct call to
+ *   an imported top-level function (`import pkg.parseThing` then `parseThing()`), labeled with
+ *   its own name like the qualified-call case.
  *   Both a trailing `ArgumentList` and a `TrailingLambda` are children of the same single
  *   `CallExpression` node, so `Core.shout("x") { ... }` naturally yields one edge, not two.
  * @param bodyNode - The function/constructor body (or any subtree) to walk.
@@ -126,9 +132,16 @@ function walkBody(
       if (callee.qualifier) {
         const toSpecifier = localNames.get(callee.qualifier);
         if (toSpecifier) edges.push({ from: callerName, to: callee.name, toSpecifier });
-      } else if (/^[A-Z]/.test(callee.name)) {
+      } else {
         const toSpecifier = localNames.get(callee.name);
-        if (toSpecifier) edges.push({ from: callerName, to: "new", toSpecifier });
+        if (toSpecifier) {
+          const isConstructorCall = /^[A-Z]/.test(callee.name);
+          edges.push({
+            from: callerName,
+            to: isConstructorCall ? "new" : callee.name,
+            toSpecifier,
+          });
+        }
       }
     }
   }
