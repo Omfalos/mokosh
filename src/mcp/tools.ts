@@ -191,7 +191,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "get_callers",
     description:
-      "Get files whose exported functions call into a given file (call-graph dependents). More precise than get_affected: only files with actual runtime call edges, not mere imports. Requires prior analyze() call.",
+      "Get files whose exported functions call into a given file (call-graph dependents). More precise than get_affected: only files with actual call edges, not mere imports. Only imported symbols are tracked, never same-file calls. Requires prior analyze() call.",
     inputSchema: {
       type: "object",
       properties: {
@@ -596,7 +596,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "get_call_graph",
     description:
-      "Look up callers and callees for a named function. Returns the file that defines the function, all files/functions that call it, and all files/functions it calls. Always requires a function name — never returns the full call graph unfiltered. Call edges are only populated for TypeScript/JavaScript files.",
+      "Look up callers and callees for a named function. Returns the file that defines it, all files/functions that call it, and all it calls. Always requires a function name — never returns the full call graph unfiltered. Only imported symbols are tracked, never same-file calls.",
     inputSchema: {
       type: "object",
       properties: {

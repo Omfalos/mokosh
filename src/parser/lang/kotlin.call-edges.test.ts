@@ -73,6 +73,48 @@ class Client : Base() {
     expect(rawCallEdges).toEqual([{ from: "Client", to: "new", toSpecifier: "a.b.Base" }]);
   });
 
+  test('bare call to an imported top-level function → edge to its own name, not "new"', () => {
+    const { rawCallEdges } = parseKotlin(
+      "src/main/kotlin/p/Client.kt",
+      `package p
+import a.b.parseThing
+class Client {
+  fun run() { parseThing(1) }
+}`,
+    );
+    expect(rawCallEdges).toEqual([
+      { from: "Client.run", to: "parseThing", toSpecifier: "a.b.parseThing" },
+    ]);
+  });
+
+  test("bare call to an imported top-level function resolves through an `as`-aliased import", () => {
+    const { rawCallEdges } = parseKotlin(
+      "src/main/kotlin/p/Client.kt",
+      `package p
+import a.b.parseThing as parse
+class Client {
+  fun run() { parse(1) }
+}`,
+    );
+    expect(rawCallEdges).toEqual([
+      { from: "Client.run", to: "parse", toSpecifier: "a.b.parseThing" },
+    ]);
+  });
+
+  test("bare call to a same-package (unimported) function still does not resolve — issue 12", () => {
+    // Documents the known gap (docs/known_issues/12): unlike the imported case above, a bare
+    // call to a sibling file's function in the same package (no import needed in Kotlin) has no
+    // localNames entry, so it stays unresolved.
+    const { rawCallEdges } = parseKotlin(
+      "src/main/kotlin/p/Client.kt",
+      `package p
+class Client {
+  fun run() { parseThing(1) }
+}`,
+    );
+    expect(rawCallEdges ?? []).toEqual([]);
+  });
+
   test("calls through a wildcard import do not resolve", () => {
     const { rawCallEdges } = parseKotlin(
       "src/main/kotlin/p/Client.kt",
