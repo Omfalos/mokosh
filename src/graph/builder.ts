@@ -620,9 +620,7 @@ export class GraphBuilder {
       }
     }
 
-    return JVM_TYPES.has(getFileType(filePath))
-      ? dedupeLocalEdges(resolvedImports)
-      : resolvedImports;
+    return dedupeLocalEdges(resolvedImports);
   }
 
   /**
@@ -667,12 +665,16 @@ export class GraphBuilder {
 }
 
 /**
- * @description Collapses local edges that resolve to the same target file into one. JVM
- *   resolution expands an import with no matching file name to every file in its package, so N
- *   such imports (plus the synthetic same-package edge) would otherwise yield N identical edges
- *   per target. An explicit import wins over the synthetic side-effect edge; `symbols` are merged.
- *   External edges are left untouched.
- * @param {ImportEdge[]} edges - Resolved edges of one JVM file.
+ * @description Collapses local edges that resolve to the same target file into one. Some
+ *   resolvers expand a single import into multiple files — JVM resolution expands an import with
+ *   no matching file name to every file in its package (plus the synthetic same-package edge),
+ *   and Go resolution expands a package import to every file in that package directory — so N
+ *   such imports, or the same import used N times in one file, would otherwise yield N identical
+ *   edges per target. An explicit import wins over a synthetic/side-effect edge, and a re-export
+ *   wins over either (so a file that both imports and re-exports the same target keeps the
+ *   `"re-export"` type `get_api_surface` depends on); `symbols` are merged. External edges are
+ *   left untouched.
+ * @param {ImportEdge[]} edges - Resolved edges of one file.
  * @returns {ImportEdge[]} Edges with at most one local edge per `toPath`, in first-seen order.
  */
 function dedupeLocalEdges(edges: ImportEdge[]): ImportEdge[] {
@@ -687,7 +689,11 @@ function dedupeLocalEdges(edges: ImportEdge[]): ImportEdge[] {
       continue;
     }
     const symbols = [...new Set([...(existing.symbols ?? []), ...(edge.symbols ?? [])])];
-    if (existing.type === "side-effect" && edge.type !== "side-effect") {
+    const edgeWins =
+      edge.type === "re-export"
+        ? existing.type !== "re-export"
+        : existing.type === "side-effect" && edge.type !== "side-effect";
+    if (edgeWins) {
       Object.assign(existing, edge);
     }
     if (symbols.length > 0) existing.symbols = symbols;

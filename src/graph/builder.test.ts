@@ -181,3 +181,73 @@ describe("GraphBuilder JVM dependency versions", () => {
     }
   });
 });
+
+describe("GraphBuilder local-edge deduplication", () => {
+  // Go's resolver expands a package import into every non-test file in that package's
+  // directory (one edge per file) on every use of the import — a file that references the
+  // package's symbols multiple times would otherwise get one full copy of those edges per
+  // reference. Go isn't the only resolver with this expand-to-many-files shape (JVM has the
+  // same behavior for package-level imports), so the dedup applies to every language, not just
+  // JVM — this test covers Go specifically since it was the one found under-deduped.
+  test("collapses a Go package import used multiple times in one file to one edge per target file", async () => {
+    const root = path.join(process.cwd(), "test-builder-go-dedup");
+    fs.mkdirSync(path.join(root, "pkg"), { recursive: true });
+
+    fs.writeFileSync(path.join(root, "go.mod"), "module example.com/app\n\ngo 1.22\n");
+    fs.writeFileSync(path.join(root, "pkg", "a.go"), "package pkg\n\nfunc A() {}\n");
+    fs.writeFileSync(path.join(root, "pkg", "b.go"), "package pkg\n\nfunc B() {}\n");
+    fs.writeFileSync(
+      path.join(root, "main.go"),
+      [
+        "package main",
+        "",
+        'import "example.com/app/pkg"',
+        "",
+        "func main() {",
+        "\tpkg.A()",
+        "\tpkg.B()",
+        "\tpkg.A()",
+        "}",
+      ].join("\n"),
+    );
+
+    try {
+      const graph = await createImportMap(root, ["main.go"]);
+      const node = graph.serialize().nodes.find((n) => n.path === "main.go");
+      const localEdges = node?.imports.filter((e) => !e.isExternal) ?? [];
+      const targets = localEdges.map((e) => e.toPath);
+
+      // One edge per distinct target file (a.go, b.go) — not one per (import usage x file).
+      expect(new Set(targets).size).toBe(targets.length);
+      expect(targets.sort()).toEqual([path.join("pkg", "a.go"), path.join("pkg", "b.go")].sort());
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  // Deduping must not lose a "re-export" edge type when it collapses with an ordinary import of
+  // the same target: get_api_surface (src/graph/api-surface.ts) walks node.imports looking for
+  // type === "re-export" to trace re-export chains, so a file that both imports and re-exports
+  // the same target must keep that type on the merged edge, whichever edge was seen first.
+  test("keeps the re-export type when a file both imports and re-exports the same target", async () => {
+    const root = path.join(process.cwd(), "test-builder-reexport-dedup");
+    fs.mkdirSync(path.join(root, "src"), { recursive: true });
+
+    fs.writeFileSync(path.join(root, "src", "helper.js"), "export const helper = () => {};");
+    fs.writeFileSync(
+      path.join(root, "src", "index.js"),
+      "import { helper } from './helper.js';\nexport { helper } from './helper.js';\nhelper();",
+    );
+
+    try {
+      const graph = await createImportMap(root, ["src/index.js"]);
+      const node = graph.serialize().nodes.find((n) => n.path === path.join("src", "index.js"));
+      const helperEdges = node?.imports.filter((e) => e.toPath?.endsWith("helper.js")) ?? [];
+
+      expect(helperEdges).toHaveLength(1);
+      expect(helperEdges[0]?.type).toBe("re-export");
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
