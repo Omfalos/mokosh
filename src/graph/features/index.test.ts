@@ -97,4 +97,77 @@ describe("detectFeatures", { tags: ["FileNode", "detectFeatures", "node"] }, () 
     const result = detectFeatures(nodes, { minOutDegree: 5 });
     expect(result.has("feature.ts")).toBe(false);
   });
+
+  // Regression for the mokosh dogfooding finding on ktorio/ktor: a JVM/Go file's synthetic
+  // same-package edge (every sibling in its package, added because those languages let a file
+  // reference package siblings with no import line) was counted as real out-degree, so a file
+  // with zero explicit imports could still top the feature-hub ranking.
+  test("excludes same-package edges from out-degree count", () => {
+    const nodes = new Map<string, FileNode>();
+    const samePackageTargets = Array.from({ length: 6 }, (_, i) => `Sibling${i}.kt`);
+    nodes.set("Url.kt", {
+      path: "Url.kt",
+      type: "kotlin",
+      category: "logic",
+      imports: samePackageTargets.map((target) => ({
+        fromPath: "Url.kt",
+        toPath: target,
+        rawSpecifier: "io.ktor.http.*",
+        type: "side-effect" as const,
+        isStyle: false,
+        isExternal: false,
+        isSamePackage: true,
+      })),
+      exports: [],
+      tags: [],
+      mtime: 0,
+      size: 0,
+    });
+    for (const t of samePackageTargets) {
+      nodes.set(t, makeNodeWithImports(t));
+    }
+
+    const result = detectFeatures(nodes, { minOutDegree: 5 });
+    expect(result.has("Url.kt")).toBe(false);
+  });
+
+  test("a file with 5+ real imports plus same-package noise is still detected, at the real count", () => {
+    const nodes = new Map<string, FileNode>();
+    const realTargets = Array.from({ length: 5 }, (_, i) => `real${i}.ts`);
+    const samePackageTargets = Array.from({ length: 6 }, (_, i) => `Sibling${i}.kt`);
+    nodes.set("hub.kt", {
+      path: "hub.kt",
+      type: "kotlin",
+      category: "logic",
+      imports: [
+        ...realTargets.map((target) => ({
+          fromPath: "hub.kt",
+          toPath: target,
+          rawSpecifier: target,
+          type: "static" as const,
+          isStyle: false,
+          isExternal: false,
+        })),
+        ...samePackageTargets.map((target) => ({
+          fromPath: "hub.kt",
+          toPath: target,
+          rawSpecifier: "pkg.*",
+          type: "side-effect" as const,
+          isStyle: false,
+          isExternal: false,
+          isSamePackage: true,
+        })),
+      ],
+      exports: [],
+      tags: [],
+      mtime: 0,
+      size: 0,
+    });
+    for (const t of [...realTargets, ...samePackageTargets]) {
+      nodes.set(t, makeNodeWithImports(t));
+    }
+
+    const result = detectFeatures(nodes, { minOutDegree: 5 });
+    expect(result.get("hub.kt")?.outDegree).toBe(5);
+  });
 });
