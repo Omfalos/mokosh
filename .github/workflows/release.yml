@@ -47,7 +47,7 @@ jobs:
         run: npm run typecheck
 
       - name: Build
-        run: npm run build:prod
+        run: NODE_ENV=production npm run build:app
 
       - name: Run Tests
         run: npm test

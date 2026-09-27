@@ -4,8 +4,9 @@
 // into src/parser/lang/kotlin/generated/. See docs/adr-021-kotlin-parsing.md. That directory is a
 // gitignored build artifact (unlike the conformance baseline's committed-and-drift-checked
 // pattern, UPDATE_CONFORMANCE=1) — chained into `npm run build`/`build:prod`, and run as an
-// explicit early CI step since it also has to exist before `typecheck`, which runs before
-// `build`.
+// explicit early CI step since it also has to exist before `typecheck`, which runs before the
+// bundler. CI's later build step then calls `build:app` (bare tsup) rather than `build`/
+// `build:prod`, so this script doesn't run a second time.
 //
 // Usage:
 //   node scripts/build-kotlin-grammar.mjs            # regenerate in place

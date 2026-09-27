@@ -74,7 +74,9 @@ pattern (`UPDATE_CONFORMANCE=1`), the generated output here (`generated/parser.j
 `parser.terms.js`, `tokens.js`) is a **gitignored build artifact**, not committed —
 `build:grammar` is chained into `npm run build`/`build:prod` (regenerated on every build), and CI
 runs it as an explicit early step in `ci.yml`/`release.yml` since it also has to exist before
-`typecheck`, which runs before `build`. `npm run verify:grammar` (`--verify`, diff a fresh rebuild
+`typecheck`, which runs before the bundler. Because of that ordering, CI's later "Build" step
+calls the bundler alone (`build:app` / `NODE_ENV=production build:app`) rather than the full
+`build`/`build:prod`, so the grammar isn't regenerated a second time. `npm run verify:grammar` (`--verify`, diff a fresh rebuild
 against what's currently on disk) is a local reproducibility check, not a CI gate — there's no
 committed baseline to drift from. `generated/` is wholesale gitignored — nothing hand-written lives
 inside it, including types: the generated `parser.js` has no types of its own, so
