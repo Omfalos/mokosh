@@ -1,3 +1,18 @@
+## [0.5.4](https://github.com/Omfalos/mokosh/compare/v0.5.3...v0.5.4) (2026-09-27)
+
+### Features
+
+* **coverage:** add on-demand coverage support ([#16](https://github.com/Omfalos/mokosh/issues/16)) ([9fdcd8f](https://github.com/Omfalos/mokosh/commit/9fdcd8f7a89f4e0875d8749b61f0b79f7229f2e5))
+
+### Bug Fixes
+
+* **ci:** stop rebuilding the Kotlin grammar twice in build steps ([674e2c6](https://github.com/Omfalos/mokosh/commit/674e2c6d0c772efef157b5ee1b8c0d37d2c3a42b))
+* **features:** exclude same-package edges from feature-hub out-degree ([#18](https://github.com/Omfalos/mokosh/issues/18)) ([d1bcbbf](https://github.com/Omfalos/mokosh/commit/d1bcbbf294811c4d43e220c8e5c30f138829a803))
+* **graph:** add synthetic same-package edge for Go files ([#19](https://github.com/Omfalos/mokosh/issues/19)) ([099b0c4](https://github.com/Omfalos/mokosh/commit/099b0c4fff6ce70f80002dd10b0402d866bcad0d))
+* **graph:** dedupe local import edges for every language, not just JVM ([#17](https://github.com/Omfalos/mokosh/issues/17)) ([1e8aa37](https://github.com/Omfalos/mokosh/commit/1e8aa37f4ab3209808ac4487e9347a917ff82a77))
+* **kotlin:** track bare calls to imported top-level functions ([#20](https://github.com/Omfalos/mokosh/issues/20)) ([85d3d80](https://github.com/Omfalos/mokosh/commit/85d3d80bf3cf51cc86d8ba965f8f25ad53cae55b))
+* **python:** recognize the PEP 484 explicit re-export idiom ([#21](https://github.com/Omfalos/mokosh/issues/21)) ([952c0ac](https://github.com/Omfalos/mokosh/commit/952c0acb7871ca2a5587d031af4f8a3313803678))
+
 ## [0.5.3](https://github.com/Omfalos/mokosh/compare/v0.5.2...v0.5.3) (2026-09-26)
 
 ### Features
