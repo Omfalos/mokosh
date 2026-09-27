@@ -71,6 +71,74 @@ describe("from … import", { tags: ["parsePython", "python"] }, () => {
   });
 });
 
+// ─── re-export idiom (`Y as Y`) ────────────────────────────────────────────────
+// PEP 484 / mypy convention: `from .x import Y as Y` signals an intentional re-export, distinct
+// from an ordinary `from .x import Y` (internal use) or `from .x import Y as Z` (renamed import).
+// See docs/known_issues and get_api_surface's re-export-following in src/graph/api-surface.ts.
+
+describe("re-export idiom (`Y as Y`)", { tags: ["parsePython", "python"] }, () => {
+  test("top-level self-aliased import → one edge, type re-export", () => {
+    const { imports } = parsePython("__init__.py", "from .app import Flask as Flask");
+    expect(imports).toEqual([
+      expect.objectContaining({ rawSpecifier: "./app", symbols: ["Flask"], type: "re-export" }),
+    ]);
+  });
+
+  test("mixed plain + self-aliased names on one statement split into two edges", () => {
+    const { imports } = parsePython(
+      "__init__.py",
+      "from .models import User, Admin as Admin, Role as Role",
+    );
+    expect(imports).toHaveLength(2);
+    expect(imports).toContainEqual(
+      expect.objectContaining({ rawSpecifier: "./models", symbols: ["User"], type: "static" }),
+    );
+    expect(imports).toContainEqual(
+      expect.objectContaining({
+        rawSpecifier: "./models",
+        symbols: ["Admin", "Role"],
+        type: "re-export",
+      }),
+    );
+  });
+
+  test("`from . import name as name` (sub-module re-export) → type re-export", () => {
+    const { imports } = parsePython("__init__.py", "from . import parser as parser");
+    expect(imports).toEqual([
+      expect.objectContaining({ rawSpecifier: "./parser", symbols: ["parser"], type: "re-export" }),
+    ]);
+  });
+
+  test("an ordinary rename (`as OtherName`) does not count as a re-export", () => {
+    const { imports } = parsePython("__init__.py", "from .app import Flask as App");
+    expect(imports).toEqual([
+      expect.objectContaining({ rawSpecifier: "./app", symbols: ["Flask"], type: "static" }),
+    ]);
+  });
+
+  test("a plain unaliased import does not count as a re-export", () => {
+    const { imports } = parsePython("__init__.py", "from .app import Flask");
+    expect(imports).toEqual([
+      expect.objectContaining({ rawSpecifier: "./app", symbols: ["Flask"], type: "static" }),
+    ]);
+  });
+
+  test("a function-local self-aliased import is not treated as a public re-export", () => {
+    const src = "def make():\n    from .app import Flask as Flask\n    return Flask()";
+    const { imports } = parsePython("__init__.py", src);
+    expect(imports).toEqual([
+      expect.objectContaining({ rawSpecifier: "./app", symbols: ["Flask"], type: "static" }),
+    ]);
+  });
+
+  test("absolute (non-relative) self-aliased import also counts as a re-export", () => {
+    const { imports } = parsePython("__init__.py", "from pathlib import Path as Path");
+    expect(imports).toEqual([
+      expect.objectContaining({ rawSpecifier: "pathlib", symbols: ["Path"], type: "re-export" }),
+    ]);
+  });
+});
+
 // ─── relative imports ─────────────────────────────────────────────────────────
 
 describe("relative imports", { tags: ["parsePython", "python"] }, () => {

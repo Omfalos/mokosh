@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, test } from "vitest";
+import { createImportMap } from "../index";
 import type { FileNode, ImportEdge } from "../types/node";
 import {
   buildApiSurface,
@@ -375,6 +376,44 @@ describe("buildApiSurface — file partitioning", {
     expect(s.internalFiles).toContain("src/b.ts");
     expect(s.unreachableFromEntry).toHaveLength(0);
     expect(s.testFiles).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildApiSurface — Python re-export idiom, full pipeline
+// ---------------------------------------------------------------------------
+// Regression for the real bug found reviewing the Python re-export fix: a plain import and a
+// re-export from the SAME submodule, through the full createImportMap -> buildApiSurface
+// pipeline (not just parsePython in isolation, and not just dedupeLocalEdges in isolation —
+// both were individually correct but the combination leaked a non-re-exported symbol into the
+// public API before builder.ts's dedup key fix).
+
+describe("buildApiSurface — Python re-export idiom (full pipeline)", {
+  tags: ["api-surface", "buildApiSurface", "python", "createImportMap"],
+}, () => {
+  test("a self-aliased re-export and a plain import from the same submodule don't leak into each other", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "api-surface-python-reexport-"));
+    fs.mkdirSync(path.join(root, "pkg"));
+
+    fs.writeFileSync(
+      path.join(root, "pkg", "x.py"),
+      "def Y():\n    pass\n\n\ndef Z():\n    pass\n",
+    );
+    fs.writeFileSync(
+      path.join(root, "pkg", "__init__.py"),
+      "from .x import Y as Y\nfrom .x import Z\n\n\ndef helper():\n    pass\n",
+    );
+
+    try {
+      const graph = await createImportMap(root, ["pkg/__init__.py"], null, { silent: true });
+      const surface = buildApiSurface(graph, ["pkg/__init__.py"]);
+      const names = surface.publicExports.map((e) => e.name).sort();
+
+      expect(names).toEqual(["Y", "helper"]);
+      expect(names).not.toContain("Z");
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 
