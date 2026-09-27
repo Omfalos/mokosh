@@ -18,15 +18,22 @@ vi.mock("./args", () => ({ parseArgs: parseArgsMock }));
 const { resolveConfigMock } = vi.hoisted(() => ({ resolveConfigMock: vi.fn() }));
 vi.mock("./config", () => ({ resolveConfig: resolveConfigMock }));
 
-const { loadGraphFromCacheMock, saveGraphToCacheMock, buildGraphMock } = vi.hoisted(() => ({
+const {
+  loadGraphFromCacheMock,
+  saveGraphToCacheMock,
+  buildGraphMock,
+  applyConfiguredCoverageMock,
+} = vi.hoisted(() => ({
   loadGraphFromCacheMock: vi.fn(),
   saveGraphToCacheMock: vi.fn(),
   buildGraphMock: vi.fn(),
+  applyConfiguredCoverageMock: vi.fn(),
 }));
 vi.mock("./graph-loader", () => ({
   loadGraphFromCache: loadGraphFromCacheMock,
   saveGraphToCache: saveGraphToCacheMock,
   buildGraph: buildGraphMock,
+  applyConfiguredCoverage: applyConfiguredCoverageMock,
 }));
 
 const { applyConfigMock, configToGraphOptionsMock, createWorkspaceGraphMock, detectMonorepoMock } =

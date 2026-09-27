@@ -16,10 +16,10 @@
  * `filter` / `view` / `limit` / `slim` are NOT part of the key: they shape the *response* from
  * an already-computed full result, so one cached result serves every variation of them.
  */
-import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { ensureCacheDir } from "../../cache-dir";
+import { digestNodes } from "../node-digest";
 import type { DuplicateCluster } from "./clusters";
 import type { DuplicateGroup } from "./shingle";
 
@@ -58,19 +58,16 @@ export interface CachedDuplicationResult {
  *   unit `computeWorkspaceSourceDigest` (`src/index.ts`) hashes, but sourced from the in-memory
  *   graph (every `FileNode` already carries `mtime`/`size`) so no `fs.stat` walk is needed.
  *   Passing the whole node set (a superset of what `findDuplicates` actually scans) is
- *   intentional: an out-of-scope change over-invalidates, which is safe.
+ *   intentional: an out-of-scope change over-invalidates, which is safe. Thin re-export of the
+ *   shared {@link digestNodes} (also used by the coverage result cache) kept under its original
+ *   name for callers already importing it from here.
  * @param {Iterable<{ path: string; mtime: number; size: number }>} nodes - Graph file nodes.
  * @returns {string} Hex sha-256 digest.
  */
 export function duplicationDigest(
   nodes: Iterable<{ path: string; mtime: number; size: number }>,
 ): string {
-  const lines: string[] = [];
-  for (const node of nodes) lines.push(`${node.path}\0${node.mtime}\0${node.size}`);
-  lines.sort();
-  const hash = crypto.createHash("sha256");
-  for (const line of lines) hash.update(`${line}\n`);
-  return hash.digest("hex");
+  return digestNodes(nodes);
 }
 
 /**

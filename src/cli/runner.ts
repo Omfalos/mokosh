@@ -40,7 +40,12 @@ import type { CommandContext, CommandHandler } from "./commands/types";
 import { runWorkspaceAffected } from "./commands/workspace-affected";
 import { runWorkspacePackages } from "./commands/workspace-packages";
 import { type ResolvedConfig, resolveConfig } from "./config";
-import { buildGraph, loadGraphFromCache, saveGraphToCache } from "./graph-loader";
+import {
+  applyConfiguredCoverage,
+  buildGraph,
+  loadGraphFromCache,
+  saveGraphToCache,
+} from "./graph-loader";
 import { HELP_TEXT, QUERY_HELP_TEXT } from "./help";
 import { watchAndRun } from "./watch";
 
@@ -291,6 +296,7 @@ async function runWatchLoop(
       silent,
       ...configToGraphOptions(rawConfig),
     });
+    await applyConfiguredCoverage(rootDir, freshGraph, rawConfig);
     saveGraphToCache(freshGraph, resolvedCachePath);
     console.log(`--- rebuilt at ${new Date().toISOString()} ---`);
     await handler({ ...ctx, graph: freshGraph });
@@ -351,6 +357,8 @@ export async function run(): Promise<void> {
       saveGraphToCache(graph, resolvedCachePath);
     }
   }
+
+  await applyConfiguredCoverage(rootDir, graph, config.rawConfig);
 
   const ctx: CommandContext = {
     graph,

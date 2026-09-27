@@ -2,6 +2,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import { ensureCacheDir } from "../cache-dir";
+import type { MokoshConfig } from "../config";
+import { loadCoverageMap } from "../coverage";
+import { getOrRunCoverage } from "../graph/coverage/get-or-run";
+import { applyStaticCoverage } from "../graph/coverage/static-estimate";
+import { enrichCoverage } from "../graph/enrichment";
+import { detectMonorepo } from "../graph/workspace";
 import { configToGraphOptions, createImportMap, Graph } from "../index";
 
 /**
@@ -45,4 +51,38 @@ export async function buildGraph(
   },
 ): Promise<Graph> {
   return createImportMap(rootDir, entryPoints, cachedGraph, options);
+}
+
+/**
+ * @description Populates `coveragePct` on every node of an already-built `graph`, mirroring the
+ *   MCP server's `handleAnalyze` + `SessionState.getOrBuild` behaviour: `coverageReportPath`
+ *   (an explicit pre-generated report) takes priority when set; otherwise, `coverage.mode`
+ *   picks between an instant static reachability estimate (`"static"`) and running (or reusing
+ *   the digest-cached result of) each detected package's own test suite (`"exec"`). A no-op when
+ *   none of these is configured. Mutates `graph` in place.
+ * @param rootDir - Absolute project/monorepo root.
+ * @param graph - The built (or monorepo-flattened) `Graph` to enrich.
+ * @param config - The loaded `MokoshConfig`.
+ */
+export async function applyConfiguredCoverage(
+  rootDir: string,
+  graph: Graph,
+  config: MokoshConfig,
+): Promise<void> {
+  if (config.coverageReportPath) {
+    const coverageMap = loadCoverageMap(rootDir, config.coverageReportPath);
+    if (coverageMap.size > 0) enrichCoverage(graph.nodes, coverageMap);
+    return;
+  }
+  if (config.coverage?.mode === "static") {
+    applyStaticCoverage(graph);
+    return;
+  }
+  if (config.coverage?.mode !== "exec") return;
+  const layout = detectMonorepo(rootDir);
+  const autoMap = await getOrRunCoverage(rootDir, graph.nodes.values(), layout, {
+    timeoutMs: config.coverage.timeoutMs,
+    packages: config.coverage.packages,
+  });
+  if (autoMap.size > 0) enrichCoverage(graph.nodes, autoMap);
 }

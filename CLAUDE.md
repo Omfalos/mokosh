@@ -36,7 +36,13 @@ Graph / WorkspaceGraph         ← src/graph/model.ts, src/graph/workspace-model
   │
   ▼
 Enrichment (post-build)        ← src/graph/enrichment.ts
-  │  enrichCoverage            Adds coveragePct from Istanbul summary JSON
+  │  enrichCoverage            Adds coveragePct — from a pre-generated Istanbul summary JSON
+  │                            (`coverageReportPath`), or on demand by mokosh itself:
+  │                            `coverage: { mode: "static" }` (instant reachability estimate,
+  │                            zero execution, recommended default) or `{ mode: "exec" }` (runs
+  │                            each detected language's real test suite, digest-cached in
+  │                            mokosh-cache/coverage-result.json) — see
+  │                            docs/adr-023-on-demand-coverage.md
   │  enrichExportUsage         Computes exportUsageRatio per import edge
   │  enrichLibraryTags         Adds import-kind tags for third-party libs
   │  enrichTestedBy            Links test files back to their subjects
@@ -96,7 +102,11 @@ src/
                       docs/adr-012 through adr-015-duplicate-detection*.md), compare.ts +
                       worktree.ts + branch-graph-cache.ts (compare_branches: diffs the current
                       graph against another git ref via a temporary worktree, sha-cached to disk
-                      — see docs/adr-016-branch-comparison.md)
+                      — see docs/adr-016-branch-comparison.md), coverage/ (on-demand coverage:
+                      static-estimate.ts (instant reachability estimate, the recommended
+                      default), runners/ (one real CoverageRunner per language, mode: "exec"),
+                      scan-roots.ts (one root per monorepo package), result-cache-store.ts
+                      (digest-cached exec result) — see docs/adr-023-on-demand-coverage.md)
 
   parser/             per-language parsers (lang/, one file per language), style/ (CSS/SCSS/Stylus
                       via real ASTs), complexity.ts + complexity/ (per-language complexity +
@@ -214,4 +224,4 @@ Each language is one `LanguageAdapter` in `src/languages/` (see `docs/adr-022-la
 - `traversal.md` — graph traversal semantics
 - `lock-files.md` — lock file parsing
 - `releasing.md` — release process and commit conventions
-- `adr-001-styles-parsing.md` through `adr-022-language-adapters.md` — ADRs for key architecture/parser decisions
+- `adr-001-styles-parsing.md` through `adr-023-on-demand-coverage.md` — ADRs for key architecture/parser decisions

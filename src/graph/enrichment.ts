@@ -18,7 +18,14 @@ export function enrichCoverage(
 
 function applyCoverageForNode(node: FileNode, coverageMap: Map<string, number>): void {
   const pct = coverageMap.get(node.path);
-  if (pct !== undefined) node.coveragePct = pct;
+  if (pct !== undefined) {
+    node.coveragePct = pct;
+    // Every caller of `enrichCoverage`/`enrichGraph` passes a real measurement (a loaded
+    // `coverageReportPath` file, or a `coverage.mode: "exec"` test run) — the zero-execution
+    // `coverage.mode: "static"` estimate is applied separately via `computeStaticCoverage` and
+    // tagged `"static"` there instead, never through this path.
+    node.coverageSource = "report";
+  }
 }
 
 /**

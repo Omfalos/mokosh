@@ -161,6 +161,28 @@ export function saveWorkspaceCache(
  *   per-package digest comparison so the tree is walked only once.
  * @returns The deserialized `WorkspaceGraph`, or `null`.
  */
+/**
+ * @description Deletes the on-disk workspace cache subdirectory (`<cacheDir>/workspace/` — the
+ *   manifest plus every per-package file) so the next `loadWorkspaceCache` call is a guaranteed
+ *   miss, forcing a real rebuild. `clear_cache`'s in-memory-only scope otherwise left this
+ *   directory untouched: a target repo whose own source hadn't changed would keep reading as
+ *   "fresh" by `loadWorkspaceCache`'s digest check and silently re-hydrate a graph built by
+ *   whatever mokosh code was running at write time — invisible to a `clear_cache` call, a mokosh
+ *   rebuild, or an MCP server restart in between. See
+ *   `docs/known_issues/11-disk-cache-not-invalidated-by-mokosh-version.md`. Never throws — a
+ *   missing directory or a permission error is not this call's problem to surface; the caller's
+ *   `clear_cache` in-memory drop still took effect either way.
+ * @param cacheDir - The resolved `mokosh-cache` directory (same value passed to
+ *   `loadWorkspaceCache`/`saveWorkspaceCache`).
+ */
+export function clearWorkspaceCache(cacheDir: string): void {
+  try {
+    fs.rmSync(subdir(cacheDir), { recursive: true, force: true });
+  } catch {
+    // Best-effort — see doc comment.
+  }
+}
+
 export function loadWorkspaceCache(cacheDir: string, files: string[]): WorkspaceGraph | null {
   try {
     const dir = subdir(cacheDir);

@@ -7,6 +7,7 @@ export { applyConfig, configToGraphOptions, loadMokoshConfig, type MokoshConfig 
 export {
   DEFAULT_BRANCH_GRAPH_CACHE_DIR,
   DEFAULT_CACHE_DIR,
+  DEFAULT_COVERAGE_RESULT_CACHE_FILE,
   DEFAULT_DUPLICATION_RESULT_CACHE_FILE,
   DEFAULT_DUPLICATION_TOKEN_CACHE_FILE,
   DEFAULT_EXTENSIONS,
@@ -68,6 +69,16 @@ export {
   type SummarizeOptions,
   summarizeBranchComparison,
 } from "./graph/compare";
+export type { AutoCoverageOptions } from "./graph/coverage/get-or-run";
+export { getOrRunCoverage } from "./graph/coverage/get-or-run";
+export type { RunAutoCoverageOptions } from "./graph/coverage/run-coverage";
+export { DEFAULT_COVERAGE_TIMEOUT_MS, runAutoCoverage } from "./graph/coverage/run-coverage";
+export {
+  applyStaticCoverage,
+  computeStaticCoverage,
+  STATIC_COVERAGE_TIERS,
+} from "./graph/coverage/static-estimate";
+export type { CoverageRunner } from "./graph/coverage/types";
 export {
   type CachedDuplicationResult,
   type CachedFileTokens,

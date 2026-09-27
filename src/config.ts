@@ -80,8 +80,39 @@ export interface MokoshConfig {
     /** Tag names to keep even when built-in- or user-blocked (overrides `blocklist`). */
     allowlist?: string[];
   };
-  /** Path to the Istanbul/v8 `coverage-summary.json` file, relative to the project root. When set, `coveragePct` is populated on each node after the graph is built. */
+  /** Path to the Istanbul/v8 `coverage-summary.json` file, relative to the project root. When set, `coveragePct` is populated on each node after the graph is built and takes priority over `coverage.mode`. */
   coverageReportPath?: string;
+  /**
+   * On-demand coverage: when `coverageReportPath` is not set, mokosh can populate `coveragePct`
+   * itself instead of requiring a pre-generated report file. Off by default — see each `mode`.
+   */
+  coverage?: {
+    /**
+     * - `"static"` (recommended default) — instant, zero-execution *estimate*: how directly each
+     *   file is reachable from a test via the import/call graph already built (see
+     *   `computeStaticCoverage`, `docs/adr-023-on-demand-coverage.md`). Not a real line-coverage
+     *   measurement — a reachable file can still have untested branches — but costs nothing
+     *   beyond graph traversal, so it's always safe to leave on. Nodes it populates carry
+     *   `coverageSource: "static"`.
+     * - `"exec"` — real coverage: runs each detected test runner (vitest/jest,
+     *   pytest+coverage.py, `go test -coverprofile`, Gradle JaCoCo, sbt scoverage — one per
+     *   monorepo package, or once at the root for a single-language repo) and caches the merged
+     *   result in `mokosh-cache/coverage-result.json`, keyed by a digest of every graph node's
+     *   mtime/size plus `timeoutMs`/`packages`. A cache hit skips re-running the test suites
+     *   entirely; any in-scope file change reruns every detected runner (no partial re-run).
+     *   A side-effecting, potentially slow operation (network calls, DB writes, arbitrary build
+     *   scripts) — use it when you need real numbers (e.g. before a release), not as the default.
+     */
+    mode: "static" | "exec";
+    /** `mode: "exec"` only. Per-runner timeout in milliseconds before the spawned test process
+     *  is killed and that runner's coverage is simply omitted (never fails the whole `analyze`).
+     *  Default: 300000 (5 minutes). */
+    timeoutMs?: number;
+    /** `mode: "exec"` only. Restrict on-demand coverage to these monorepo package names (matches
+     *  `WorkspacePackage.name`). Unset runs it for every detected package. Ignored for a
+     *  single-language (non-monorepo) root. */
+    packages?: string[];
+  };
   /** Default line-coverage threshold (0–100) used by `find_uncovered`. Defaults to `80` when not specified. */
   coverageThreshold?: number;
   /**

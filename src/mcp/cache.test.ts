@@ -218,6 +218,25 @@ describe("SessionState", {
       expect([...hydrated.packages.keys()]).toEqual([...wg.packages.keys()]);
     });
 
+    test("invalidate deletes the on-disk workspace cache, not just in-memory state — a target repo with no source changes must not silently keep re-hydrating a graph built by an older mokosh", async () => {
+      fs.writeFileSync(path.join(root, "src", "a.ts"), "export const a = 1;");
+      vi.mocked(createWorkspaceGraph).mockResolvedValue(
+        makeWorkspaceGraph(root, [makeNode("src/a.ts")]),
+      );
+      const state = new SessionState();
+      await state.getOrBuildWorkspace(root);
+      const manifestPath = path.join(root, "mokosh-cache", "workspace", "manifest.json");
+      expect(fs.existsSync(manifestPath)).toBe(true);
+
+      state.invalidate(root);
+
+      expect(fs.existsSync(manifestPath)).toBe(false);
+      // No source change at all — the old bug let this hydrate from disk regardless.
+      vi.mocked(createWorkspaceGraph).mockClear();
+      await state.getOrBuildWorkspace(root);
+      expect(vi.mocked(createWorkspaceGraph)).toHaveBeenCalledTimes(1);
+    });
+
     test("rebuilds instead of hydrating once a source file changes", async () => {
       fs.writeFileSync(path.join(root, "src", "a.ts"), "export const a = 1;");
       vi.mocked(createWorkspaceGraph).mockResolvedValue(
