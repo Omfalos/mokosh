@@ -28,14 +28,20 @@ export interface FeatureInfo {
 
 /**
  * @description Counts how many internal imports each file has, producing the raw out-degree data
- *   used by `buildFeatureMap` to filter feature candidates.
+ *   used by `buildFeatureMap` to filter feature candidates. Excludes the synthetic same-package
+ *   edge every JVM/Go file carries (`imp.isSamePackage`) — those exist because a file can
+ *   reference package siblings with no `import` line, not because the file is an orchestrator
+ *   that deliberately pulls in many modules, so counting them here would make every same-package
+ *   file look like a feature hub regardless of its real coupling (see docs/adr-017-jvm-languages.md).
  * @param {Map<string, FileNode>} nodes - All file nodes in the dependency graph, keyed by file path.
  * @returns {Map<string, number>} Map from file path to its internal import count (out-degree).
  */
 function buildOutDegreeMap(nodes: Map<string, FileNode>): Map<string, number> {
   const outDegreeMap = new Map<string, number>();
   for (const [filePath, node] of nodes) {
-    const count = node.imports.filter((imp) => imp.toPath && !imp.isExternal).length;
+    const count = node.imports.filter(
+      (imp) => imp.toPath && !imp.isExternal && !imp.isSamePackage,
+    ).length;
     if (count > 0) {
       outDegreeMap.set(filePath, count);
     }
