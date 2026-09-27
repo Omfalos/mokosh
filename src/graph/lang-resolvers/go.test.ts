@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
+import { GO_SAME_PACKAGE_SPECIFIER } from "../../parser/lang/go";
 import { GoLangResolver } from "./go";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
@@ -196,6 +197,56 @@ describe("test file exclusion", { tags: ["GoLangResolver", "go"] }, () => {
     expect(result).toHaveLength(1);
     expect(result?.[0]?.path).toContain("impl.go");
     expect(result?.[0]?.path).not.toContain("impl_test.go");
+  });
+});
+
+// ─── synthetic same-package edge ───────────────────────────────────────────────
+
+describe("same-package sentinel", { tags: ["GoLangResolver", "go"] }, () => {
+  let root: string;
+  let resolver: GoLangResolver;
+
+  beforeAll(() => {
+    root = setup({
+      "go.mod": `module ${MOD}\n\ngo 1.21\n`,
+      "pkg/auth/auth.go": "",
+      "pkg/auth/helper.go": "",
+      "pkg/auth/helper_test.go": "",
+      "pkg/lonely/only.go": "",
+    });
+    resolver = new GoLangResolver();
+  });
+  afterAll(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  test("resolves to every other non-test .go file in the same directory", () => {
+    const currentFile = path.join(root, "pkg/auth/auth.go");
+    const result = resolver.resolve(currentFile, GO_SAME_PACKAGE_SPECIFIER, root, noop);
+    const names = result?.map((r) => path.basename(r.path)).sort();
+
+    // Includes the importing file itself (self-edges are dropped later by the graph builder,
+    // same as JVM's synthetic same-package edge) but never the sibling _test.go file.
+    expect(names).toEqual(["auth.go", "helper.go"]);
+  });
+
+  test("resolves independent of go.mod's declared module name", () => {
+    const currentFile = path.join(root, "pkg/lonely/only.go");
+    const result = resolver.resolve(currentFile, GO_SAME_PACKAGE_SPECIFIER, root, noop);
+    expect(result?.map((r) => path.basename(r.path))).toEqual(["only.go"]);
+  });
+
+  test("missing go.mod does not block same-package resolution", () => {
+    const noModRoot = setup({
+      "pkg/a.go": "",
+      "pkg/b.go": "",
+    });
+    try {
+      const noModResolver = new GoLangResolver();
+      const currentFile = path.join(noModRoot, "pkg/a.go");
+      const result = noModResolver.resolve(currentFile, GO_SAME_PACKAGE_SPECIFIER, noModRoot, noop);
+      expect(result?.map((r) => path.basename(r.path)).sort()).toEqual(["a.go", "b.go"]);
+    } finally {
+      fs.rmSync(noModRoot, { recursive: true, force: true });
+    }
   });
 });
 

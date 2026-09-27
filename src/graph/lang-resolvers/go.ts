@@ -1,6 +1,7 @@
 /** Language resolver for Go: maps module-local import paths to concrete .go files using go.mod. */
 import fs from "node:fs";
 import path from "node:path";
+import { GO_SAME_PACKAGE_SPECIFIER } from "../../parser/lang/go";
 import type { LangResolver, ResolvedImport } from "./types";
 
 interface GoModData {
@@ -18,13 +19,20 @@ interface GoModData {
  * @description Resolves Go module-local import paths to all concrete `.go` source files
  *   in the target package directory, using `go.mod` for module name and `replace` directives.
  *
- *   Two gaps addressed over the previous single-file resolver:
+ *   Three gaps addressed over the previous single-file resolver:
  *   1. Returns every non-test `.go` file in the package directory (one edge per file).
  *   2. Honours `replace` directives that redirect a module path to a local directory.
+ *   3. Resolves the synthetic same-package edge every Go file carries (see `goSamePackageEdge`
+ *      in `src/parser/lang/go.ts`) — package siblings that reference each other with no
+ *      `import` line, which is normal Go, are otherwise invisible to blast-radius analysis.
  *
  *   Known remaining limitations (see ADR-007):
  *   - Vendor directories are not traversed.
  *   - `go.work` workspace files are not read.
+ *   - The same-package edge treats every non-test `.go` file in a directory as one package,
+ *     even across mutually-exclusive build-tag variants (e.g. `foo_linux.go` / `foo_darwin.go`)
+ *     — those never actually compile together, but resolving that would need build-constraint
+ *     evaluation this resolver doesn't do.
  */
 export class GoLangResolver implements LangResolver {
   extensions = [".go"];
@@ -33,18 +41,27 @@ export class GoLangResolver implements LangResolver {
   /**
    * @description Resolves a Go import specifier to all non-test `.go` files in the target
    *   package directory. Returns `null` for stdlib, third-party, and root-module imports.
-   * @param {string} _currentFile - Absolute path of the importing file (unused; resolution is module-relative).
+   * @param {string} currentFile - Absolute path of the importing file. Only used to resolve the
+   *   synthetic same-package sentinel (`GO_SAME_PACKAGE_SPECIFIER`) — every other specifier is
+   *   resolved module-relatively, independent of the importing file's own location.
    * @param {string} specifier - Full Go import path, e.g. `"github.com/myorg/myrepo/internal/utils"`.
    * @param {string} rootDir - Absolute project root where `go.mod` is located.
    * @param {Function} _resolveLocal - Generic resolver callback (unused for Go).
    * @returns {ResolvedImport[] | null} All non-test `.go` files in the package, or `null` if external/unresolvable.
    */
   resolve(
-    _currentFile: string,
+    currentFile: string,
     specifier: string,
     rootDir: string,
     _resolveLocal: (currentFile: string, specifier: string) => ResolvedImport | null,
   ): ResolvedImport[] | null {
+    // The synthetic same-package edge every Go file carries (see goSamePackageEdge): a Go
+    // package is exactly "the other non-test .go files in this directory", independent of
+    // go.mod/module name, so this resolves before (and without) the go.mod lookup below.
+    if (specifier === GO_SAME_PACKAGE_SPECIFIER) {
+      return goFilesInDir(path.dirname(currentFile));
+    }
+
     const { mod, replaces } = this.readGoMod(rootDir);
     if (!mod) return null;
 
