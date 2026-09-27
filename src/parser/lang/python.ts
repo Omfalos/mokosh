@@ -120,6 +120,10 @@ function extractFromImport(node: SyntaxNode, src: string, filePath: string): Imp
   const importedNames = collectImportedNames(importKw.nextSibling, src);
   if (!importedNames.length) return [];
 
+  // A re-export edge (see edgesForSpecifier) only signals a genuine public re-export at module
+  // scope — a function-local `from .x import Y as Y` isn't part of the file's public API.
+  const isTopLevel = node.parent?.name === "Script";
+
   // Split leading dots from the rest of the module path
   let dotCount = 0;
   while (dotCount < rawModule.length && rawModule[dotCount] === ".") dotCount++;
@@ -128,7 +132,7 @@ function extractFromImport(node: SyntaxNode, src: string, filePath: string): Imp
   if (dotCount === 0) {
     // Absolute import: `from pathlib import Path`
     // Keep dotted module name as-is; resolver converts dots → path separators.
-    return [makeEdge(filePath, rawModule, importedNames, true)];
+    return edgesForSpecifier(filePath, rawModule, importedNames, true, isTopLevel);
   }
 
   // n=1 → "./"  (current package)
@@ -139,15 +143,74 @@ function extractFromImport(node: SyntaxNode, src: string, filePath: string): Imp
   if (!modulePart) {
     // `from . import utils, models` — each name is its own sub-module.
     // `from . import *`            — edge to the package init.
-    if (importedNames[0] === "*") {
+    if (importedNames[0]?.name === "*") {
       return [makeEdge(filePath, prefix.slice(0, -1), ["*"], false)];
     }
-    return importedNames.map((name) => makeEdge(filePath, prefix + name, [name], false));
+    return importedNames.flatMap((name) =>
+      edgesForSpecifier(filePath, prefix + name.name, [name], false, isTopLevel),
+    );
   }
 
   // `from .models import User` → "./models"
   // `from .models.user import X` → "./models/user"
-  return [makeEdge(filePath, prefix + modulePart.replace(/\./g, "/"), importedNames, false)];
+  return edgesForSpecifier(
+    filePath,
+    prefix + modulePart.replace(/\./g, "/"),
+    importedNames,
+    false,
+    isTopLevel,
+  );
+}
+
+/**
+ * @description Builds one or two edges for a single specifier's imported names: a plain `static`
+ *   edge for ordinarily-imported names, and — when `isTopLevel` and at least one name is an
+ *   explicit self-aliased re-export (`from .x import Y as Y`, or `from . import y as y` for a
+ *   sub-module) — a separate `type: "re-export"` edge carrying just those names. This is
+ *   Python's conventional signal (also recognized by mypy) that a re-export is intentional, not
+ *   just an import for internal use; PEP 484 requires the alias to exactly match the original
+ *   name for that signal, so an ordinary `as OtherName` alias never qualifies.
+ *
+ *   The split lets `get_api_surface`'s existing re-export-following (`collectAccessibleSymbolNames`
+ *   in `src/graph/api-surface.ts`, built for TypeScript's `export { foo } from "…"`) pick up
+ *   Python's idiom for free — before this, `from .app import Flask as Flask` in an `__init__.py`
+ *   was invisible to `get_api_surface` (ADR-002 covered only star-imports/re-exports; explicit
+ *   same-name aliasing was untracked).
+ * @param filePath - Path of the importing file.
+ * @param specifier - Raw module specifier, already resolved to its dotted/relative form.
+ * @param names - The names imported from this specifier, with their re-export flag.
+ * @param isExternal - Whether the specifier is external (absolute, non-relative import).
+ * @param isTopLevel - Whether the import statement is at module scope.
+ * @returns One edge when no name is a top-level self-aliased re-export, otherwise two — one per
+ *   edge type, so a caller reading `imp.type` never has to inspect individual symbols.
+ */
+function edgesForSpecifier(
+  filePath: string,
+  specifier: string,
+  names: ImportedName[],
+  isExternal: boolean,
+  isTopLevel: boolean,
+): ImportEdge[] {
+  if (!isTopLevel) {
+    return [
+      makeEdge(
+        filePath,
+        specifier,
+        names.map((n) => n.name),
+        isExternal,
+      ),
+    ];
+  }
+
+  const reexported = names.filter((n) => n.isExplicitReexport).map((n) => n.name);
+  const plain = names.filter((n) => !n.isExplicitReexport).map((n) => n.name);
+
+  const edges: ImportEdge[] = [];
+  if (plain.length > 0) edges.push(makeEdge(filePath, specifier, plain, isExternal));
+  if (reexported.length > 0) {
+    edges.push(makeEdge(filePath, specifier, reexported, isExternal, "re-export"));
+  }
+  return edges;
 }
 
 /**
@@ -182,20 +245,37 @@ function extractBareImport(node: SyntaxNode, src: string, filePath: string): Imp
 }
 
 /**
- * Walks the sibling chain after `import`, collecting symbol names and skipping `as` aliases.
+ * A single name bound by a `from <module> import <name> [as <alias>]` clause.
  */
-function collectImportedNames(start: SyntaxNode | null, src: string): string[] {
-  const names: string[] = [];
+interface ImportedName {
+  name: string;
+  /** True when explicitly aliased to itself (`Y as Y`) — see `edgesForSpecifier`. */
+  isExplicitReexport: boolean;
+}
+
+/**
+ * Walks the sibling chain after `import`, collecting each imported symbol's original (pre-alias)
+ * name — matching the `ImportEdge.symbols` convention this parser has always used — plus whether
+ * it carries a same-name `as` alias (the `Y as Y` re-export idiom; see `edgesForSpecifier`).
+ */
+function collectImportedNames(start: SyntaxNode | null, src: string): ImportedName[] {
+  const names: ImportedName[] = [];
   let childNode: SyntaxNode | null = start;
   while (childNode) {
     if (childNode.name === "*") {
-      names.push("*");
+      names.push({ name: "*", isExplicitReexport: false });
     } else if (childNode.name === "VariableName") {
-      names.push(src.slice(childNode.from, childNode.to));
-      // Skip `as alias` if present
+      const name = src.slice(childNode.from, childNode.to);
+      let isExplicitReexport = false;
+      // Check for an `as alias` and, if present, whether it's a same-name (re-export) alias
       if (childNode.nextSibling?.name === "as") {
+        const aliasNode = childNode.nextSibling.nextSibling;
+        if (aliasNode?.name === "VariableName") {
+          isExplicitReexport = src.slice(aliasNode.from, aliasNode.to) === name;
+        }
         childNode = childNode.nextSibling.nextSibling ?? childNode.nextSibling;
       }
+      names.push({ name, isExplicitReexport });
     }
     childNode = childNode.nextSibling;
   }
@@ -341,6 +421,7 @@ function makeEdge(
   rawSpecifier: string,
   symbols: string[],
   isExternal: boolean,
+  type: ImportEdge["type"] = "static",
 ): ImportEdge {
   return {
     fromPath: filePath,
@@ -348,7 +429,7 @@ function makeEdge(
     rawSpecifier,
     isStyle: false,
     isExternal,
-    type: "static",
+    type,
     symbols: symbols.length > 0 ? symbols : undefined,
   };
 }

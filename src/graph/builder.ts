@@ -670,18 +670,29 @@ export class GraphBuilder {
  *   no matching file name to every file in its package (plus the synthetic same-package edge),
  *   and Go resolution expands a package import to every file in that package directory — so N
  *   such imports, or the same import used N times in one file, would otherwise yield N identical
- *   edges per target. An explicit import wins over a synthetic/side-effect edge, and a re-export
- *   wins over either (so a file that both imports and re-exports the same target keeps the
- *   `"re-export"` type `get_api_surface` depends on); `symbols` are merged. External edges are
- *   left untouched.
+ *   edges per target. An explicit import wins over a synthetic/side-effect edge; `symbols` are
+ *   merged. External edges are left untouched.
+ *
+ *   A `"re-export"` edge is never merged with a non-re-export edge to the same target, even
+ *   though both resolve to the same `toPath` — they're grouped by `(toPath, isReExport)`, not
+ *   `toPath` alone. `get_api_surface` trusts a `"re-export"` edge's `symbols` as the file's
+ *   *complete* public re-export list for that target (`collectAccessibleSymbolNames` in
+ *   `src/graph/api-surface.ts`); merging it with a plain import's `symbols` (e.g. Python's
+ *   `from .x import Public as Public, internal` — one self-aliased re-export, one ordinary
+ *   import, same target file) would silently promote the plain-imported name into the public
+ *   API. Two genuinely redundant re-export edges to the same target (unusual, but possible) still
+ *   merge with each other, same as any other pair of same-typed duplicates.
  * @param {ImportEdge[]} edges - Resolved edges of one file.
- * @returns {ImportEdge[]} Edges with at most one local edge per `toPath`, in first-seen order.
+ * @returns {ImportEdge[]} Edges with at most one local edge per `(toPath, isReExport)` pair, in
+ *   first-seen order.
  */
 function dedupeLocalEdges(edges: ImportEdge[]): ImportEdge[] {
   const byTarget = new Map<string, ImportEdge>();
   const out: ImportEdge[] = [];
   for (const edge of edges) {
-    const key = edge.isExternal ? undefined : edge.toPath;
+    const key = edge.isExternal
+      ? undefined
+      : `${edge.toPath}::${edge.type === "re-export" ? "re-export" : "other"}`;
     const existing = key === undefined ? undefined : byTarget.get(key);
     if (key === undefined || !existing) {
       if (key !== undefined) byTarget.set(key, edge);
@@ -689,11 +700,7 @@ function dedupeLocalEdges(edges: ImportEdge[]): ImportEdge[] {
       continue;
     }
     const symbols = [...new Set([...(existing.symbols ?? []), ...(edge.symbols ?? [])])];
-    const edgeWins =
-      edge.type === "re-export"
-        ? existing.type !== "re-export"
-        : existing.type === "side-effect" && edge.type !== "side-effect";
-    if (edgeWins) {
+    if (existing.type === "side-effect" && edge.type !== "side-effect") {
       Object.assign(existing, edge);
     }
     if (symbols.length > 0) existing.symbols = symbols;

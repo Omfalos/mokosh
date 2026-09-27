@@ -225,11 +225,12 @@ describe("GraphBuilder local-edge deduplication", () => {
     }
   });
 
-  // Deduping must not lose a "re-export" edge type when it collapses with an ordinary import of
-  // the same target: get_api_surface (src/graph/api-surface.ts) walks node.imports looking for
-  // type === "re-export" to trace re-export chains, so a file that both imports and re-exports
-  // the same target must keep that type on the merged edge, whichever edge was seen first.
-  test("keeps the re-export type when a file both imports and re-exports the same target", async () => {
+  // Deduping must NOT collapse a "re-export" edge with an ordinary import of the same target
+  // into one merged edge: get_api_surface (src/graph/api-surface.ts) trusts a "re-export" edge's
+  // `symbols` as the file's *complete* public re-export list for that target, so merging it with
+  // an unrelated plain import's symbols would silently promote a non-re-exported name into the
+  // public API (see docs/known_issues and the Python re-export fix this regression-guards).
+  test("a file that both imports and re-exports the same target keeps two separate edges", async () => {
     const root = path.join(process.cwd(), "test-builder-reexport-dedup");
     fs.mkdirSync(path.join(root, "src"), { recursive: true });
 
@@ -244,8 +245,45 @@ describe("GraphBuilder local-edge deduplication", () => {
       const node = graph.serialize().nodes.find((n) => n.path === path.join("src", "index.js"));
       const helperEdges = node?.imports.filter((e) => e.toPath?.endsWith("helper.js")) ?? [];
 
-      expect(helperEdges).toHaveLength(1);
-      expect(helperEdges[0]?.type).toBe("re-export");
+      expect(helperEdges).toHaveLength(2);
+      const types = helperEdges.map((e) => e.type).sort();
+      expect(types).toEqual(["re-export", "static"]);
+      const reexportEdge = helperEdges.find((e) => e.type === "re-export");
+      expect(reexportEdge?.symbols).toEqual(["helper"]);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  // Regression for the real bug this fix closes: a re-export and a plain import from the SAME
+  // submodule, with DIFFERENT symbols, must not merge — merging would leak the plain-imported
+  // name into get_api_surface's public export list. Caught in review of the Python re-export fix
+  // via a full createImportMap -> buildApiSurface pipeline test (see api-surface.test.ts); this
+  // is the narrower unit-level guard directly on dedupeLocalEdges's behavior.
+  test("does not leak a plain-imported symbol into the re-export edge's symbols when they share a target", async () => {
+    const root = path.join(process.cwd(), "test-builder-reexport-dedup-mixed");
+    fs.mkdirSync(path.join(root, "src"), { recursive: true });
+
+    fs.writeFileSync(
+      path.join(root, "src", "x.js"),
+      "export const Public = 1;\nexport const internal = 2;",
+    );
+    fs.writeFileSync(
+      path.join(root, "src", "index.js"),
+      "import { internal } from './x.js';\nexport { Public } from './x.js';\ninternal;",
+    );
+
+    try {
+      const graph = await createImportMap(root, ["src/index.js"]);
+      const node = graph.serialize().nodes.find((n) => n.path === path.join("src", "index.js"));
+      const xEdges = node?.imports.filter((e) => e.toPath?.endsWith("x.js")) ?? [];
+
+      expect(xEdges).toHaveLength(2);
+      const reexportEdge = xEdges.find((e) => e.type === "re-export");
+      const staticEdge = xEdges.find((e) => e.type !== "re-export");
+
+      expect(reexportEdge?.symbols).toEqual(["Public"]);
+      expect(staticEdge?.symbols).toEqual(["internal"]);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
