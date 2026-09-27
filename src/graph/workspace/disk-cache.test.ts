@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { Graph, getAllProjectFiles, WorkspaceGraph } from "../../index";
 import type { FileNode } from "../../types/node";
-import { loadWorkspaceCache, saveWorkspaceCache } from "./disk-cache";
+import { clearWorkspaceCache, loadWorkspaceCache, saveWorkspaceCache } from "./disk-cache";
 
 function makeNode(p: string): FileNode {
   return {
@@ -161,5 +161,43 @@ describe("workspace disk-cache", { tags: ["workspace", "cache", "mcp"] }, () => 
 
   test("returns null (no throw) when the cache dir does not exist", () => {
     expect(loadWorkspaceCache(cacheDir, getAllProjectFiles(root))).toBeNull();
+  });
+});
+
+describe("clearWorkspaceCache", { tags: ["workspace", "cache", "mcp"] }, () => {
+  let root: string;
+  let cacheDir: string;
+
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), "mokosh-ws-diskcache-clear-"));
+    cacheDir = path.join(root, "mokosh-cache");
+  });
+
+  afterEach(() => {
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  test("removes the workspace subdirectory so a subsequent load is a guaranteed miss", () => {
+    saveWorkspaceCache(cacheDir, getAllProjectFiles(root), scaffold(root));
+    expect(fs.existsSync(subdir(root))).toBe(true);
+
+    clearWorkspaceCache(cacheDir);
+
+    expect(fs.existsSync(subdir(root))).toBe(false);
+    expect(loadWorkspaceCache(cacheDir, getAllProjectFiles(root))).toBeNull();
+  });
+
+  test("is a no-op (never throws) when nothing was cached yet", () => {
+    expect(() => clearWorkspaceCache(cacheDir)).not.toThrow();
+  });
+
+  test("leaves the rest of mokosh-cache/ (e.g. graph.json) untouched", () => {
+    saveWorkspaceCache(cacheDir, getAllProjectFiles(root), scaffold(root));
+    fs.writeFileSync(path.join(cacheDir, "graph.json"), '{"nodes":[]}');
+
+    clearWorkspaceCache(cacheDir);
+
+    expect(fs.existsSync(subdir(root))).toBe(false);
+    expect(fs.existsSync(path.join(cacheDir, "graph.json"))).toBe(true);
   });
 });

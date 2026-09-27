@@ -250,7 +250,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "find_uncovered",
     description:
-      "Find non-test files whose line coverage is below the configured threshold. Requires a prior analyze() call and coverageReportPath set in mokosh.config. coverageThreshold overrides the config default (default: 80).",
+      "Find non-test files whose line coverage is below the configured threshold. Requires a prior analyze() call and coverage configured in mokosh.config. coverageThreshold overrides the config default (default: 80).",
     inputSchema: {
       type: "object",
       properties: {
@@ -307,7 +307,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "find_risk_hotspots",
     description:
-      "Find functions that are complex, in a poorly-covered file, and — when gitStats is enabled in mokosh.config — frequently changed. Requires a prior analyze() and coverageReportPath in mokosh.config; errors if no coverage loaded. Churn filtering is skipped (churnDataAvailable: false) without gitStats, since complexity + low coverage alone is still a meaningful signal.",
+      "Find functions that are complex, in a poorly-covered file, and — when gitStats is enabled in mokosh.config — frequently changed. Requires a prior analyze() and coverage configured in mokosh.config; errors if no coverage loaded. Churn filtering is skipped (churnDataAvailable: false) without gitStats, since complexity + low coverage alone is still a meaningful signal.",
     inputSchema: {
       type: "object",
       properties: {

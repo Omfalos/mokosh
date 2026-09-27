@@ -262,7 +262,7 @@ Scans the project directory and compares against the reachable graph. Returns fi
 
 ### `find_uncovered`
 
-Find non-test files whose line coverage is below a threshold. Requires a prior `analyze` call and `coverageReportPath` set in `mokosh.config`.
+Find non-test files whose line coverage is below a threshold. Requires a prior `analyze` call and coverage configured in `mokosh.config` — `coverageReportPath` (a pre-generated Istanbul/v8 report), `coverage: { mode: "static" }` (instant reachability estimate, no test execution), or `coverage: { mode: "exec" }` (mokosh runs each detected package's own test suite itself). See [ADR-023](./adr-023-on-demand-coverage.md).
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -328,7 +328,7 @@ Coverage and churn are file-level (the containing file's `coveragePct`/`commitCo
 
 **Returns:** `{ metric, minComplexity, maxCoveragePct, minChurn, churnDataAvailable, hotspots, count }`, where each `hotspots` entry is `{ file, name, line, complexity, cognitiveComplexity, coveragePct, commitCount90d? }`. `churnDataAvailable` is `false` when no node in the graph has git churn data loaded (`gitStats: true` wasn't set in config) — the churn filter is silently skipped rather than erroring, since complexity + low coverage alone is still a meaningful signal.
 
-**Requires:** a prior `analyze` call for the same `root`, and `coverageReportPath` set in `mokosh.config` — errors with `{ error }` if no coverage data was loaded, the same way `find_uncovered` does.
+**Requires:** a prior `analyze` call for the same `root`, and coverage configured in `mokosh.config` (`coverageReportPath` or `coverage: { mode: "static" } or { mode: "exec" }`, see [ADR-023](./adr-023-on-demand-coverage.md)) — errors with `{ error }` if no coverage data was loaded, the same way `find_uncovered` does.
 
 ---
 

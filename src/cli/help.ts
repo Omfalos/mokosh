@@ -18,7 +18,7 @@ Options:
   --feature-threshold <N>     Min internal imports to be a feature hub (default: 5)
   --find-unused               Find files that are not reachable from entry points
   --exclude-tests             Exclude test files from --find-unused output
-  --find-uncovered            List non-test files whose coverage is below the threshold (requires coverageReportPath in config)
+  --find-uncovered            List non-test files whose coverage is below the threshold (requires coverageReportPath or coverage.mode: "static" or "exec" in config)
   --list-tags                 Bounded tag inventory (always <=250 tags): by default the
                                query-meaningful kinds (comment-marker, import) with count>=2,
                                top 50, plus a byKind histogram. Use --plain for a bare name list
@@ -99,7 +99,7 @@ MCP parity (mirrors the MCP server's tools for use when MCP is unavailable):
   --dup-full                   Print full --find-duplicates groups/clusters (source text +
                                 per-occurrence metadata). Default is the compact shape.
   --find-risk-hotspots         List functions that are complex, undertested, and (if gitStats is
-                                enabled) frequently changed — requires coverageReportPath in config
+                                enabled) frequently changed — requires coverageReportPath or coverage.mode: "static" or "exec" in config
   --max-coverage-pct <N>       Max file coverage % to include (default: 50, use with --find-risk-hotspots)
   --min-churn <N>              Min 90-day commit count to include (default: 0, ignored if gitStats
                                 is off; use with --find-risk-hotspots)

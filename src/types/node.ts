@@ -69,8 +69,17 @@ export interface FileNode extends GraphNode {
   /** For markdown nodes: paths of referenced files whose `lastCommitAt` is newer than this doc's own — a staleness signal, not proof the doc is wrong. Populated by `enrichDocDrift`. */
   staleFor?: string[];
   callEdges?: CallEdge[];
-  /** Line coverage percentage (0–100) from the last coverage report. Undefined when no report was loaded. */
+  /** Line coverage percentage (0–100) from the last coverage report, or a static reachability
+   *  estimate when no report was loaded — see {@link coverageSource}. Undefined when neither is
+   *  available. */
   coveragePct?: number;
+  /** Where `coveragePct` came from: `"report"` — a real line-coverage measurement, either a
+   *  pre-generated report (`coverageReportPath`) or an actual test run (`coverage.mode: "exec"`).
+   *  `"static"` — an instant, zero-execution *estimate* from `coverage.mode: "static"`: whether
+   *  the file is reachable from a test via the import graph, not a measurement of which lines
+   *  actually ran. See `docs/adr-023-on-demand-coverage.md`. Undefined when `coveragePct` is
+   *  undefined. */
+  coverageSource?: "report" | "static";
   /** Average exportUsageRatio across all outgoing internal import edges that have a computable ratio. */
   avgExportUsage?: number;
   /** Highest single-edge exportUsageRatio for this file — identifies the dependency whose API surface is most consumed. */

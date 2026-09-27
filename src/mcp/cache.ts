@@ -3,7 +3,14 @@ import crypto from "node:crypto";
 import fs, { type FSWatcher } from "node:fs";
 import path from "node:path";
 import type { MokoshConfig } from "../config";
-import { loadWorkspaceCache, saveWorkspaceCache } from "../graph/workspace/disk-cache";
+import { getOrRunCoverage } from "../graph/coverage/get-or-run";
+import { applyStaticCoverage } from "../graph/coverage/static-estimate";
+import { enrichCoverage } from "../graph/enrichment";
+import {
+  clearWorkspaceCache,
+  loadWorkspaceCache,
+  saveWorkspaceCache,
+} from "../graph/workspace/disk-cache";
 import {
   buildChangeImpactCache,
   type ChangeImpactCache,
@@ -205,6 +212,18 @@ export class SessionState {
       ...configToGraphOptions(config),
       coverageMap,
     });
+    // On-demand coverage only kicks in when no explicit `coverageReportPath` map was already
+    // loaded (an empty `coverageMap` here means `handleAnalyze` didn't load one) — it never
+    // overrides an explicit report. See `computeStaticCoverage`/`getOrRunCoverage`.
+    if (coverageMap.size === 0 && config?.coverage?.mode === "static") {
+      applyStaticCoverage(graph);
+    } else if (coverageMap.size === 0 && config?.coverage?.mode === "exec") {
+      const autoMap = await getOrRunCoverage(root, graph.nodes.values(), this.getLayout(root), {
+        timeoutMs: config.coverage.timeoutMs,
+        packages: config.coverage.packages,
+      });
+      if (autoMap.size > 0) enrichCoverage(graph.nodes, autoMap);
+    }
     this.graphs.set(root, graph);
     return graph;
   }
@@ -270,29 +289,62 @@ export class SessionState {
 
     const hydrated = forceFresh ? null : loadWorkspaceCache(cacheDir, files);
     if (hydrated) {
+      await this.applyAutoCoverageToWorkspace(root, hydrated);
       this.workspaceGraphs.set(root, hydrated);
       this.workspaceDigests.set(root, digest);
       return hydrated;
     }
 
-    const build = createWorkspaceGraph(root, {
-      ...buildOptions,
-      layout: this.getLayout(root),
-      projectFiles: files,
-    })
-      .then((workspaceGraph) => {
+    const build = (async () => {
+      try {
+        const workspaceGraph = await createWorkspaceGraph(root, {
+          ...buildOptions,
+          layout: this.getLayout(root),
+          projectFiles: files,
+        });
+        await this.applyAutoCoverageToWorkspace(root, workspaceGraph);
         this.workspaceGraphs.set(root, workspaceGraph);
         this.workspaceDigests.set(root, digest);
         saveWorkspaceCache(cacheDir, files, workspaceGraph, (message) =>
           process.stderr.write(`Warning: ${message}\n`),
         );
         return workspaceGraph;
-      })
-      .finally(() => {
+      } finally {
         this.workspaceBuilds.delete(root);
-      });
+      }
+    })();
     this.workspaceBuilds.set(root, build);
     return build;
+  }
+
+  /**
+   * @description Applies on-demand coverage (`coverage.mode: "static" or "exec"`) to every node of a just
+   *   built/hydrated `WorkspaceGraph`, when configured and no explicit `coverageReportPath` was
+   *   set. Runs against the flattened node set (`WorkspaceGraph.flatten()`) so one coverage
+   *   result cache and one digest cover the whole monorepo, and mutates the real per-package
+   *   `FileNode` objects (flatten shares them by reference — see ADR-020) so every package's own
+   *   `Graph` sees the same `coveragePct`. A no-op when `coverage.mode` is unset or a
+   *   `coverageReportPath` is configured (that path is not wired for workspaces).
+   * @param root - Absolute monorepo root.
+   * @param workspaceGraph - The graph to enrich in place.
+   */
+  private async applyAutoCoverageToWorkspace(
+    root: string,
+    workspaceGraph: WorkspaceGraph,
+  ): Promise<void> {
+    const config = this.configs.get(root);
+    if (config?.coverageReportPath || !config?.coverage) return;
+    const { graph } = workspaceGraph.flatten();
+    if (config.coverage.mode === "static") {
+      applyStaticCoverage(graph);
+      return;
+    }
+    if (config.coverage.mode !== "exec") return;
+    const autoMap = await getOrRunCoverage(root, graph.nodes.values(), this.getLayout(root), {
+      timeoutMs: config.coverage.timeoutMs,
+      packages: config.coverage.packages,
+    });
+    if (autoMap.size > 0) enrichCoverage(graph.nodes, autoMap);
   }
 
   /**
@@ -664,16 +716,18 @@ export class SessionState {
    *   mid-session and calling `clear_cache` would rebuild the graph but keep applying the
    *   stale config. Use after editing source files (or config) mid-session to ensure
    *   subsequent queries reflect the updated state.
-   *   NOTE: in-memory only — does not touch the on-disk per-package workspace cache
-   *   (`<root>/mokosh-cache/workspace/`, see `src/graph/workspace/disk-cache.ts`), which is keyed
-   *   off the target repo's own source digest and so stays "fresh" (and gets re-hydrated) across a
-   *   mokosh code/build change with no target-repo edits. See
-   *   docs/known_issues/11-disk-cache-not-invalidated-by-mokosh-version.md — fix planned next.
+   *   Also deletes the on-disk per-package workspace cache (`<root>/mokosh-cache/workspace/`,
+   *   see `src/graph/workspace/disk-cache.ts::clearWorkspaceCache`) — that cache's own staleness
+   *   check is keyed off only the target repo's own source digest, so without this it would stay
+   *   "fresh" (and keep getting re-hydrated) across a mokosh code/build change with no
+   *   target-repo edits, making `clear_cache` a no-op for that case. See
+   *   docs/known_issues/11-disk-cache-not-invalidated-by-mokosh-version.md.
    * @param root - Absolute path of the project root to invalidate.
    * @returns `true` if a cached graph existed and was removed, `false` if nothing was cached.
    */
   invalidate(root: string): boolean {
     const had = this.graphs.has(root) || this.workspaceGraphs.has(root);
+    const config = this.configs.get(root);
     this.graphs.delete(root);
     this.workspaceGraphs.delete(root);
     this.workspaceDigests.delete(root);
@@ -683,6 +737,7 @@ export class SessionState {
     this.dirtyRoots.delete(root);
     this.duplicationTokenCaches.delete(root);
     this.configs.delete(root);
+    clearWorkspaceCache(workspaceCacheDir(root, config));
     return had;
   }
 }

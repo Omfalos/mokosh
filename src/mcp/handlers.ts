@@ -669,7 +669,7 @@ export async function handleFindUncovered(
   if (!graphs.some(({ graph }) => hasCoverageData(graph))) {
     return text({
       error:
-        "No coverage data available. Set coverageReportPath in mokosh.config and call analyze again.",
+        'No coverage data available. Set coverageReportPath in mokosh.config, or coverage.mode: "static" (instant estimate) or "exec" (real, runs tests), and call analyze again.',
     });
   }
 
@@ -802,7 +802,7 @@ export async function handleFindRiskHotspots(
   if (!graphs.some(({ graph }) => hasCoverageData(graph))) {
     return text({
       error:
-        "No coverage data available. Set coverageReportPath in mokosh.config and call analyze again.",
+        'No coverage data available. Set coverageReportPath in mokosh.config, or coverage.mode: "static" (instant estimate) or "exec" (real, runs tests), and call analyze again.',
     });
   }
 
@@ -1280,8 +1280,11 @@ export async function handleGetWorkspaceAffected(
 }
 
 /**
- * @description Drops the cached graph for `root` so the next `analyze` call rebuilds from disk.
- *   Call this after editing source files mid-session to prevent stale query results. Config is preserved.
+ * @description Drops the cached graph, loaded config, and on-disk workspace cache for `root`.
+ *   Call `analyze` again right after this — that's what re-reads `mokosh.config.json` and
+ *   rebuilds; calling a different tool first (`query`, `get_affected`, …) instead triggers a
+ *   rebuild with *no* config rather than the old one, since config was just dropped and only
+ *   `analyze` reloads it. See `SessionState.invalidate`.
  * @param cache - Session state from which the cached graph will be removed.
  * @param args - `root` identifies which project's cache to invalidate.
  * @returns TextResponse with `{ root, cleared, message }` indicating whether a cache entry was present and removed.

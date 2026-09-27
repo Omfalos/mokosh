@@ -1,5 +1,15 @@
 # Issue 11 — workspace disk cache silently serves stale results after a mokosh code change
 
+Status: **fixed** (2026-09-27, option 3 from "Fix" below — `clear_cache` now deletes
+`<root>/mokosh-cache/workspace/` on disk, not just in-memory state). Reproduced again while
+dogfooding coverage support against `square/okhttp`: after adding `coverage.mode` support and
+rebuilding, `coveragePct` still didn't show up post-`clear_cache` because the on-disk workspace
+cache kept hydrating a `WorkspaceGraph` built by the pre-coverage mokosh, exactly as described
+below. See `SessionState.invalidate` (`src/mcp/cache.ts`) and `clearWorkspaceCache`
+(`src/graph/workspace/disk-cache.ts`). Option 2 (version-derived manifest staleness, so a stale
+disk cache is also detected automatically without an explicit `clear_cache`) remains open — see
+"Fix" below.
+
 ## Symptom
 
 After fixing a real bug in mokosh's own parsing/analysis logic (rebuilding `dist` and restarting

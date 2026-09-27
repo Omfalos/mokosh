@@ -33,6 +33,15 @@ export const DEFAULT_WORKSPACE_GRAPH_CACHE_FILE = "workspace-graph.json";
  *  `src/mcp/cache.ts`. */
 export const DEFAULT_WORKSPACE_CACHE_SUBDIR = "workspace";
 
+/** Filename for the disk-persisted on-demand coverage result within `DEFAULT_CACHE_DIR`. Holds
+ *  the merged `relPath → lineCoveragePct` map from the last auto coverage run (`coverage.mode:
+ *  "auto"` in `MokoshConfig`), keyed by a digest of every graph node's mtime/size plus the
+ *  coverage-affecting config knobs — a match lets a repeat call skip re-running the project's
+ *  test suites entirely. See `src/graph/coverage/result-cache-store.ts`. One file for the whole
+ *  repo/workspace, not per-package — a single merged map is cheap to store and this avoids N
+ *  small cache files on a monorepo. */
+export const DEFAULT_COVERAGE_RESULT_CACHE_FILE = "coverage-result.json";
+
 /** Filename of the workspace cache manifest within `DEFAULT_WORKSPACE_CACHE_SUBDIR`: the small
  *  index that carries the layout, the root (non-package-owned) source digest, and one entry per
  *  package (name, relative root, entry points, per-package digest, node count, cache filename). */

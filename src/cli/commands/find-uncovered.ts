@@ -19,7 +19,7 @@ export async function run(ctx: CommandContext): Promise<void> {
       JSON.stringify(
         {
           error:
-            "No coverage data available. Set coverageReportPath in mokosh.config and rebuild the graph.",
+            'No coverage data available. Set coverageReportPath in mokosh.config, or coverage.mode: "static" (instant estimate) or "exec" (real, runs tests), and rebuild the graph.',
         },
         null,
         2,
