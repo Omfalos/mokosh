@@ -1,19 +1,23 @@
 import { describe, expect, test } from "vitest";
 import { parseGo } from "./go";
 
+/** Explicit `import` edges only — drops the synthetic same-package (side-effect) edge every Go file gets. */
+const explicitImports = <T extends { type: string }>(imports: T[]) =>
+  imports.filter((edge) => edge.type !== "side-effect");
+
 // ─── grouped import blocks ────────────────────────────────────────────────────
 
 describe("grouped import block", { tags: ["go", "parseGo"] }, () => {
   test("single package in group", () => {
     const { imports } = parseGo("main.go", `import (\n  "fmt"\n)`);
-    expect(imports).toHaveLength(1);
+    expect(explicitImports(imports)).toHaveLength(1);
     expect(imports[0]).toMatchObject({ rawSpecifier: "fmt", isExternal: true, type: "static" });
   });
 
   test("multiple packages in group", () => {
     const { imports } = parseGo("main.go", `import (\n  "fmt"\n  "os"\n  "net/http"\n)`);
-    expect(imports).toHaveLength(3);
-    expect(imports.map((i) => i.rawSpecifier)).toEqual(["fmt", "os", "net/http"]);
+    expect(explicitImports(imports)).toHaveLength(3);
+    expect(explicitImports(imports).map((i) => i.rawSpecifier)).toEqual(["fmt", "os", "net/http"]);
   });
 
   test("aliased package in group", () => {
@@ -29,8 +33,8 @@ describe("grouped import block", { tags: ["go", "parseGo"] }, () => {
   test("mixed group: stdlib, aliased, and side-effect", () => {
     const src = `import (\n  "fmt"\n  log "github.com/sirupsen/logrus"\n  _ "net/http/pprof"\n)`;
     const { imports } = parseGo("main.go", src);
-    expect(imports).toHaveLength(3);
-    expect(imports.map((i) => i.rawSpecifier)).toEqual([
+    expect(explicitImports(imports)).toHaveLength(3);
+    expect(explicitImports(imports).map((i) => i.rawSpecifier)).toEqual([
       "fmt",
       "github.com/sirupsen/logrus",
       "net/http/pprof",
@@ -43,7 +47,7 @@ describe("grouped import block", { tags: ["go", "parseGo"] }, () => {
 describe("single-line import", { tags: ["go", "parseGo"] }, () => {
   test("bare import", () => {
     const { imports } = parseGo("main.go", `import "fmt"`);
-    expect(imports).toHaveLength(1);
+    expect(explicitImports(imports)).toHaveLength(1);
     expect(imports[0]).toMatchObject({ rawSpecifier: "fmt", isExternal: true, type: "static" });
   });
 
@@ -60,8 +64,8 @@ describe("single-line import", { tags: ["go", "parseGo"] }, () => {
   test("multiple single-line imports", () => {
     const src = `import "fmt"\nimport "os"`;
     const { imports } = parseGo("main.go", src);
-    expect(imports).toHaveLength(2);
-    expect(imports.map((i) => i.rawSpecifier)).toEqual(["fmt", "os"]);
+    expect(explicitImports(imports)).toHaveLength(2);
+    expect(explicitImports(imports).map((i) => i.rawSpecifier)).toEqual(["fmt", "os"]);
   });
 });
 
@@ -71,8 +75,12 @@ describe("mixed single and grouped imports", { tags: ["go", "parseGo"] }, () => 
   test("single-line and group together are not double-counted", () => {
     const src = `import "path/filepath"\n\nimport (\n  "fmt"\n  "os"\n)`;
     const { imports } = parseGo("main.go", src);
-    expect(imports).toHaveLength(3);
-    expect(imports.map((i) => i.rawSpecifier)).toEqual(["path/filepath", "fmt", "os"]);
+    expect(explicitImports(imports)).toHaveLength(3);
+    expect(explicitImports(imports).map((i) => i.rawSpecifier)).toEqual([
+      "path/filepath",
+      "fmt",
+      "os",
+    ]);
   });
 });
 
@@ -99,6 +107,13 @@ describe("edge metadata", { tags: ["go", "parseGo"] }, () => {
     const src = `import (\n  "fmt"\n  "github.com/myorg/myrepo/internal/utils"\n)`;
     const { imports } = parseGo("main.go", src);
     expect(imports.every((i) => i.isExternal === true)).toBe(true);
+  });
+
+  test("emits a synthetic same-package edge", () => {
+    const { imports } = parseGo("pkg/repo.go", `package pkg\nfunc Repo() {}`);
+    expect(imports).toContainEqual(
+      expect.objectContaining({ type: "side-effect", isSamePackage: true }),
+    );
   });
 });
 

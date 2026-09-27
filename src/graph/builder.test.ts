@@ -182,6 +182,35 @@ describe("GraphBuilder JVM dependency versions", () => {
   });
 });
 
+describe("GraphBuilder Go same-package edges", () => {
+  // Regression for the mokosh dogfooding finding on gin-gonic/gin: Go files in one package
+  // reference each other's types/functions with no `import` line (normal Go — sibling files in
+  // a package compile together), so without a synthetic same-package edge those siblings are
+  // unreachable from the entry point and find_unused wrongly flags them as unused.
+  test("a package sibling reachable only through unimported same-package references is not unused", async () => {
+    const root = path.join(process.cwd(), "test-builder-go-same-package");
+    fs.mkdirSync(path.join(root, "pkg"), { recursive: true });
+
+    fs.writeFileSync(root + "/go.mod", "module example.com/app\n\ngo 1.22\n");
+    // Config is never imported by main.go, but main.go references it with no import line —
+    // exactly the Go same-package idiom.
+    fs.writeFileSync(path.join(root, "pkg", "config.go"), "package pkg\n\ntype Config struct{}\n");
+    fs.writeFileSync(
+      path.join(root, "pkg", "main.go"),
+      "package pkg\n\nfunc New() *Config {\n\treturn &Config{}\n}\n",
+    );
+
+    try {
+      const graph = await createImportMap(root, ["pkg/main.go"]);
+      const paths = graph.serialize().nodes.map((n) => n.path);
+
+      expect(paths).toContain(path.join("pkg", "config.go"));
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("GraphBuilder local-edge deduplication", () => {
   // Go's resolver expands a package import into every non-test file in that package's
   // directory (one edge per file) on every use of the import — a file that references the

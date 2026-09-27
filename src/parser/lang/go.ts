@@ -12,6 +12,38 @@ const BUILD_NEW_RE = /^\/\/go:build\s+(.+)$/;
 const BUILD_OLD_RE = /^\/\/\s*\+build\s+(.+)$/;
 
 /**
+ * Sentinel `rawSpecifier` for the synthetic same-package edge every Go file gets (see
+ * {@link goSamePackageEdge}). A null-byte prefix guarantees no real Go import path can ever
+ * collide with it. `GoLangResolver` recognizes this sentinel and expands it to every other
+ * non-test `.go` file in the importing file's own directory.
+ */
+export const GO_SAME_PACKAGE_SPECIFIER = "\0go-same-package";
+
+/**
+ * @description Builds the synthetic same-package edge every Go source file gets in addition to
+ *   its explicit imports. Unlike JVM/Kotlin/Scala/Java, a Go package's scope is exactly "the
+ *   other non-test `.go` files in this same directory" — no cross-directory package-name lookup
+ *   is needed, so this only needs the file's own path, resolved lazily by
+ *   `GoLangResolver.resolve()` via `path.dirname(currentFile)`. Without this edge, files in the
+ *   same package that reference each other's types/functions with no `import` line (normal Go —
+ *   sibling files in one package compile together) are invisible to blast-radius analysis and
+ *   `find_unused` wrongly flags them as unreachable.
+ * @param filePath - Path of the file that owns the package.
+ * @returns The synthetic import edge.
+ */
+function goSamePackageEdge(filePath: string): ImportEdge {
+  return {
+    fromPath: filePath,
+    toPath: "",
+    rawSpecifier: GO_SAME_PACKAGE_SPECIFIER,
+    isExternal: true,
+    isStyle: false,
+    type: "side-effect",
+    isSamePackage: true,
+  };
+}
+
+/**
  * @description Parses a Go source file using the Lezer Go grammar to extract import edges,
  *   exported symbols, `// @tag` comment markers, and file category. All imports are marked
  *   external — local package resolution requires `go.mod` context not available at parse time.
@@ -99,6 +131,8 @@ export function parseGo(filePath: string, content: string): ParseResult {
       }
     }
   } while (cursor.next());
+
+  imports.push(goSamePackageEdge(filePath));
 
   const importsTestingPkg = imports.some((importEdge) => importEdge.rawSpecifier === "testing");
   const category =
