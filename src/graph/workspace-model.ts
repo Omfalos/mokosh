@@ -74,6 +74,27 @@ export class WorkspaceGraph {
    *  whole `WorkspaceGraph` instance rather than mutating this one. */
   private flattened?: FlatWorkspaceGraph;
 
+  /** Lazily-built, longest-`relativeRoot`-first package order; see {@link mostSpecificFirst}. */
+  private specificityOrder?: WorkspacePackage[];
+
+  /**
+   * @description Every registered package's metadata, longest `relativeRoot` first, so a
+   *   nested module (e.g. `app/benchmark`) is matched before its ancestor (`app`) regardless
+   *   of declaration order. Both {@link getPackageForFile} and {@link flatten} use this same
+   *   order so they agree on which package owns a file under an overlapping, nested root —
+   *   mirrors the sort in `computeWorkspacePackageDigests` (`src/index.ts`). Computed once and
+   *   cached, since packages are only ever added before first use.
+   * @returns {WorkspacePackage[]} Package metadata sorted by `relativeRoot.length` descending.
+   */
+  private mostSpecificFirst(): WorkspacePackage[] {
+    if (!this.specificityOrder) {
+      this.specificityOrder = [...this.packages.values()]
+        .map(({ pkg }) => pkg)
+        .sort((a, b) => b.relativeRoot.length - a.relativeRoot.length);
+    }
+    return this.specificityOrder;
+  }
+
   /**
    * @param {string} monorepoRoot - Absolute path to the monorepo root directory.
    * @param {string} type - Primary detected monorepo tool (e.g. `"turborepo"`, `"pnpm"`), or `"none"`.
@@ -123,6 +144,9 @@ export class WorkspaceGraph {
    * @description Merges every package's own nodes into a single `Graph` sharing one path
    *   namespace, plus a `path → package name` lookup. "Borrowed" cross-package nodes are
    *   dropped (each is contributed by its owning package instead), so no file appears twice.
+   *   For a file under a nested module root (e.g. `app/benchmark` nested inside `app`), the
+   *   most specific package claims it — same ownership rule as {@link getPackageForFile} — so
+   *   the two never disagree on which package a nested module's files belong to.
    *   Cross-package import edges already carry real monorepo-root-relative `toPath`s, so
    *   `Graph.traverse` and `Graph.findCycles` span package boundaries on the returned graph
    *   with no special-casing — this is the basis for whole-workspace blast radius, call
@@ -135,8 +159,12 @@ export class WorkspaceGraph {
     if (this.flattened) return this.flattened;
     const merged = new Map<string, FileNode>();
     const packageOf = new Map<string, string>();
-    for (const { graph, pkg } of this.packages.values()) {
+    // Most-specific-first, first-match-wins — matches getPackageForFile's ownership rule so a
+    // nested module's own files are never attributed to its ancestor (or vice versa).
+    for (const pkg of this.mostSpecificFirst()) {
+      const { graph } = this.packages.get(pkg.name) as { graph: Graph; pkg: WorkspacePackage };
       for (const [nodePath, node] of graph.nodes) {
+        if (packageOf.has(nodePath)) continue;
         if (!packageOwnsFile(nodePath, pkg)) continue;
         merged.set(nodePath, node);
         packageOf.set(nodePath, pkg.name);
@@ -148,11 +176,14 @@ export class WorkspaceGraph {
 
   /**
    * @description Returns the workspace package whose `relativeRoot` is a path prefix of `relPath`.
+   *   When a file sits under a nested module (e.g. `app/benchmark` nested inside `app`), the
+   *   most specific (longest `relativeRoot`) match wins, so a nested module's own files are
+   *   never attributed to its ancestor — see {@link mostSpecificFirst}.
    * @param {string} relPath - A monorepo-root-relative file path to look up.
    * @returns {WorkspacePackage | undefined} The owning package, or `undefined` if none matches.
    */
   getPackageForFile(relPath: string): WorkspacePackage | undefined {
-    for (const { pkg } of this.packages.values()) {
+    for (const pkg of this.mostSpecificFirst()) {
       if (relPath === pkg.relativeRoot || relPath.startsWith(`${pkg.relativeRoot}/`)) {
         return pkg;
       }
