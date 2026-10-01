@@ -2,6 +2,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import Piscina from "piscina";
+import { DEFAULT_EXTENSIONS } from "../const.js";
 import { type GitFileStats, getRepoGitStats } from "../git.js";
 import { getTestPatterns } from "../parser/classify.js";
 import { type LockFileData, loadLockFile } from "../parser/lockfile/index.js";
@@ -167,8 +168,16 @@ export class GraphBuilder {
       this.gitStatsMap = getRepoGitStats(this.rootDir);
     }
     try {
-      for (const entryPath of entryPaths) this.enqueue(entryPath);
-      await this.drain();
+      if (entryPaths.length > 0) {
+        for (const entryPath of entryPaths) this.enqueue(entryPath);
+        await this.drain();
+      } else {
+        // No entry points given. A monorepo package always supplies real entries (see
+        // createWorkspaceGraph/detectMonorepo), so this only happens for a plain repo analyzed
+        // with entryPoints: []. Treat every non-test, non-doc source file as its own entry point
+        // rather than leaving the queue empty — see processAllSourceFiles for why.
+        await this.processAllSourceFiles();
+      }
 
       // Test files are never reachable from library entry points (imports flow source→test,
       // not the other way around). Scan for them explicitly so enrichTestedBy has data.
@@ -263,6 +272,39 @@ export class GraphBuilder {
       }
     }
     return count >= threshold;
+  }
+
+  /**
+   * @description Discovers every non-test, non-doc source file under `rootDir` and enqueues each
+   *   as its own entry point. Only called from `build()` when `entryPoints` was empty.
+   *
+   *   Without this, the queue starts empty and the *only* seed into the graph is whatever
+   *   `processTestFiles`/`processDocFiles` happen to pull in below. That's a real, previously
+   *   silent bug: a markdown doc-reference edge (`ImportEdge.isDocReference`) resolves and
+   *   enqueues its target exactly like a real import, and that target's own real imports are
+   *   then recursively followed too — so a single doc mentioning one source file by path (e.g. a
+   *   CHANGELOG entry naming a changed file) was enough to silently become the graph's only
+   *   effective entry point, producing a small, non-deterministic slice of the real source tree
+   *   while looking exactly like a normal, complete `analyze()` result (confirmed against a real
+   *   gin-gonic/gin checkout: `CHANGELOG.md` mentions `mode.go`, which alone pulled in 33 nodes —
+   *   `mode.go`'s own real import chain — while the other ~40 real Go source files, not reachable
+   *   from that one accidental seed, were silently absent). See
+   *   docs/known_issues/14-empty-entrypoints-doc-reference-leak.md.
+   *
+   *   Test files and doc files are excluded here since `processTestFiles`/`processDocFiles`
+   *   already discover and process those with their own, different edge semantics (and, for
+   *   test files, a narrower common-ancestor scan root) — including them here would just be
+   *   redundant, not wrong, since `enqueue`'s `visited` set dedupes either way.
+   */
+  private async processAllSourceFiles(): Promise<void> {
+    const testPatterns = getTestPatterns();
+    this.walkProject(this.rootDir, (entry) => {
+      const ext = path.extname(entry.name).toLowerCase();
+      if (ext === ".md" || ext === ".mdx") return false;
+      if (!DEFAULT_EXTENSIONS.includes(ext)) return false;
+      return !testPatterns.some((pattern) => entry.name.includes(pattern));
+    });
+    await this.drain();
   }
 
   /**

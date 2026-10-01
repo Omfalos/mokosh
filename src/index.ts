@@ -284,7 +284,7 @@ import { DEFAULT_EXTENSIONS, DEFAULT_IGNORE_DIRS, type ScanOptions } from "./con
 import {
   DefaultResolver,
   detectMonorepo,
-  type Graph,
+  Graph,
   GraphBuilder,
   type MonorepoLayout,
   type ParallelParsingOption,
@@ -531,7 +531,16 @@ export async function createWorkspaceGraph(
         additionalIgnoreDirs,
         docsByPackage.get(pkg.name) ?? [],
       );
-      builtGraphs[index] = await builder.build(pkg.entryPoints);
+      // A package with no entry points should build an empty graph, not scan the whole
+      // monorepo root — GraphBuilder.build() treats an empty entryPoints array as "no entry
+      // points were given at all" and discovers every source file under its rootDir (the
+      // monorepo root here, not pkg.root — see processAllSourceFiles). No built-in detector
+      // actually produces entryPoints: [] (Gradle/sbt exclude such a package entirely; the
+      // npm-family detectors always supply fallback candidates), but a custom detector
+      // registered via registerMonorepoDetector could, so this guard is defensive, not
+      // dead code.
+      builtGraphs[index] =
+        pkg.entryPoints.length > 0 ? await builder.build(pkg.entryPoints) : new Graph(new Map());
     }
   };
 
