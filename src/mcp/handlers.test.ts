@@ -18,6 +18,7 @@ import {
   handleGetApiSurface,
   handleGetDependencies,
   handleGetDependents,
+  handleGetTypeGraph,
   handleGetWorkspaceAffected,
   handleGetWorkspacePackages,
   handleListTags,
@@ -1261,6 +1262,68 @@ describe("handleListTags", {
     expect(data.matched).toBe(0);
     expect(data.totalDistinct).toBe(0);
     expect(data.byKind).toEqual({});
+  });
+});
+
+describe("handleGetTypeGraph", {
+  tags: [
+    "Graph",
+    "SerializedGraph",
+    "SessionState",
+    "cache",
+    "graph",
+    "handleGetTypeGraph",
+    "handlers",
+    "languageSupportNote",
+  ],
+}, () => {
+  // FIXTURE is all-TypeScript, which supports typeGraph extraction, so a query for a genuinely
+  // absent name must return no note — "not found" and "not supported" need to stay distinguishable.
+  test("a type name that doesn't exist, in a graph whose language IS supported, has no note", async () => {
+    const data = parse(
+      await handleGetTypeGraph(makeCache(), { root: ROOT, type: "NoSuchType" }),
+    ) as { type: unknown; usedByFiles: string[]; uses: unknown[]; note?: string };
+
+    expect(data.type).toBeNull();
+    expect(data.note).toBeUndefined();
+  });
+
+  // Regression: previously only the no-arg inventory form attached this note; a named-type
+  // lookup on a graph with no typeGraph-supporting language silently returned nulls with no
+  // explanation, indistinguishable from "this type genuinely doesn't exist".
+  test("a named-type lookup on a graph with no typeGraph-supporting language explains why, like the inventory form does", async () => {
+    const pythonOnlyGraph = Graph.deserialize({
+      nodes: [
+        {
+          path: "a.py",
+          type: "python",
+          category: "logic",
+          tags: [],
+          imports: [],
+          exports: [{ name: "Foo" }],
+          mtime: 0,
+          size: 0,
+        },
+      ],
+    });
+    const cache = {
+      ...makeCache(),
+      resolveFlatGraph: vi.fn().mockResolvedValue({ graph: pythonOnlyGraph, packageOf: new Map() }),
+    } as unknown as SessionState;
+
+    const named = parse(await handleGetTypeGraph(cache, { root: ROOT, type: "Foo" })) as {
+      type: unknown;
+      note?: string;
+    };
+    const inventory = parse(await handleGetTypeGraph(cache, { root: ROOT })) as {
+      count: number;
+      note?: string;
+    };
+
+    expect(named.type).toBeNull();
+    expect(named.note).toBeDefined();
+    expect(named.note).toContain("python");
+    expect(named.note).toBe(inventory.note);
   });
 });
 
