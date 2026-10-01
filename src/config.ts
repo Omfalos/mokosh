@@ -118,10 +118,9 @@ export interface MokoshConfig {
   /**
    * Controls worker-pool offloading of file parsing (see docs/adr-010-parallel-parsing.md).
    * `true`/unset (default) enables it once a cheap pre-scan finds at least `minFiles`
-   * (default 20) files; parsing a file is fast enough in most repos that the pool's
-   * per-thread startup cost only pays off past roughly 600-700 files, so small/typical
-   * repos may see slightly slower builds under the default — set `false` to always parse
-   * in-process, or pass `{ minFiles, maxThreads }` to raise the threshold instead.
+   * (default 600, matching the measured crossover where pool startup cost pays off) files —
+   * set `false` to always parse in-process, or pass `{ minFiles, maxThreads }` to lower or
+   * raise the threshold for your own repo size.
    */
   parallelParsing?: ParallelParsingOption;
   /** Duplicate-detection (`find_duplicates` / `--find-duplicates`) tuning. */

@@ -96,7 +96,13 @@ Single-module builds return `null` (repo stays a flat graph). Cross-module edges
 `isWorkspace` by `WorkspaceGraph.annotateCrossPackageEdges()` — a post-build pass, since
 `JvmLangResolver` resolves across modules but is not package-boundary aware.
 
-**Remaining:** none for this item.
+**Remaining:** none for this item. **Addendum (2026-09-28):** `gradleDetector` initially only
+recognized the standard `include(":module")` Groovy/Kotlin-DSL form; ktorio/ktor's custom
+settings-plugin DSL (Kotlin's unary-plus operator, `+"module-name"`) went undetected — see
+`docs/known_issues/15-gradle-unary-plus-dsl-detection.md`. Fixed: a fallback parser extracts
+`+"module-name"` tokens and resolves each to a real directory, including modules declared via
+nested `including { }` blocks (previously misattributed to the ancestor block instead of the
+nested one). `detectMonorepo` now returns ktor's full 136-module layout correctly.
 
 ### 5. Noise control for the synthetic same-package edge
 

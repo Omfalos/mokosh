@@ -1,7 +1,10 @@
-/# Plan: MCP tool improvements
+# Plan: MCP tool improvements
 
-Status: proposed, not started. Source: brainstorm from a review of `src/mcp/*` (25 tools,
-`capabilities: { tools: {} }` only) against `docs/mcp.md` on 2026-08-12.
+Status: partially landed (as of 2026-10-01: workstream 3's `get_risk_score` and `diff_graph`
+shipped — the latter as `compare_branches`, see below — and workstream 4 shipped; workstreams 1,
+2, and 5, plus batch variants, remain proposed). Source: brainstorm from a review of `src/mcp/*`
+(25 tools at the time, now 26, `capabilities: { tools: {} }` only) against `docs/mcp.md` on
+2026-08-12.
 
 ## Context
 
@@ -50,8 +53,11 @@ Files touched: `src/mcp/cache.ts`, `src/mcp/handlers.ts`, `src/mcp/tools.ts` (ne
 rather than per-file. See `src/graph/*` risk-hotspot logic, `src/mcp/handlers.ts`
 (`handleFindRiskHotspots`), and `docs/mcp.md`'s `find_risk_hotspots` entry.
 
-**`diff_graph`** — compare graph state between two git refs/commits: new cycles, newly-unused
-files, newly-introduced duplicates between HEAD and a branch.
+**`diff_graph` — done (2026-08-28), shipped as `compare_branches`.** Compares the current graph
+against a `baseRef`: file diff, stale post-rename references, and deltas for duplication,
+complexity, doc drift, and coverage/risk hotspots — a superset of what this item proposed.
+Summary-first (`verdict` + capped delta lists), `detail: "full"` for everything. See
+[ADR-016](../adr-016-branch-comparison.md) and `docs/mcp.md`'s `compare_branches` entry.
 
 **Batch variants** — `get_dependencies` / `get_affected` for multiple files in one call, to
 cut round-trips for multi-file changesets (the common case feeding `propose_tags`-style
@@ -80,11 +86,12 @@ Consider cursor-based pagination, consistent with the `limit` params already use
 ## Suggested order
 
 1. ~~`get_risk_score` (workstream 3)~~ — done, see workstream 3.
-2. Resources + prompts (workstream 1) — structural, unlocks host-side UX improvements.
-3. `get_cache_status` (workstream 2) — small, complements #2's auto-revalidate if pursued.
-4. Batch variants / `diff_graph` (workstream 3) — nice-to-have, lower urgency.
-5. Tool-definition trimming and pagination (workstreams 4-5) — measure first, may not be
-   worth the churn.
+2. ~~`diff_graph` (workstream 3)~~ — done, shipped as `compare_branches`, see workstream 3.
+3. ~~Tool-definition trimming (workstream 4)~~ — done, see workstream 4.
+4. Resources + prompts (workstream 1) — structural, unlocks host-side UX improvements.
+5. `get_cache_status` (workstream 2) — small, complements #4's auto-revalidate if pursued.
+6. Batch variants (workstream 3) — nice-to-have, lower urgency.
+7. Pagination (workstream 5) — measure first, may not be worth the churn.
 
 Run `/pre-update` before starting any of these to confirm current blast radius, since
 `src/mcp/handlers.ts` and `src/mcp/tools.ts` are shared by every tool.

@@ -201,9 +201,10 @@ export interface FindDuplicatesOptions {
    *  `*.suffix` (basename) — not full glob syntax. */
   ignoreGlobs?: readonly string[] | undefined;
   /** Controls worker-pool offloading of per-file tokenizing (default `true`): offloads once the
-   *  candidate file count reaches `minFiles` (default 20, matching `GraphBuilder`'s parse pool);
-   *  `false` always tokenizes in-process; an object overrides `minFiles`/`maxThreads`. See
-   *  docs/adr-014-duplicate-detection-scale.md. */
+   *  candidate file count reaches `minFiles` (default 20 — not benchmarked against, and no
+   *  longer matching, `GraphBuilder`'s own parse-pool threshold of 600; see
+   *  docs/adr-014-duplicate-detection-scale.md); `false` always tokenizes in-process; an object
+   *  overrides `minFiles`/`maxThreads`. */
   parallelTokenizing?: ParallelTokenizingOption | undefined;
   /** Optional caller-owned cache reused across calls against the same root — files whose
    *  `mtime`/`size` are unchanged since the cached entry (and whose `ignoreLiterals` matches this

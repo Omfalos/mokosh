@@ -1,7 +1,10 @@
 # ADR-021: A First-Party Kotlin Lezer Grammar
 
 **Date:** 2026-09-15
-**Status:** Accepted — Phase 0 implemented (grammar builds, parses real Kotlin correctly); Phase 1/2 (integration, complexity, call edges) not started.
+**Status:** Accepted — implemented. Phase 0 (grammar), Phase 1 (hybrid integration + call edges),
+and Phase 2 (complexity) have all shipped; see "Next steps" at the bottom. Remaining work is
+grammar coverage growth (explicit call type arguments, star projections, `@label`), not the
+phases themselves.
 
 ---
 
