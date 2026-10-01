@@ -16,6 +16,16 @@ dependencies.
 
 ## Fixed
 
+- **Issue 15** — [`15-gradle-unary-plus-dsl-detection.md`](15-gradle-unary-plus-dsl-detection.md) —
+  `gradleDetector` only recognized Gradle's standard `include(":module")` syntax, so ktorio/ktor's
+  custom settings-plugin DSL (Kotlin's unary-plus operator, `+"module-name"`, instead of
+  `include(...)`) was never detected — `get_workspace_packages` reported "not a recognized
+  monorepo root" despite ktor being a real ~136-module Gradle build. Fixed: a fallback parser
+  extracts every `+"module-name"` token and resolves each to a real directory by basename search
+  (the DSL's block nesting doesn't encode a reliable path — a block named `server`'s modules live
+  under a differently-named `ktor-server/` directory, while `shared`'s modules have no prefix
+  directory at all). `detectMonorepo` now correctly returns 136 packages for ktor, matching the
+  real layout exactly, including nested modules declared via `including { }`.
 - **Issue 14** — [`14-empty-entrypoints-doc-reference-leak.md`](14-empty-entrypoints-doc-reference-leak.md) —
   `analyze(entryPoints: [])` on a plain (non-monorepo) repo left the build queue empty, so the
   only files that ever entered the graph were whatever a markdown doc-reference edge happened to

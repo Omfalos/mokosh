@@ -300,6 +300,102 @@ describe("gradleDetector", { tags: ["gradle", "gradleDetector", "jvm"] }, () => 
     const pkgs = gradleDetector.detect(root);
     expect(pkgs?.map((p) => p.name)).toEqual(["app"]);
   });
+
+  // Regression for a real dogfooding finding on ktorio/ktor: a custom settings-plugin DSL using
+  // Kotlin's unary-plus operator (`+"module-name"`) instead of Gradle's standard
+  // `include(":module")` was never recognized as a Gradle monorepo at all — get_workspace_packages
+  // errored "not a recognized monorepo root" despite the repo clearly being a multi-module build.
+  describe("unary-plus DSL fallback (no standard include(...) present)", () => {
+    test("resolves a top-level-only module declared with the unary-plus operator", () => {
+      write(
+        "settings.gradle.kts",
+        'rootProject.name = "demo"\nprojects {\n  shared {\n    +"core-http"\n  }\n}\n',
+      );
+      write("core-http/src/main/kotlin/Client.kt", "package core.http\nclass Client\n");
+      const pkgs = gradleDetector.detect(root);
+      expect(pkgs?.map((p) => p.name)).toEqual(["core-http"]);
+      expect(pkgs?.[0]?.relativeRoot).toBe("core-http");
+    });
+
+    test("resolves a module nested one level under a differently-named container directory", () => {
+      // Mirrors ktor's real shape: the `server { }` block's modules live under a `ktor-server/`
+      // directory, not a `server/` directory — the block name doesn't become a path prefix, so
+      // this can only work by basename search, not by computing a path from the DSL structure.
+      write(
+        "settings.gradle.kts",
+        'rootProject.name = "demo"\nprojects {\n  server {\n    +"server-core"\n  }\n}\n',
+      );
+      write("my-server/server-core/src/main/kotlin/Core.kt", "package server.core\nclass Core\n");
+      const pkgs = gradleDetector.detect(root);
+      expect(pkgs?.map((p) => p.name)).toEqual(["server-core"]);
+      expect(pkgs?.[0]?.relativeRoot).toBe(path.join("my-server", "server-core"));
+    });
+
+    test("resolves a module nested inside an `including { }` sub-block", () => {
+      write(
+        "settings.gradle.kts",
+        [
+          'rootProject.name = "demo"',
+          "projects {",
+          "  server {",
+          '    +"server-core" including {',
+          '      +"server-core-test"',
+          "    }",
+          "  }",
+          "}",
+        ].join("\n"),
+      );
+      write("server/server-core/src/main/kotlin/Core.kt", "package server.core\nclass Core\n");
+      write(
+        "server/server-core/server-core-test/src/main/kotlin/Test.kt",
+        "package server.core.test\nclass Test\n",
+      );
+      const pkgs = gradleDetector.detect(root);
+      expect(pkgs?.map((p) => p.name).sort()).toEqual(["server-core", "server-core-test"]);
+    });
+
+    test("standard include(...) still takes precedence when both forms are somehow present", () => {
+      write(
+        "settings.gradle.kts",
+        'include(":app")\nprojects {\n  shared {\n    +"unused-module"\n  }\n}\n',
+      );
+      write("app/src/main/kotlin/App.kt", "package app\nclass App\n");
+      const pkgs = gradleDetector.detect(root);
+      expect(pkgs?.map((p) => p.name)).toEqual(["app"]);
+    });
+
+    test("a module name with no matching directory anywhere is silently skipped", () => {
+      write(
+        "settings.gradle.kts",
+        'projects {\n  shared {\n    +"core-http"\n    +"nonexistent-module"\n  }\n}\n',
+      );
+      write("core-http/src/main/kotlin/Client.kt", "package core.http\nclass Client\n");
+      const pkgs = gradleDetector.detect(root);
+      expect(pkgs?.map((p) => p.name)).toEqual(["core-http"]);
+    });
+
+    test("returns null when no unary-plus module resolves to a real directory with sources", () => {
+      write("settings.gradle.kts", 'projects {\n  shared {\n    +"nonexistent-module"\n  }\n}\n');
+      expect(gradleDetector.detect(root)).toBeNull();
+    });
+
+    // On a basename collision, a directory with its own build.gradle(.kts) is the strongest real
+    // "this is a Gradle module" signal — prefer it even over a shorter, build-file-less path that
+    // would otherwise win on the shortest-path tiebreak alone.
+    test("prefers a directory with its own build.gradle(.kts) over a shorter path without one, on a basename collision", () => {
+      write("settings.gradle.kts", 'projects {\n  shared {\n    +"core"\n  }\n}\n');
+      // Shorter path, no build file — a decoy directory that merely shares the module's basename.
+      write("core/README.md", "not a module\n");
+      write("core/src/main/java/Unrelated.java", "class Unrelated {}\n");
+      // Longer path, has its own build.gradle.kts — the real module.
+      write("modules/nested/core/build.gradle.kts", "// real module\n");
+      write("modules/nested/core/src/main/kotlin/Core.kt", "package core\nclass Core\n");
+
+      const pkgs = gradleDetector.detect(root);
+      const core = pkgs?.find((p) => p.name === "core");
+      expect(core?.relativeRoot).toBe(path.join("modules", "nested", "core"));
+    });
+  });
 });
 
 // ─── sbt ──────────────────────────────────────────────────────────────────────

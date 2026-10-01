@@ -85,6 +85,28 @@ describe("getPackageForFile", {
     const pkg = wg.getPackageForFile("packages/app");
     expect(pkg?.name).toBe("@org/app");
   });
+
+  // Android-style Gradle layout: `:app:benchmark`'s directory nests inside `:app`'s, and
+  // settings.gradle naturally declares the ancestor (`:app`) before the nested module
+  // (`:app:benchmark`) — the exact ordering that previously made getPackageForFile
+  // misattribute every file under app/benchmark/... to :app.
+  test("attributes a nested module's files to the nested module, not its ancestor", () => {
+    const wg = new WorkspaceGraph("/mono", "gradle");
+    wg.addPackage(makePkg("app", "app"), makeGraph([]));
+    wg.addPackage(makePkg("app:benchmark", "app/benchmark"), makeGraph([]));
+
+    const pkg = wg.getPackageForFile("app/benchmark/src/main/kotlin/Foo.kt");
+    expect(pkg?.name).toBe("app:benchmark");
+  });
+
+  test("still attributes the ancestor's own files to the ancestor", () => {
+    const wg = new WorkspaceGraph("/mono", "gradle");
+    wg.addPackage(makePkg("app", "app"), makeGraph([]));
+    wg.addPackage(makePkg("app:benchmark", "app/benchmark"), makeGraph([]));
+
+    const pkg = wg.getPackageForFile("app/src/main/kotlin/App.kt");
+    expect(pkg?.name).toBe("app");
+  });
 });
 
 // ─── getPackageDependencies ───────────────────────────────────────────────────
@@ -330,6 +352,26 @@ describe("flatten", {
     const wg = makeTwoPackageWorkspace();
     expect(wg.flatten()).toBe(wg.flatten());
   });
+
+  test("agrees with getPackageForFile on nested-module ownership", () => {
+    const appSrc = makeNode({ path: "app/src/main/kotlin/App.kt", type: "kotlin" });
+    const benchSrc = makeNode({
+      path: "app/benchmark/src/main/kotlin/Foo.kt",
+      type: "kotlin",
+    });
+    const wg = new WorkspaceGraph("/mono", "gradle");
+    // Declared ancestor-first, same order Gradle's settings.gradle naturally produces.
+    wg.addPackage(makePkg("app", "app"), makeGraph([appSrc, benchSrc]));
+    wg.addPackage(makePkg("app:benchmark", "app/benchmark"), makeGraph([benchSrc]));
+
+    const { packageOf } = wg.flatten();
+    expect(packageOf.get("app/benchmark/src/main/kotlin/Foo.kt")).toBe("app:benchmark");
+    expect(packageOf.get("app/src/main/kotlin/App.kt")).toBe("app");
+    // Must agree with getPackageForFile for every path — no first-match/last-match split.
+    expect(wg.getPackageForFile("app/benchmark/src/main/kotlin/Foo.kt")?.name).toBe(
+      packageOf.get("app/benchmark/src/main/kotlin/Foo.kt"),
+    );
+  });
 });
 
 // ─── annotateCrossPackageEdges ───────────────────────────────────────────────
@@ -419,6 +461,61 @@ describe("annotateCrossPackageEdges", {
       "packages/app/src/page.ts",
     )?.imports[0];
     expect(edge?.workspacePackage).toBe("@org/shared");
+  });
+
+  // Reproduces the dogfooding bug: an Android-style `:app` + nested `:app:benchmark` module
+  // pair with a real two-file edge cycle between them (app code calling into the benchmark
+  // module and vice versa). Before the nested-module fix, getPackageForFile attributed both
+  // files to "app" (ancestor-first match), so the edges were never tagged isWorkspace and
+  // findCycles() on the flattened graph read as "app" cycling with itself.
+  test("tags a cycle crossing a nested module boundary instead of misreading it as a self-cycle", () => {
+    const appFoo = makeNode({
+      path: "app/src/main/kotlin/AppFoo.kt",
+      type: "kotlin",
+      imports: [
+        {
+          fromPath: "app/src/main/kotlin/AppFoo.kt",
+          toPath: "app/benchmark/src/main/kotlin/Foo.kt",
+          rawSpecifier: "app.benchmark.Foo",
+          isStyle: false,
+          type: "static",
+        },
+      ],
+    });
+    const benchFoo = makeNode({
+      path: "app/benchmark/src/main/kotlin/Foo.kt",
+      type: "kotlin",
+      imports: [
+        {
+          fromPath: "app/benchmark/src/main/kotlin/Foo.kt",
+          toPath: "app/src/main/kotlin/AppFoo.kt",
+          rawSpecifier: "app.AppFoo",
+          isStyle: false,
+          type: "static",
+        },
+      ],
+    });
+    const wg = new WorkspaceGraph("/mono", "gradle");
+    wg.addPackage(makePkg("app", "app"), makeGraph([appFoo]));
+    wg.addPackage(makePkg("app:benchmark", "app/benchmark"), makeGraph([benchFoo]));
+    wg.annotateCrossPackageEdges();
+
+    const appEdge = (wg.packages.get("app") as { graph: Graph }).graph.nodes.get(
+      "app/src/main/kotlin/AppFoo.kt",
+    )?.imports[0];
+    const benchEdge = (wg.packages.get("app:benchmark") as { graph: Graph }).graph.nodes.get(
+      "app/benchmark/src/main/kotlin/Foo.kt",
+    )?.imports[0];
+    expect(appEdge?.isWorkspace).toBe(true);
+    expect(appEdge?.workspacePackage).toBe("app:benchmark");
+    expect(benchEdge?.isWorkspace).toBe(true);
+    expect(benchEdge?.workspacePackage).toBe("app");
+
+    const { graph, packageOf } = wg.flatten();
+    const cycles = graph.findCycles();
+    expect(cycles.length).toBeGreaterThan(0);
+    const cyclePackages = new Set(cycles[0]?.map((p) => packageOf.get(p)));
+    expect(cyclePackages).toEqual(new Set(["app", "app:benchmark"]));
   });
 });
 
