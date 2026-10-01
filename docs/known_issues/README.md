@@ -14,6 +14,17 @@ dependencies.
 
 ## Fixed
 
+- **Issue 14** — [`14-empty-entrypoints-doc-reference-leak.md`](14-empty-entrypoints-doc-reference-leak.md) —
+  `analyze(entryPoints: [])` on a plain (non-monorepo) repo left the build queue empty, so the
+  only files that ever entered the graph were whatever a markdown doc-reference edge happened to
+  resolve to — recursively expanded through real imports exactly like a genuine entry point,
+  producing a small, non-deterministic slice of the real source tree that looked like a complete
+  result (confirmed: gin-gonic/gin's `CHANGELOG.md` mentioning `mode.go` alone produced a
+  33-node graph, missing ~40 other real Go files; ktorio/ktor got zero Kotlin files at all).
+  Fixed: `GraphBuilder.build()` now discovers every non-test, non-doc source file under `rootDir`
+  and enqueues each as its own entry point when none were given (gin: 33 → 108 nodes; ktor:
+  0 → 3,210 Kotlin files; flask: 22 → 83 Python files). A smaller related gap — the markdown
+  doc-reference extractor not recognizing JVM file extensions at all — is noted but not fixed.
 - **Issue 11** — [`11-disk-cache-not-invalidated-by-mokosh-version.md`](11-disk-cache-not-invalidated-by-mokosh-version.md) —
   `clear_cache` only dropped in-memory state; the on-disk per-package workspace cache, keyed off
   only the target repo's own source digest, kept serving a graph built by an older mokosh until

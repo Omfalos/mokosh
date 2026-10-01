@@ -2,7 +2,131 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, test, vi } from "vitest";
-import { createImportMap } from "../index";
+import { createImportMap, createWorkspaceGraph } from "../index";
+import type { MonorepoLayout } from "./workspace/types";
+
+describe("GraphBuilder empty entryPoints auto-discovery", () => {
+  // Regression for a real dogfooding finding: analyze(entryPoints: []) on a plain (non-monorepo)
+  // repo used to leave the queue empty, so the *only* seed into the graph was whatever a
+  // markdown doc-reference edge happened to pull in — a single CHANGELOG.md mention of one real
+  // source file silently became the graph's entire effective entry point, producing a small,
+  // non-deterministic slice of the real source tree that looked like a normal, complete result.
+  test("discovers every real source file, not just one a doc happens to reference", async () => {
+    const root = path.join(process.cwd(), "test-builder-empty-entrypoints-docref");
+    fs.mkdirSync(path.join(root, "src"), { recursive: true });
+
+    // `referenced.js` is the only file CHANGELOG.md mentions; `unrelated.js` isn't mentioned
+    // anywhere and has no import relationship to referenced.js — before the fix, only
+    // referenced.js (reached via the doc-reference edge) would appear in the graph.
+    fs.writeFileSync(path.join(root, "src", "referenced.js"), "export const a = 1;");
+    fs.writeFileSync(path.join(root, "src", "unrelated.js"), "export const b = 2;");
+    fs.writeFileSync(
+      path.join(root, "CHANGELOG.md"),
+      "## v1.0.0\n\n- Fixed a bug in `src/referenced.js`\n",
+    );
+
+    try {
+      const graph = await createImportMap(root, [], null, { silent: true });
+      const paths = graph.serialize().nodes.map((n) => n.path);
+
+      expect(paths).toContain(path.join("src", "referenced.js"));
+      expect(paths).toContain(path.join("src", "unrelated.js"));
+      expect(paths).toContain("CHANGELOG.md");
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("still discovers test files and doc files via their own dedicated passes", async () => {
+    const root = path.join(process.cwd(), "test-builder-empty-entrypoints-testsdocs");
+    fs.mkdirSync(path.join(root, "src"), { recursive: true });
+
+    fs.writeFileSync(path.join(root, "src", "index.js"), "export const a = 1;");
+    fs.writeFileSync(path.join(root, "src", "index.test.js"), "import '../src/index.js';");
+    fs.writeFileSync(path.join(root, "README.md"), "# Readme\n");
+
+    try {
+      const graph = await createImportMap(root, [], null, { silent: true });
+      const nodes = graph.serialize().nodes;
+      const paths = nodes.map((n) => n.path);
+
+      expect(paths).toContain(path.join("src", "index.js"));
+      expect(paths).toContain(path.join("src", "index.test.js"));
+      expect(paths).toContain("README.md");
+
+      const testNode = nodes.find((n) => n.path === path.join("src", "index.test.js"));
+      expect(testNode?.category).toBe("test");
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a file reachable only via another file's import (not a doc reference) is still found", async () => {
+    const root = path.join(process.cwd(), "test-builder-empty-entrypoints-realimport");
+    fs.mkdirSync(path.join(root, "src"), { recursive: true });
+
+    fs.writeFileSync(path.join(root, "src", "helper.js"), "export const h = 1;");
+    fs.writeFileSync(path.join(root, "src", "index.js"), "import './helper.js';");
+
+    try {
+      const graph = await createImportMap(root, [], null, { silent: true });
+      const paths = graph.serialize().nodes.map((n) => n.path);
+
+      expect(paths).toContain(path.join("src", "helper.js"));
+      expect(paths).toContain(path.join("src", "index.js"));
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  // No built-in monorepo detector ever returns a WorkspacePackage with entryPoints: [] (Gradle/sbt
+  // exclude such a package entirely; the npm-family detectors always supply fallback candidates —
+  // see docs/known_issues/14), but a custom detector registered via registerMonorepoDetector could.
+  // createWorkspaceGraph must not let that fall through to GraphBuilder's new "no entry points ->
+  // scan everything" behavior, since GraphBuilder's rootDir for a workspace package is the whole
+  // monorepo root, not the package's own subtree — that would leak every other package's files in.
+  test("a workspace package with no entry points builds an empty graph, not a whole-monorepo scan", async () => {
+    const root = path.join(process.cwd(), "test-builder-empty-package-entrypoints");
+    fs.mkdirSync(path.join(root, "packages", "empty"), { recursive: true });
+    fs.mkdirSync(path.join(root, "packages", "other"), { recursive: true });
+
+    fs.writeFileSync(path.join(root, "packages", "other", "index.js"), "export const a = 1;");
+
+    const layout: MonorepoLayout = {
+      root,
+      type: "custom-test",
+      types: ["custom-test"],
+      packages: [
+        {
+          name: "empty-pkg",
+          root: path.join(root, "packages", "empty"),
+          relativeRoot: "packages/empty",
+          entryPoints: [],
+        },
+      ],
+      packageMap: new Map([
+        [
+          "empty-pkg",
+          {
+            name: "empty-pkg",
+            root: path.join(root, "packages", "empty"),
+            relativeRoot: "packages/empty",
+            entryPoints: [],
+          },
+        ],
+      ]),
+    };
+
+    try {
+      const workspace = await createWorkspaceGraph(root, { silent: true, layout });
+      const pkg = workspace.packages.get("empty-pkg");
+
+      expect(pkg?.graph.nodes.size).toBe(0);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
 
 describe("GraphBuilder test-file discovery scoping", () => {
   test("does not pull in unrelated sibling test files outside the entry points' subtree", async () => {
