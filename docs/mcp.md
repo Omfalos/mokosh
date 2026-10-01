@@ -518,10 +518,19 @@ Groups files by domain: returns which files each feature hub (high-import orches
 
 Look up callers and callees for a named function. Returns the file that defines the function, all files/functions that call it, and all files/functions it calls. Always requires a function name — never returns the full call graph unfiltered. Call edges are populated for TypeScript/JavaScript, Go, Python, and Java files (see [ADR-011](./adr-011-go-python-call-edges.md), [ADR-017](./adr-017-jvm-languages.md) for per-language coverage differences — Java captures static and constructor calls only).
 
+**Definition ambiguity.** `functionName` isn't always unique — an interface method implemented by several receiver types, or a common helper name reused across packages, can be exported by more than one file. `definedInCandidateCount` reports how many files in the graph export a symbol with this name:
+- `1` (the common case): unchanged, unambiguous behavior — `definedIn` and `callees` resolve exactly as before this field existed.
+- `0`: no file exports the name — `definedIn` is `null`, as always.
+- `>1`: ambiguous. Unless `file` narrows the search, `definedIn` is `null` (not a guess) and `callees` is empty (computing it would mean silently picking one file — exactly the guess this field exists to surface instead of hide). `callers` is unaffected either way: it's every call edge in the graph whose `to` matches `functionName`, independent of which file "really" defines it.
+
+Pass `file` to narrow the definition search to one specific project-relative path — this bypasses the ambiguity path entirely, even when the name collides elsewhere, and behaves exactly like the single-match case. Pass `includeCandidates: true` to get the full `candidates: string[]` list of every matching file instead of (or alongside) narrowing. A per-receiver-type disambiguator (e.g. a Go method's receiver type) is deferred — see [issue 13](./known_issues/13-call-graph-definition-ambiguity.md).
+
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `root` | `string` | yes | |
 | `function` | `string` | yes | Exact name of the function to look up (e.g. `parseFile`) |
+| `file` | `string` | no | Disambiguate a colliding name: narrow the definition search to this one path |
+| `includeCandidates` | `boolean` | no | Include the full `candidates` list of every file exporting this name (default `false`) |
 | `package` | `string` | no | Monorepo root only — scope to one workspace package. Omit to span the whole flattened workspace. |
 
 **Requires:** a prior `analyze` call for the same `root`. On a monorepo root this runs against the flattened whole-workspace graph, so cross-package callers/callees are included.

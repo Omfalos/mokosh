@@ -16,6 +16,7 @@ import {
   handleFindUnused,
   handleGetAffected,
   handleGetApiSurface,
+  handleGetCallGraph,
   handleGetDependencies,
   handleGetDependents,
   handleGetTypeGraph,
@@ -476,6 +477,115 @@ describe("handleFindSymbol", {
 
     expect(data.matches).toEqual([]);
     expect(data.count).toBe(0);
+  });
+});
+
+describe("handleGetCallGraph", {
+  tags: [
+    "Graph",
+    "SessionState",
+    "cache",
+    "graph",
+    "handleGetCallGraph",
+    "handlers",
+    "queryCallGraph",
+  ],
+}, () => {
+  type CallGraphResponse = {
+    functionName: string;
+    definedIn: string | null;
+    definedInCandidateCount: number;
+    callers: Array<{ file: string; callerFunction: string }>;
+    callees: Array<{ file: string; calleeFunction: string }>;
+    candidates?: string[];
+  };
+
+  // Mirrors mokosh's own in-repo collision: many files export a top-level `run`, one of them
+  // (the "dispatcher") also has call edges of its own.
+  function makeCollisionCache(): SessionState {
+    const mk = (p: string, exports: string[] = [], callEdges: unknown[] = []) => ({
+      path: p,
+      type: "typescript" as const,
+      category: "logic" as const,
+      imports: [],
+      exports: exports.map((name) => ({ name })),
+      tags: [],
+      mtime: 0,
+      size: 0,
+      callEdges,
+    });
+    const commandNodes = Array.from({ length: 24 }, (_, i) =>
+      mk(`src/cli/commands/cmd${i}.ts`, ["run"]),
+    );
+    const dispatcherNode = mk(
+      "src/cli/runner.ts",
+      ["run"],
+      [{ from: "run", to: "parseArgs", toFile: "src/cli/args.ts" }],
+    );
+    const nodes = [...commandNodes, dispatcherNode, mk("src/cli/args.ts", ["parseArgs"])];
+    const graph = new Graph(new Map(nodes.map((n) => [n.path, n as never])));
+    return {
+      resolveFlatGraph: vi.fn().mockResolvedValue({ graph, packageOf: new Map() }),
+    } as unknown as SessionState;
+  }
+
+  test("unique name: unchanged shape, definedInCandidateCount 1, no candidates field", async () => {
+    const data = parse(
+      await handleGetCallGraph(makeCache(), { root: ROOT, function: "foo" }),
+    ) as CallGraphResponse;
+
+    expect(data.functionName).toBe("foo");
+    expect(data.definedIn).toBe("src/a.ts");
+    expect(data.definedInCandidateCount).toBe(1);
+    expect(data.candidates).toBeUndefined();
+  });
+
+  test("ambiguous name: definedIn null, definedInCandidateCount reflects every match, callees empty", async () => {
+    const data = parse(
+      await handleGetCallGraph(makeCollisionCache(), { root: ROOT, function: "run" }),
+    ) as CallGraphResponse;
+
+    expect(data.definedIn).toBeNull();
+    expect(data.definedInCandidateCount).toBe(25);
+    expect(data.callees).toHaveLength(0);
+    expect(data.candidates).toBeUndefined();
+  });
+
+  test("ambiguous name: callers are still returned", async () => {
+    const data = parse(
+      await handleGetCallGraph(makeCollisionCache(), { root: ROOT, function: "parseArgs" }),
+    ) as CallGraphResponse;
+
+    expect(data.definedInCandidateCount).toBe(1);
+    expect(data.callers).toHaveLength(1);
+    expect(data.callers[0]).toEqual({ file: "src/cli/runner.ts", callerFunction: "run" });
+  });
+
+  test("includeCandidates: true returns the full candidates list", async () => {
+    const data = parse(
+      await handleGetCallGraph(makeCollisionCache(), {
+        root: ROOT,
+        function: "run",
+        includeCandidates: true,
+      }),
+    ) as CallGraphResponse;
+
+    expect(data.candidates).toHaveLength(25);
+    expect(data.candidates).toContain("src/cli/runner.ts");
+  });
+
+  test("file disambiguator narrows an ambiguous name to a precise answer", async () => {
+    const data = parse(
+      await handleGetCallGraph(makeCollisionCache(), {
+        root: ROOT,
+        function: "run",
+        file: "src/cli/runner.ts",
+      }),
+    ) as CallGraphResponse;
+
+    expect(data.definedIn).toBe("src/cli/runner.ts");
+    expect(data.definedInCandidateCount).toBe(1);
+    expect(data.callees).toEqual([{ file: "src/cli/args.ts", calleeFunction: "parseArgs" }]);
   });
 });
 

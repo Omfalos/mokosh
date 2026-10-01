@@ -28,6 +28,7 @@ describe("call-graph command", { tags: ["call-graph"] }, () => {
     expect(output).toEqual({
       functionName: "foo",
       definedIn: "src/a.ts",
+      definedInCandidateCount: 1,
       callers: [],
       callees: [],
     });

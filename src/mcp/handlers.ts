@@ -234,7 +234,15 @@ export type GetModuleResponsibilityArgs = {
   package?: string;
 };
 export type GetFeatureGraphArgs = { root: string; minOutDegree?: number; package?: string };
-export type GetCallGraphArgs = { root: string; function: string; package?: string };
+export type GetCallGraphArgs = {
+  root: string;
+  function: string;
+  package?: string;
+  /** Narrow the definition search to this one path; bypasses the ambiguity path entirely. */
+  file?: string;
+  /** Include the full `candidates: string[]` list when the name is ambiguous (default false). */
+  includeCandidates?: boolean;
+};
 export type GetApiSurfaceArgs = {
   root: string;
   entryPoints?: string[];
@@ -1392,17 +1400,29 @@ export async function handleGetFeatureGraph(
  * @description Looks up callers and callees for a named function. Returns the file that defines
  *   the function, all files/functions that call it, and all files/functions it calls. Call edges
  *   are only populated for TypeScript/JavaScript files. Requires a prior `analyze` call.
+ *
+ *   When `functionName` is exported by more than one file, `definedInCandidateCount` reports how
+ *   many matched; in that ambiguous case `definedIn` is `null` and `callees` is empty unless
+ *   `file` narrows the search to one specific defining file (bypassing the ambiguity entirely).
+ *   Pass `includeCandidates: true` to see every matching file's path. See
+ *   docs/known_issues/13-call-graph-definition-ambiguity.md.
  * @param cache - Session state holding the cached graph for `root`.
- * @param args - `root` selects the graph; `function` is the exact name of the function to look up.
- * @returns TextResponse with `{ functionName, definedIn, callers, callees }`.
+ * @param args - `root` selects the graph; `function` is the exact name of the function to look
+ *   up; `file` optionally narrows the definition search to one path; `includeCandidates` opts
+ *   into the full candidates list when ambiguous.
+ * @returns TextResponse with `{ functionName, definedIn, definedInCandidateCount, callers,
+ *   callees, candidates? }`.
  */
 export async function handleGetCallGraph(
   cache: SessionState,
   args: GetCallGraphArgs,
 ): Promise<TextResponse> {
-  const { root, function: functionName, package: pkg } = args;
+  const { root, function: functionName, package: pkg, file, includeCandidates } = args;
   const { graph } = await cache.resolveFlatGraph(root, pkg);
-  const result = queryCallGraph(graph, functionName);
+  const result = queryCallGraph(graph, functionName, {
+    ...(file !== undefined && { file }),
+    ...(includeCandidates !== undefined && { includeCandidates }),
+  });
   const empty = result.callers.length === 0 && result.callees.length === 0;
   const note = empty ? languageSupportNote(graph, "callEdges") : undefined;
   const caveats = empty ? [] : languageCaveats(graph, "callEdges");

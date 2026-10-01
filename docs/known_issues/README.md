@@ -5,7 +5,7 @@ Java/Kotlin/Scala/Go/Python monorepos and against mokosh itself, 2026-09-03 thro
 Each file is a self-contained plan: symptom, root cause with `file:line` references, fix, test
 plan, and cross-issue dependencies.
 
-x§x§## Open
+## Open
 
 Issues with real remaining scope — a partial ship, or no fix started at all. Ordered by number.
 
@@ -15,7 +15,6 @@ Issues with real remaining scope — a partial ship, or no fix started at all. O
 | 7 | [`07-per-language-analysis-semantics.md`](07-per-language-analysis-semantics.md) | Analyses treat every language like JS/TS; JVM data shapes, idiom exclusion, and the per-language config surface still go undetected/unbuilt (CSS vars + TS types shipped in phase 1) |
 | 8 | [`08-cross-language-reliability.md`](08-cross-language-reliability.md) | Umbrella: uneven feature parity across languages. **8a/8b/8d shipped** (parity matrix + `LANGUAGE_FIDELITY` + `analyze` `fidelity`; `example/full-house/conformance.test.ts` drift guard; per-tool `caveats`; resolver try/catch + robustness tests). **8c partially shipped** (JVM import-symbol tracking; Kotlin test-tag strategy; Kotlin call edges/complexity via a first-party grammar, [ADR-021](../adr-021-kotlin-parsing.md)). Remaining 8c: Groovy audit, Coffee/LS/Lua |
 | 12 | [`12-call-edge-same-package-resolution.md`](12-call-edge-same-package-resolution.md) | Bare calls to a same-package sibling's symbol (no import needed in Kotlin/Java) produce no call edge — `get_call_graph`/`get_callers` return empty despite real, confirmed call sites |
-| 13 | [`13-call-graph-definition-ambiguity.md`](13-call-graph-definition-ambiguity.md) | `get_call_graph`'s `definedIn` silently picks one file when a function/method name is exported by more than one (e.g. an interface method implemented by several types), with no ambiguity signal |
 
 ## Resolved
 
@@ -31,6 +30,7 @@ would mean finding and updating every such citation with no guarantee none is mi
 | 9 | [`09-duplicate-clone-family-noise.md`](09-duplicate-clone-family-noise.md) | **Fixed** — `find_duplicates` reported one row per LCP-tree node instead of per clone family; dominance filter + exact-file-set clustering fixed the reported case. Connected-component clustering for a further, non-nested noise class remains a possible follow-up, not a reopening of this issue |
 | 10 | [`10-api-surface-response-size.md`](10-api-surface-response-size.md) | **Fixed** — `get_api_surface` returned a ~14K-token full payload; now summary-first (`view: "summary"` default, ~1K tokens), and `bin` entries are recognized as entry points so CLI/MCP code stops being mislabelled unreachable |
 | 11 | [`11-disk-cache-not-invalidated-by-mokosh-version.md`](11-disk-cache-not-invalidated-by-mokosh-version.md) | **Fixed** — `clear_cache` silently left a stale on-disk workspace cache in place; it now deletes `mokosh-cache/workspace/` too. Automatic staleness detection via a version-derived manifest remains open |
+| 13 | [`13-call-graph-definition-ambiguity.md`](13-call-graph-definition-ambiguity.md) | **Fixed** — `get_call_graph`'s `definedIn` silently picked one file when a function/method name was exported by more than one; now reports `definedInCandidateCount` and withholds `definedIn`/`callees` (not `callers`) rather than guessing, with a `file` arg to disambiguate |
 | 14 | [`14-empty-entrypoints-doc-reference-leak.md`](14-empty-entrypoints-doc-reference-leak.md) | **Fixed** — `analyze(entryPoints: [])` on a plain repo built a small, non-deterministic graph seeded only by markdown doc-reference mentions; it now discovers every source file as its own entry point |
 | 15 | [`15-gradle-unary-plus-dsl-detection.md`](15-gradle-unary-plus-dsl-detection.md) | **Fixed** — Gradle monorepo detection missed settings files using Kotlin's unary-plus `+"module"` project DSL (ktor: 0 → 136 packages) |
 
@@ -46,6 +46,20 @@ would mean finding and updating every such citation with no guarantee none is mi
   under a differently-named `ktor-server/` directory, while `shared`'s modules have no prefix
   directory at all). `detectMonorepo` now correctly returns 136 packages for ktor, matching the
   real layout exactly, including nested modules declared via `including { }`.
+- **Issue 13** — [`13-call-graph-definition-ambiguity.md`](13-call-graph-definition-ambiguity.md) —
+  `get_call_graph`'s `definedIn` silently picked one file when a function/method name was
+  exported by more than one (e.g. an interface method implemented by several receiver types, or
+  a common helper name reused across packages), with no signal that other definitions existed —
+  confirmed on mokosh's own codebase (`run`, exported by 24 CLI commands plus the dispatcher).
+  Fixed: a new, always-present `definedInCandidateCount` field reports how many files matched (`1`
+  in the normal, unambiguous case — `definedIn`/`callees` behave exactly as before, zero
+  regression); when it's `>1`, `definedIn` is `null` and `callees` is empty rather than guessed,
+  while `callers` (independent of which file "really" defines the name) is still returned. A new
+  `file` arg disambiguates by narrowing the search to one path, bypassing the ambiguity entirely;
+  `includeCandidates: true` opts into the full `candidates: string[]` list. A per-receiver-type
+  disambiguator and a shared `findExportingNodes()` helper with issue 12 are deferred. See
+  [ADR-003](../adr-003-call-edge-graph.md)'s Query API section and
+  [docs/mcp.md](../mcp.md)'s `get_call_graph` entry.
 - **Issue 14** — [`14-empty-entrypoints-doc-reference-leak.md`](14-empty-entrypoints-doc-reference-leak.md) —
   `analyze(entryPoints: [])` on a plain (non-monorepo) repo left the build queue empty, so the
   only files that ever entered the graph were whatever a markdown doc-reference edge happened to
