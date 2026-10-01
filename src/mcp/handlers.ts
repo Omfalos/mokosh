@@ -1306,9 +1306,12 @@ export function handleClearCache(cache: SessionState, args: ClearCacheArgs): Tex
  *   of all interfaces, classes, enums, and type aliases. With `type`, returns which files import that
  *   type and which types the defining file itself imports. On a monorepo root this spans the whole
  *   workspace (flattened graph); pass `package` to scope it to one. Requires a prior `analyze` call.
+ *   Type extraction is only supported for some languages (see `docs/language-support.md`) — both the
+ *   inventory and the named-lookup form attach a `note` explaining this when the graph has no
+ *   supported language present, rather than returning an indistinguishable "not found" result.
  * @param cache - Session state holding the cached graph for `root`.
  * @param args - `root` selects the graph; `type` is the exact exported name to look up (omit for full inventory); `package` scopes to one workspace package.
- * @returns TextResponse with either a full type inventory or a focused `TypeQueryResult`.
+ * @returns TextResponse with either a full type inventory or a focused `TypeQueryResult`, each with an optional `note`.
  */
 export async function handleGetTypeGraph(
   cache: SessionState,
@@ -1318,7 +1321,15 @@ export async function handleGetTypeGraph(
   const { graph } = await cache.resolveFlatGraph(root, pkg);
   const typeGraph = buildTypeGraph(graph);
   if (type) {
-    return text(queryTypeGraph(typeGraph, type));
+    const result = queryTypeGraph(typeGraph, type);
+    // languageSupportNote returns undefined whenever the graph has at least one file type that
+    // does support typeGraph extraction, so this is a no-op (and costs nothing extra to check)
+    // for the common "type name just doesn't exist" case — it only fires when result.type is
+    // null *because* no language present supports typeGraph at all, which the no-arg inventory
+    // branch below already surfaces but this named-lookup branch previously left silent (a
+    // caller using only this form had no way to tell "not found" from "not supported").
+    const note = result.type === null ? languageSupportNote(graph, "typeGraph") : undefined;
+    return text({ ...result, ...(note && { note }) });
   }
   const types = Array.from(typeGraph.types.values());
   const note = types.length === 0 ? languageSupportNote(graph, "typeGraph") : undefined;
