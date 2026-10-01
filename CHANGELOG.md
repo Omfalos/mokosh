@@ -1,3 +1,10 @@
+## [0.5.5](https://github.com/Omfalos/mokosh/compare/v0.5.4...v0.5.5) (2026-10-01)
+
+### Bug Fixes
+
+* **graph:** analyze(entryPoints: []) on a plain repo no longer silently builds a partial graph ([#22](https://github.com/Omfalos/mokosh/issues/22)) ([73ded2d](https://github.com/Omfalos/mokosh/commit/73ded2df3eeb51f29b0e86de2bce99e4531d901c))
+* **mcp:** get_type_graph named lookup explains unsupported languages too ([#23](https://github.com/Omfalos/mokosh/issues/23)) ([b82abf1](https://github.com/Omfalos/mokosh/commit/b82abf1323d27e0ee584f7dc35571dfa84029a34))
+
 ## [0.5.4](https://github.com/Omfalos/mokosh/compare/v0.5.3...v0.5.4) (2026-09-27)
 
 ### Features
