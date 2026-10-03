@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { parseJava } from "./java";
+import { jvmSamePackageCallSpecifier } from "./jvm-scan";
 
 describe("java call edges", { tags: ["java", "parseJava", "call-edges"] }, () => {
   test("static call on an imported type → one edge", () => {
@@ -86,7 +87,62 @@ class Client {
     expect(rawCallEdges).toEqual([{ from: "Client.run", to: "make", toSpecifier: "a.b.Foo" }]);
   });
 
-  test("calls on non-imported / fully-qualified types are ignored", () => {
+  test("wildcard imports do not seed the type map, but a capitalized miss still defers (issue 12)", () => {
+    // `a.b.*` doesn't seed `importedTypes`, so `Foo` is a miss exactly like an unimported
+    // same-package sibling would be — Java can't tell the two apart from the call site alone, so
+    // (per the documented "no parse-time filter" design) it defers rather than drops.
+    const { rawCallEdges } = parseJava(
+      "src/main/java/p/Client.java",
+      `package p;
+import a.b.*;
+class Client {
+  void run() { Foo.stat(); }
+}`,
+    );
+    expect(rawCallEdges).toEqual([
+      { from: "Client.run", to: "stat", toSpecifier: jvmSamePackageCallSpecifier("p", "Foo") },
+    ]);
+  });
+
+  test("test files emit no call edges", () => {
+    const { rawCallEdges } = parseJava(
+      "app/src/test/java/p/ClientTest.java",
+      `package p;
+import a.b.Foo;
+class ClientTest {
+  void t() { Foo.stat(1); }
+}`,
+    );
+    expect(rawCallEdges).toEqual([]);
+  });
+
+  test("a bare unqualified call to a same-package (unimported) sibling type defers — issue 12", () => {
+    const { rawCallEdges } = parseJava(
+      "src/main/java/p/Client.java",
+      `package p;
+class Client {
+  void run() { Helper.stat(1); }
+}`,
+    );
+    expect(rawCallEdges).toEqual([
+      { from: "Client.run", to: "stat", toSpecifier: jvmSamePackageCallSpecifier("p", "Helper") },
+    ]);
+  });
+
+  test("a same-package (unimported) constructor call defers — issue 12", () => {
+    const { rawCallEdges } = parseJava(
+      "src/main/java/p/Client.java",
+      `package p;
+class Client {
+  Helper make() { return new Helper(); }
+}`,
+    );
+    expect(rawCallEdges).toEqual([
+      { from: "Client.make", to: "new", toSpecifier: jvmSamePackageCallSpecifier("p", "Helper") },
+    ]);
+  });
+
+  test("an already-qualified (FQN) type reference never defers — it isn't a same-package miss", () => {
     const { rawCallEdges } = parseJava(
       "src/main/java/p/Client.java",
       `package p;
@@ -100,25 +156,11 @@ class Client {
     expect(rawCallEdges).toEqual([]);
   });
 
-  test("wildcard imports do not seed the type map", () => {
+  test("no package declaration → no deferred marker for an otherwise-same-package miss", () => {
     const { rawCallEdges } = parseJava(
       "src/main/java/p/Client.java",
-      `package p;
-import a.b.*;
-class Client {
-  void run() { Foo.stat(); }
-}`,
-    );
-    expect(rawCallEdges).toEqual([]);
-  });
-
-  test("test files emit no call edges", () => {
-    const { rawCallEdges } = parseJava(
-      "app/src/test/java/p/ClientTest.java",
-      `package p;
-import a.b.Foo;
-class ClientTest {
-  void t() { Foo.stat(1); }
+      `class Client {
+  void run() { Helper.stat(1); }
 }`,
     );
     expect(rawCallEdges).toEqual([]);

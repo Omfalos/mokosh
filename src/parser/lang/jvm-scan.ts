@@ -192,6 +192,54 @@ export function extractJvmPackage(source: string, isScala: boolean): string | nu
   return parts.length > 0 ? parts.join(".") : null;
 }
 
+/**
+ * NUL-prefixed sentinel `toSpecifier` prefix for a pending same-package call-edge marker — a
+ * bare Kotlin call or an unqualified Java type reference whose target has no entry in the
+ * file's own `localNames`/`importedTypeMap`, so it might (or might not) name an unimported
+ * same-package sibling (see docs/known_issues/12-call-edge-same-package-resolution.md). Mirrors
+ * the convention `GO_SAME_PACKAGE_SPECIFIER` (`src/parser/lang/go.ts`) already established for
+ * Go's same-package *import* edge; a null-byte prefix guarantees no real JVM FQN specifier can
+ * ever collide with it. Unlike that resolver-level sentinel, this one is decoded by
+ * `GraphBuilder`'s own post-drain pass (after `processTestFiles`/`processDocFiles`, see
+ * `src/graph/builder.ts`), not by a `LangResolver` — resolving it needs the whole graph's
+ * `FileNode.exports`, which only exist once every file in the caller's own package partition has
+ * been parsed, not at parse time.
+ */
+export const JVM_SAME_PACKAGE_CALL_PREFIX = "\0jvm-same-package-call:";
+
+/**
+ * @description Builds the pending `toSpecifier` marker for a same-package call/type-reference
+ *   miss — see {@link JVM_SAME_PACKAGE_CALL_PREFIX}. Emitted on every miss, with no parse-time
+ *   filter (including misses against the language's own stdlib, local functions, etc.): the
+ *   builder's post-drain map lookup is cheap enough to absorb that noise, and filtering here
+ *   would risk silently dropping a real same-package reference instead.
+ * @param packageName - The calling file's own declared `package`.
+ * @param name - The bare symbol name the call site referenced (function or type name).
+ * @returns The sentinel specifier, decoded later by {@link parseJvmSamePackageCallSpecifier}.
+ */
+export function jvmSamePackageCallSpecifier(packageName: string, name: string): string {
+  return `${JVM_SAME_PACKAGE_CALL_PREFIX}${packageName}:${name}`;
+}
+
+/**
+ * @description Decodes a `toSpecifier` produced by {@link jvmSamePackageCallSpecifier}. Splits on
+ *   the *last* `:` since a dotted package name never contains one but the target name (a plain
+ *   identifier) never contains a `.` or `:` either, so this is unambiguous.
+ * @param specifier - A `RawCallEdge.toSpecifier` value.
+ * @returns The package name and target symbol name, or `null` when `specifier` isn't this marker.
+ */
+export function parseJvmSamePackageCallSpecifier(
+  specifier: string,
+): { packageName: string; name: string } | null {
+  if (!specifier.startsWith(JVM_SAME_PACKAGE_CALL_PREFIX)) return null;
+  const rest = specifier.slice(JVM_SAME_PACKAGE_CALL_PREFIX.length);
+  const idx = rest.lastIndexOf(":");
+  if (idx === -1) return null;
+  const packageName = rest.slice(0, idx);
+  const name = rest.slice(idx + 1);
+  return packageName && name ? { packageName, name } : null;
+}
+
 /** Framework annotations that mark a file as `config` (Spring Java config, etc.). */
 const CONFIG_ANNOTATIONS = new Set([
   "Configuration",

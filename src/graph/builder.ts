@@ -5,11 +5,13 @@ import Piscina from "piscina";
 import { DEFAULT_EXTENSIONS } from "../const.js";
 import { type GitFileStats, getRepoGitStats } from "../git.js";
 import { getTestPatterns } from "../parser/classify.js";
+import { parseJvmSamePackageCallSpecifier } from "../parser/lang/jvm-scan.js";
 import { type LockFileData, loadLockFile } from "../parser/lockfile/index.js";
 import { getFileType, parseFile } from "../parser.js";
 import type { DependencyGraph } from "../types/graph";
 import type { CallEdge, FileNode, ImportEdge } from "../types/node";
 import { enrichGraph, enrichLibraryTags } from "./enrichment.js";
+import { jvmPathPartition } from "./lang-resolvers/jvm.js";
 import { JVM_TYPES } from "./language-support.js";
 import { Graph } from "./model.js";
 import { DefaultResolver, type PathResolver } from "./resolver.js";
@@ -111,6 +113,14 @@ export class GraphBuilder {
   private pool: Piscina | null = null;
   private gitStatsMap: Map<string, GitFileStats> | null = null;
   private readonly walkIgnoreDirs: Set<string>;
+  /** Pending same-package call-edge markers (docs/known_issues/12), keyed by the calling file's
+   *  project-relative path, accumulated as files are parsed and resolved in one post-drain pass
+   *  once the whole graph — and therefore every file in each caller's own package partition —
+   *  exists. See {@link resolveJvmSamePackageCallEdges}. */
+  private readonly pendingSamePackageCallEdges = new Map<
+    string,
+    Array<{ from: string; to: string; packageName: string; name: string }>
+  >();
 
   /**
    * @param rootDir - Absolute path to the project root; all node paths in the graph are relative to this.
@@ -190,6 +200,11 @@ export class GraphBuilder {
       // and they commonly live outside the entry points' subtree entirely (top-level README, docs/),
       // so this scans the full rootDir rather than reusing the test-files' common-ancestor scope.
       await this.processDocFiles();
+
+      // Post-drain, same as processTestFiles/processDocFiles above: resolves every pending
+      // JVM same-package call-edge marker (docs/known_issues/12) now that every file in each
+      // caller's own package partition exists in the graph with its exports already computed.
+      this.resolveJvmSamePackageCallEdges();
 
       if (this.progressCallback && this.visited.size >= 100) {
         process.stderr.write(`\nDone. Total processed: ${this.visited.size} nodes.\n`);
@@ -458,7 +473,7 @@ export class GraphBuilder {
     const parsed = await this.tryParse(filePath, relativePath);
     if (!parsed) return this.makeStubNode(filePath, relativePath, stats);
 
-    const callEdges = this.resolveCallEdges(filePath, parsed.rawCallEdges);
+    const callEdges = this.resolveCallEdges(filePath, relativePath, parsed.rawCallEdges);
     const node = this.buildNode(filePath, relativePath, stats, parsed, callEdges);
     this.attachGitStats(node, relativePath);
     return node;
@@ -523,15 +538,29 @@ export class GraphBuilder {
    * @description Resolves raw call-edge specifiers to project-relative file paths,
    *   silently dropping any specifier the resolver cannot map.
    * @param filePath - Absolute path of the file that owns the call edges.
+   * @param relativePath - Project-relative path of the same file — the key under which any
+   *   pending same-package call-edge marker is parked for the post-drain pass (see
+   *   {@link resolveJvmSamePackageCallEdges}).
    * @param rawCallEdges - Unresolved call edges from the parser output.
-   * @returns Resolved `CallEdge` array containing only internal (non-external) edges.
+   * @returns Resolved `CallEdge` array containing only internal (non-external) edges. A pending
+   *   same-package marker contributes nothing here — it's queued, not resolved, until the whole
+   *   graph exists.
    */
   private resolveCallEdges(
     filePath: string,
+    relativePath: string,
     rawCallEdges: Awaited<ReturnType<typeof parseFile>>["rawCallEdges"],
   ): CallEdge[] {
     const callEdges: CallEdge[] = [];
     for (const rce of rawCallEdges ?? []) {
+      const pending = parseJvmSamePackageCallSpecifier(rce.toSpecifier);
+      if (pending) {
+        const entry = { from: rce.from, to: rce.to, ...pending };
+        const list = this.pendingSamePackageCallEdges.get(relativePath);
+        if (list) list.push(entry);
+        else this.pendingSamePackageCallEdges.set(relativePath, [entry]);
+        continue;
+      }
       try {
         const resolved = this.resolver.resolve(filePath, rce.toSpecifier);
         if (resolved && !resolved.isExternal) {
@@ -546,6 +575,76 @@ export class GraphBuilder {
       }
     }
     return callEdges;
+  }
+
+  /**
+   * @description Post-drain pass (docs/known_issues/12-call-edge-same-package-resolution.md):
+   *   resolves every pending same-package call-edge marker recorded by {@link resolveCallEdges}
+   *   against the already-built graph's `FileNode.exports`, now that every file in each caller's
+   *   own package partition has been parsed — the same reason test-file tags and doc-file links
+   *   are deferred past `drain()` rather than resolved inline (a file's siblings may not exist in
+   *   the graph yet while the wavefront is still running).
+   *
+   *   Groups every JVM node by `(declared package, module, source-root)` — reusing
+   *   {@link jvmPathPartition}, the same partitioning `JvmLangResolver` already uses for the
+   *   synthetic same-package *import* edge, read off each node's own `isSamePackage` edge rather
+   *   than re-deriving it — then, for each marker, looks up every *other* file in the caller's own
+   *   partition whose `exports` contains the target name. Exactly one match resolves to a
+   *   `CallEdge`; zero or more than one is dropped silently — no guessing, consistent with the
+   *   synthetic import edge's own "no match → external" convention and issue 13's disambiguation
+   *   stance. The caller's own file is excluded from candidates: a bare call to a same-*file*
+   *   local declaration is a separate, pre-existing gap this issue never targeted (the known issue
+   *   is specifically about cross-*file* same-package coupling), and including it would risk a
+   *   same-file match masking — or colliding with — a genuine cross-file one in the ambiguity
+   *   check.
+   *
+   *   Caveat (accepted, not solved here): if a sibling file is added/removed/renamed between
+   *   incremental builds without the calling file itself changing, the calling file's cache-hit
+   *   node keeps its previously-resolved same-package call edges frozen — `resolveCallEdges` only
+   *   runs for freshly-parsed files, so a cache hit never re-queues its markers. This only
+   *   surfaces outside a full rebuild (fresh clone, CI, `--clear-cache`).
+   */
+  private resolveJvmSamePackageCallEdges(): void {
+    if (this.pendingSamePackageCallEdges.size === 0) return;
+
+    const partitions = new Map<string, FileNode[]>();
+    for (const node of this.graph.nodes.values()) {
+      if (!JVM_TYPES.has(node.type)) continue;
+      const packageEdge = node.imports.find((imp) => imp.isSamePackage);
+      if (!packageEdge) continue;
+      const packageName = packageEdge.rawSpecifier.replace(/\.\*$/, "");
+      const { module, rootSegment } = jvmPathPartition(path.resolve(this.rootDir, node.path));
+      const key = `${packageName}\0${module}\0${rootSegment}`;
+      const group = partitions.get(key);
+      if (group) group.push(node);
+      else partitions.set(key, [node]);
+    }
+
+    for (const [relativePath, pendings] of this.pendingSamePackageCallEdges) {
+      const node = this.graph.nodes.get(relativePath);
+      if (!node) continue;
+      const { module, rootSegment } = jvmPathPartition(path.resolve(this.rootDir, relativePath));
+
+      const resolved: CallEdge[] = [];
+      for (const pending of pendings) {
+        const key = `${pending.packageName}\0${module}\0${rootSegment}`;
+        const siblings = (partitions.get(key) ?? []).filter(
+          (candidate) => candidate.path !== relativePath,
+        );
+        const matches = siblings.filter((candidate) =>
+          candidate.exports.some((exp) => exp.name === pending.name),
+        );
+        if (matches.length === 1) {
+          resolved.push({ from: pending.from, to: pending.to, toFile: matches[0]!.path });
+        }
+        // Zero or multiple matches: drop silently — see the doc comment above.
+      }
+      if (resolved.length > 0) {
+        node.callEdges = [...(node.callEdges ?? []), ...resolved];
+      }
+    }
+
+    this.pendingSamePackageCallEdges.clear();
   }
 
   /**

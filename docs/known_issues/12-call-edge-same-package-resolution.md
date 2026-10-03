@@ -1,7 +1,7 @@
 # Issue 12 — Bare calls to a same-package sibling's symbol produce no call edge (Kotlin/Java)
 
-Status: **design decided (2026-10-01), implementation pending**. Found dogfooding v0.5.4 against
-ktorio/ktor (call-graph tool audit). See "Decided approach" below for the agreed design —
+Status: **shipped (2026-10-01)**. Found dogfooding v0.5.4 against ktorio/ktor (call-graph tool
+audit). See "Decided approach" and "Shipped" below for the design that was actually built —
 supersedes the "Proposed fix" section's open options.
 
 ## Symptom
@@ -119,7 +119,45 @@ the analysis below the original "Proposed fix" section had missed:
    surfaces outside a full rebuild (fresh clone, CI, `--clear-cache`), which is the common path
    anyway — worth one sentence in the eventual ADR update, not a blocker.
 
-## Proposed fix (superseded by "Decided approach" above; kept for the original reasoning)
+## Shipped (2026-10-01)
+
+Built exactly per the decided approach above, with no deviations:
+
+- **Parser side**: `src/parser/lang/jvm-scan.ts` exports `jvmSamePackageCallSpecifier` /
+  `parseJvmSamePackageCallSpecifier` (the `\0jvm-same-package-call:<package>:<name>` sentinel,
+  mirroring `GO_SAME_PACKAGE_SPECIFIER`'s convention). Kotlin's `walkBody` and
+  `collectSuperclassCallEdges` (`src/parser/complexity/kotlin.ts`) emit the marker on every bare
+  `localNames` miss, with no filter. Java's `collectRawCallEdges`
+  (`src/parser/lang/java.ts`) emits it for an unqualified (non-`ScopedTypeName`) type reference
+  in a `MethodInvocation` qualifier or `ObjectCreationExpression` that misses `importedTypeMap` —
+  restricted to a capitalized qualifier for `MethodInvocation` so an ordinary lowercase-variable
+  instance call (`list.add(x)`) is never marked.
+- **Builder side**: `GraphBuilder.resolveJvmSamePackageCallEdges` (`src/graph/builder.ts`) runs
+  after `processTestFiles`/`processDocFiles`, groups every parsed JVM `FileNode` by
+  `(declared package, module, source-root)` — reusing `jvmPathPartition`
+  (`src/graph/lang-resolvers/jvm.ts`) — and resolves each pending marker against the matching
+  partition's `FileNode.exports`. Exactly one match → `CallEdge`; zero or more than one → dropped
+  silently. The caller's own file is excluded from candidates (a same-*file* bare call is a
+  separate, pre-existing gap this issue never targeted).
+- **Volume check**: a synthetic Kotlin file with 200 chained stdlib calls
+  (`listOf(...).map{}.filter{}.let{ println(it) }`) produced one deferred marker per call site —
+  linear in call-site count, not a blowup (~36 KB of marker payload for ~206 lines, discarded
+  entirely once the post-drain pass runs and finds no matching sibling). No real OkHttp/
+  kotlinx.coroutines corpus was available in this environment (no network access), so the
+  measurement is synthetic rather than against the real corpora ADR-021 used — a gap worth closing
+  with a follow-up run against a real checkout.
+- **Tests**: `src/parser/lang/kotlin.call-edges.test.ts` and `java.call-edges.test.ts` cover the
+  parser-side marker emission (including two tests that pre-existed as "stays unresolved"
+  regressions and were updated to assert the new deferred-marker shape instead, since that's
+  exactly the behavior this issue changed). `src/graph/builder.test.ts` adds an end-to-end
+  same-package Kotlin resolution test, an ambiguous same-name-in-two-siblings test asserting the
+  edge is dropped, and a Java `new Foo()`/`Foo.bar()` same-package resolution test.
+- **Docs updated**: `docs/adr-021-kotlin-parsing.md` (new "Same-package call-edge resolution"
+  section), `docs/adr-011-go-python-call-edges.md` (note confirming Go/Python needed no parallel
+  fix), `docs/language-support.md`, and `src/languages/adapters/jvm.ts`'s Java/Kotlin `callEdges`
+  caveat text.
+
+## Proposed fix (superseded by "Decided approach"/"Shipped" above; kept for the original reasoning)
 
 1. Parser side (Kotlin + Java; Go has room for the same idiom too, though Go's bare calls are
    same-*file*, not same-*package*, per `go.ts`'s existing same-file exclusion note — a narrower

@@ -310,6 +310,35 @@ tutorials assume ESM):
 - One more first-party grammar to maintain (`kotlin.grammar` plus its external tokenizer), on top
   of the existing per-language parsers, complexity extractors, and duplication tokenizer.
 
+## Same-package call-edge resolution (2026-10-01)
+
+Phase 1's call-edge extraction (`collectCallEdges` in `src/parser/complexity/kotlin.ts`) only ever
+resolved a call whose name/qualifier had a `localNames` entry — built purely from the file's own
+`import` lines. A bare call to a same-package sibling needs no `import` in Kotlin, so that class of
+call (the single most common cross-file call shape in idiomatic Kotlin — see
+`docs/known_issues/12-call-edge-same-package-resolution.md`) produced no call edge at all, with no
+distinguishing signal from a genuinely unresolvable call.
+
+Fixed without touching the grammar: a bare-call miss now emits a `RawCallEdge` carrying a
+NUL-prefixed sentinel marker (`jvmSamePackageCallSpecifier`, `src/parser/lang/jvm-scan.ts`, mirroring
+`GO_SAME_PACKAGE_SPECIFIER`'s convention) instead of being dropped, with no parse-time filter — every
+miss defers, including stdlib calls (`println`, `let`, `map`, …; a synthetic stdlib-call-heavy
+fixture produced one deferred marker per call site, a flat, linear cost, not a blowup). A new
+builder-level post-drain pass (`GraphBuilder.resolveJvmSamePackageCallEdges`, after
+`processTestFiles`/`processDocFiles` — the same reason those two are deferred: a file's siblings may
+not exist in the graph yet while the wavefront is still draining) groups every already-parsed JVM
+`FileNode` by `(declared package, module, source-root)` — reusing `jvmPathPartition`
+(`src/graph/lang-resolvers/jvm.ts`), not a new index — and resolves each marker against the matching
+partition's `FileNode.exports`. Exactly one match becomes a `CallEdge`; zero or more than one is
+dropped silently, consistent with the resolver's own "no match → external" convention and issue 13's
+disambiguation stance. Java's gap turned out to need the identical mechanism, just triggered by an
+unqualified *type* reference (`Foo.bar()` / `new Foo()`) instead of a bare function call — see
+`src/parser/lang/java.ts`'s `collectRawCallEdges`.
+
+Caveat carried forward: on an incremental build, a cache-hit file's previously-resolved
+same-package call edges stay frozen if a sibling is added/removed/renamed without the calling file
+itself changing — surfaces only outside a full rebuild (fresh clone, CI, `--clear-cache`).
+
 ## Next steps
 
 Phases 1 (hybrid integration + call edges) and 2 (complexity) have shipped, the conformance baseline

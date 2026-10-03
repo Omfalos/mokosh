@@ -30,7 +30,8 @@ export const JAVA_ADAPTER: LanguageAdapter = {
     exportSymbols: "top-level types only, no field/method-level exports",
     importSymbols:
       "one symbol per import (the FQN's last segment, or the static member for `import static`); wildcard imports carry none, and re-exports aren't tracked",
-    callEdges: "static calls and constructors only (incl. through generics), not virtual dispatch",
+    callEdges:
+      "static calls and constructors only (incl. through generics), not virtual dispatch; an unqualified type reference to a same-package, non-imported sibling (`Foo.bar()` / `new Foo()`) now resolves too, via a builder-level post-drain pass (docs/known_issues/12) — ambiguous (two same-named sibling types) drops the edge rather than guessing",
   },
 };
 
@@ -63,7 +64,7 @@ export const KOTLIN_ADAPTER: LanguageAdapter = {
     importSymbols:
       "one symbol per import (the FQN's last segment); wildcard imports carry none, and re-exports aren't tracked",
     callEdges:
-      "static/qualified calls and constructors only (via the first-party Kotlin grammar, ADR-021), not virtual dispatch; single-level qualifiers only (`a.b()`, not `a.b.c()`); wildcard-imported qualifiers don't resolve; statements are newline-separated in the grammar, so consecutive calls each keep their edge — the remaining gaps are unsupported syntax (labeled returns `return@x`, star projections `List<*>`, explicit call type arguments `f<T>()`), which parse with error nodes and can drop edges in that region",
+      "static/qualified calls and constructors only (via the first-party Kotlin grammar, ADR-021), not virtual dispatch; single-level qualifiers only (`a.b()`, not `a.b.c()`); wildcard-imported qualifiers don't resolve; statements are newline-separated in the grammar, so consecutive calls each keep their edge — the remaining gaps are unsupported syntax (labeled returns `return@x`, star projections `List<*>`, explicit call type arguments `f<T>()`), which parse with error nodes and can drop edges in that region. A bare call with no `localNames` entry (same-package sibling, no import needed in Kotlin) now resolves too, via a builder-level post-drain pass over `FileNode.exports` (docs/known_issues/12) — every miss defers, including stdlib calls, and the post-drain lookup drops anything that doesn't match exactly one sibling in the caller's own package partition",
     complexity:
       "via the first-party Kotlin grammar (ADR-021); skipped entirely (no score, not a wrong one) above the 5% error-node-density gate shared with call edges; a function whose own body contains an error node and a decision point is omitted from the per-function list",
   },

@@ -442,3 +442,116 @@ describe("GraphBuilder local-edge deduplication", () => {
     }
   });
 });
+
+describe("GraphBuilder JVM same-package call edges (docs/known_issues/12)", () => {
+  // A bare Kotlin call (no import needed for a same-package reference) to a sibling file's
+  // top-level function defers at parse time to a same-package marker, resolved here once the
+  // whole package partition exists in the graph.
+  test("a bare call to a same-package sibling's top-level function resolves to a CallEdge", async () => {
+    const root = path.join(process.cwd(), "test-builder-kotlin-samepkg-call");
+    fs.mkdirSync(path.join(root, "src", "main", "kotlin", "p"), { recursive: true });
+
+    fs.writeFileSync(
+      path.join(root, "src", "main", "kotlin", "p", "Caller.kt"),
+      "package p\n\nclass Caller {\n  fun run() { helper(1) }\n}\n",
+    );
+    fs.writeFileSync(
+      path.join(root, "src", "main", "kotlin", "p", "Callee.kt"),
+      "package p\n\nfun helper(x: Int): Int = x\n",
+    );
+
+    try {
+      const graph = await createImportMap(root, [
+        path.join("src", "main", "kotlin", "p", "Caller.kt"),
+      ]);
+      const caller = graph
+        .serialize()
+        .nodes.find((n) => n.path.endsWith(path.join("p", "Caller.kt")));
+
+      expect(caller?.callEdges).toEqual([
+        {
+          from: "Caller.run",
+          to: "helper",
+          toFile: path.join("src", "main", "kotlin", "p", "Callee.kt"),
+        },
+      ]);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a same-named function declared in two sibling files stays unresolved rather than guessing", async () => {
+    const root = path.join(process.cwd(), "test-builder-kotlin-samepkg-ambiguous");
+    fs.mkdirSync(path.join(root, "src", "main", "kotlin", "p"), { recursive: true });
+
+    fs.writeFileSync(
+      path.join(root, "src", "main", "kotlin", "p", "Caller.kt"),
+      "package p\n\nclass Caller {\n  fun run() { helper(1) }\n}\n",
+    );
+    fs.writeFileSync(
+      path.join(root, "src", "main", "kotlin", "p", "One.kt"),
+      "package p\n\nfun helper(x: Int): Int = x\n",
+    );
+    fs.writeFileSync(
+      path.join(root, "src", "main", "kotlin", "p", "Two.kt"),
+      "package p\n\nfun helper(x: Int): Int = x + 1\n",
+    );
+
+    try {
+      const graph = await createImportMap(root, [
+        path.join("src", "main", "kotlin", "p", "Caller.kt"),
+      ]);
+      const caller = graph
+        .serialize()
+        .nodes.find((n) => n.path.endsWith(path.join("p", "Caller.kt")));
+
+      expect(caller?.callEdges ?? []).toEqual([]);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  // Java's gap is narrower (docs/known_issues/12's "Decided approach"): every Java call is
+  // already `this.foo()` or qualified, so the only miss is an unqualified type (`Foo` in
+  // `Foo.bar()` / `new Foo()`) that doesn't need an import when it's a same-package sibling.
+  test("new Foo() / Foo.bar() to a same-package, non-imported sibling class resolves correctly", async () => {
+    const root = path.join(process.cwd(), "test-builder-java-samepkg-call");
+    fs.mkdirSync(path.join(root, "src", "main", "java", "p"), { recursive: true });
+
+    fs.writeFileSync(
+      path.join(root, "src", "main", "java", "p", "Caller.java"),
+      "package p;\nclass Caller {\n  void run() { Foo.bar(); Foo f = new Foo(); }\n}\n",
+    );
+    fs.writeFileSync(
+      path.join(root, "src", "main", "java", "p", "Foo.java"),
+      "package p;\nclass Foo {\n  static void bar() {}\n}\n",
+    );
+
+    try {
+      const graph = await createImportMap(root, [
+        path.join("src", "main", "java", "p", "Caller.java"),
+      ]);
+      const caller = graph
+        .serialize()
+        .nodes.find((n) => n.path.endsWith(path.join("p", "Caller.java")));
+
+      expect(caller?.callEdges).toEqual(
+        expect.arrayContaining([
+          {
+            from: "Caller.run",
+            to: "bar",
+            toFile: path.join("src", "main", "java", "p", "Foo.java"),
+          },
+          {
+            from: "Caller.run",
+            to: "new",
+            toFile: path.join("src", "main", "java", "p", "Foo.java"),
+          },
+        ]),
+      );
+      expect(caller?.callEdges).toHaveLength(2);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
