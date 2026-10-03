@@ -1,3 +1,15 @@
+## [0.5.6](https://github.com/Omfalos/mokosh/compare/v0.5.5...v0.5.6) (2026-10-03)
+
+### Features
+
+* **graph:** detect Gradle composite builds and support external workspace roots ([#30](https://github.com/Omfalos/mokosh/issues/30)) ([75ec14e](https://github.com/Omfalos/mokosh/commit/75ec14e66ed33560ea233d358ec3512ca21285b9))
+
+### Bug Fixes
+
+* **deps:** resolve 11 npm audit vulnerabilities ([#31](https://github.com/Omfalos/mokosh/issues/31)) ([edbd944](https://github.com/Omfalos/mokosh/commit/edbd94486e90232598b746970e5f1a349306752d))
+* **graph:** flag ambiguous get_call_graph definitions instead of guessing ([#28](https://github.com/Omfalos/mokosh/issues/28)) ([ed0f597](https://github.com/Omfalos/mokosh/commit/ed0f597c47af79bc061885f20d61ae6b863a39e6))
+* **graph:** resolve same-package Kotlin/Java call edges (issue 12) ([#27](https://github.com/Omfalos/mokosh/issues/27)) ([87015e0](https://github.com/Omfalos/mokosh/commit/87015e0b6b7c26b3005d61a8247bb68efffbc4a4))
+
 ## [0.5.5](https://github.com/Omfalos/mokosh/compare/v0.5.4...v0.5.5) (2026-10-01)
 
 ### Bug Fixes
