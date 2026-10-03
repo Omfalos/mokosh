@@ -119,7 +119,7 @@ export class GraphBuilder {
    * @param progressCallback - Called every 100 files processed; useful for rendering a progress indicator in long-running CLI builds.
    * @param gitStats - When true, fetches `commitCount90d` and `lastAuthor` for each cache-missed file via git log.
    * @param coverageMap - Pre-loaded coverage map (relative path → line %). When non-empty, populates `coveragePct` on each node after the graph is built.
-   * @param parallelParsing - Controls worker-pool offloading of `parseFile`. `true`/omitted enables it once a cheap pre-scan finds at least `minFiles` (default 20) files under `rootDir`; `false` always parses in-process; an object overrides `minFiles`/`maxThreads`.
+   * @param parallelParsing - Controls worker-pool offloading of `parseFile`. `true`/omitted enables it once a cheap pre-scan finds at least `minFiles` (default 600 — see docs/adr-010-parallel-parsing.md) files under `rootDir`; `false` always parses in-process; an object overrides `minFiles`/`maxThreads`.
    * @param additionalIgnoreDirs - Directory names to skip during the test-file and doc-file discovery walks, on top of the built-in list (`node_modules`, `dist`, `coverage`, …) and anything in the `MOKOSH_IGNORE_DIRS` env var. Sourced from `MokoshConfig.ignoreDirs`.
    * @param docFiles - Explicit list of absolute `.md`/`.mdx` paths to fold into the graph, replacing the built-in whole-`rootDir` doc-discovery walk. `null` (default) keeps the walk; `[]` skips docs entirely. The workspace builder passes each package its pre-assigned slice so the monorepo tree is walked once, not once per package (see docs/known_issues/01, fix 1D).
    */

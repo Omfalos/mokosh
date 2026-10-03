@@ -1,6 +1,8 @@
 # Issue 13 — `get_call_graph`'s `definedIn` silently picks one definition when a function/method name isn't unique
 
-Status: **open**. Found dogfooding v0.5.4 against gin-gonic/gin (call-graph tool audit).
+Status: **design decided (2026-10-01), implementation pending**. Found dogfooding v0.5.4 against
+gin-gonic/gin (call-graph tool audit). See "Decided approach" below for the agreed design —
+supersedes the "Proposed fix" section's open options.
 
 ## Symptom
 
@@ -48,7 +50,51 @@ Any of these makes `get_call_graph`/`find_symbol`'s `callers` lookup return a pl
 but wrong or incomplete answer with no warning — worse than an explicit error, since a caller has
 no signal to double-check.
 
-## Proposed fix (not built)
+## Decided approach (2026-10-01)
+
+A `Plan`-agent pass confirmed the concrete reproduction case live on mokosh's own codebase before
+this was finalized: 25 files export a top-level `run` function (24 CLI commands +
+`src/cli/runner.ts`'s dispatcher), and `get_call_graph(function: "run")` today silently returns
+`definedIn: "src/cli/runner.ts"` with no signal the other 24 exist. Notably, `find_symbol`
+(`src/graph/symbol.ts`) already does this correctly — it collects every matching node into an
+array rather than overwriting a single variable — so the fix is substantially "bring
+`queryCallGraph` in line with its own sibling," not a novel design.
+
+**Decisions:**
+
+1. **Response shape: additive field, not a default-breaking change.** `definedIn` keeps behaving
+   exactly as today when there's exactly one match — zero regression for the common case. Add a
+   new always-present field (e.g. `definedInCandidateCount: number`, `1` in the normal case) as
+   the cheap, always-on signal that something might be wrong; gate the full `candidates: string[]`
+   list behind an opt-in arg, consistent with this repo's summary-first MCP convention
+   (`get_api_surface`'s `view`, `query`'s `slim`). Rejected: changing `definedIn`'s default meaning
+   outright — `FunctionCallInfo` is a public exported type, so that would be a breaking change to
+   a documented contract for comparatively little gain over an additive field.
+2. **`callers`/`callees` in the ambiguous case: return `callers`, empty `callees`.** `callers` is
+   honest regardless of which file is the "real" definition (it's edges *into* this name, not
+   edges that assume one specific file). `callees` requires committing to one specific file's call
+   edges — computing it would silently reintroduce the exact guessing problem this issue exists to
+   fix, so leave it empty until disambiguated.
+3. **Ship the `file` disambiguator in the same change**, not a separate follow-up. A
+   `candidates: [...]` list with no way to get a precise answer afterward makes the fix only
+   half-useful; narrowing by `file` is small (it only needs `node.path`, already-available data)
+   riding along with the response-shape work already happening in this same area.
+4. **`receiverType` disambiguator: explicitly out of scope.** It needs a new schema field
+   (`FileNode.exports[].receiverType` or equivalent) that doesn't exist anywhere in the graph model
+   today — confirm during implementation that nothing downstream actually needs it yet before
+   deferring it further.
+5. **Relationship to issue 12: confirmed genuinely separate** (12 = call edges never created; 13 =
+   definition lookup picking one of several real exports with no signal). The optional shared
+   `findExportingNodes()` helper both issues could theoretically use is intentionally **not**
+   built now — issue 12 isn't landing in the same change, and designing a shared primitive before
+   a second real caller exists risks guessing its shape wrong.
+6. **New field, not the existing `caveats` convention.** `caveats` in this codebase means "this
+   result is real but lossy due to language fidelity" — a different kind of warning. Ambiguity is
+   a structural property of this specific query's result (how many real definitions exist), so it
+   gets its own field (`definedInCandidateCount`, per decision 1) rather than being folded into a
+   string-message convention meant for something else.
+
+## Proposed fix (superseded by "Decided approach" above; kept for the original reasoning)
 
 1. Minimal (cheap, high value): when more than one node's `exports` matches `functionName`,
    return `definedIn: null` (or a new explicit field, e.g. `ambiguous: true`) plus a

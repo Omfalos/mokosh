@@ -54,6 +54,7 @@ Responsibility: analyse a single file and return its imports, exports, tags, and
 - **Style files** (`src/parser/style/`): Uses `postcss`, `sass`, and `stylus` ASTs rather than regex. See [ADR-001](adr-001-styles-parsing.md).
 - **CoffeeScript, LiveScript, Lua, Gherkin**: Purpose-built parsers in `src/parser/lang/`.
 - **Markdown / MDX** (`src/parser/lang/markdown.ts`): Uses `remark`/`unified` (mdast) to extract file references from links and code spans, powering doc-drift detection. See [ADR-009](adr-009-markdown-parsing.md).
+- **Java** (`src/parser/lang/java.ts`): Uses `@lezer/java` for a real parse tree — imports, exports, complexity, and call edges (static + constructor calls on imported types). **Kotlin** (`src/parser/lang/kotlin.ts`): a first-party `@lezer` grammar built for mokosh's needs, same depth as Java. **Scala, Groovy**: hand-rolled `package`/`import`/top-level-declaration scanners — import graph and classification, no complexity or call edges (no pure-JS AST exists for either yet). All four share one `JvmLangResolver` (package-declaration index, FQN→file resolution) and participate in cross-language duplicate detection for free. See [ADR-017](adr-017-jvm-languages.md) and, for Kotlin's grammar specifically, [ADR-021](adr-021-kotlin-parsing.md).
 
 Depth of support varies by language and axis. The authoritative per-language matrix (import
 resolution, exports, call edges, complexity, category, duplication, test tags — each `full` /
@@ -68,15 +69,15 @@ resolution, exports, call edges, complexity, category, duplication, test tags �
 - **Tags**: `StructuredTag[]` — `{ name, kind }` where `kind` is one of: `function`, `class`, `variable`, `type`, `import`, `comment-marker`. Five extraction strategies — see [Test Tags](./test-tags.md).
 - **Category**: `logic | ui | test | config | barrel | type-only | other` — inferred from imports, exports, naming, and file content.
 - **File description**: The JSDoc comment on the first statement of a JS/TS file is stored as `node.description`, enabling `hasDocstring` queries.
-- **Call edges** (non-test files, TS/JS/Go/Python): Cross-file function calls are recorded as `CallEdge { from, to, toFile }` on `FileNode.callEdges`. After path resolution in `GraphBuilder` they become queryable via `graph.getCallers()` and `graph.traverseCalls()`. Coverage differs by language — see [ADR-011](adr-011-go-python-call-edges.md).
+- **Call edges** (non-test files, TS/JS/Go/Python/Java/Kotlin): Cross-file function calls are recorded as `CallEdge { from, to, toFile }` on `FileNode.callEdges`. After path resolution in `GraphBuilder` they become queryable via `graph.getCallers()` and `graph.traverseCalls()`. Coverage differs by language — see [ADR-011](adr-011-go-python-call-edges.md) (Go/Python), [ADR-017](adr-017-jvm-languages.md) (Java), [ADR-021](adr-021-kotlin-parsing.md) (Kotlin). Scala and Groovy have no call edges — no pure-JS AST exists for either.
 
-### Complexity metrics (`src/parser/complexity.ts`, `src/parser/complexity/go.ts`, `src/parser/complexity/python.ts`)
+### Complexity metrics (`src/parser/complexity.ts`, `src/parser/complexity/{go,python,java,kotlin}.ts`)
 
-For TypeScript, JavaScript, Go, and Python files, the parser computes:
-- **[McCabe cyclomatic complexity](https://www.literateprogramming.com/mccabe.pdf)** (McCabe, 1976) — counts independent decision paths (base 1): `if`/`elif`, ternary, loops, `switch`/`case`, `catch`/`except`, `&&`/`||`/`??`/`and`/`or`.
+For TypeScript, JavaScript, Go, Python, Java, and Kotlin files, the parser computes:
+- **[McCabe cyclomatic complexity](https://www.literateprogramming.com/mccabe.pdf)** (McCabe, 1976) — counts independent decision paths (base 1): `if`/`elif`, ternary, loops, `switch`/`case`/`when`, `catch`/`except`, `&&`/`||`/`??`/`and`/`or`.
 - **Cognitive complexity** — a nesting-penalised difficulty score modeled after [SonarSource's Cognitive Complexity whitepaper](https://www.sonarsource.com/docs/CognitiveComplexity.pdf) (not SonarSource's own implementation — mokosh's version is a simplified reimplementation of the same idea). Structural nodes add `1 + depth` and increase nesting; `else if` / `else` and logical operators add 1 with no nesting bonus.
 
-Both are stored on `FileNode` as `complexity` and `cognitiveComplexity`. Go and Python walk their own Lezer-based ASTs rather than the TypeScript compiler API; Python's `if`/`elif`/`else` and `try`/`except` chains are flat sibling sequences rather than nested nodes, so its branch-walking logic differs from the shared TS/Go pattern even though the scoring model is the same. See [ADR-011](adr-011-go-python-call-edges.md) for the Go/Python extraction design, and `src/parser/complexity.ts` / `src/parser/complexity/go.ts` / `src/parser/complexity/python.ts` for the implementations.
+Both are stored on `FileNode` as `complexity` and `cognitiveComplexity`. Go, Python, Java, and Kotlin each walk their own Lezer-based AST rather than the TypeScript compiler API, with per-language quirks in the branch-walking logic (e.g. Python's flat `if`/`elif`/`else` siblings vs. TS/Go's nesting, Kotlin's brace ambiguity between control-flow bodies and real closures) even though the scoring model is the same everywhere. Scala and Groovy have no complexity signal — no pure-JS AST exists for either yet. See [ADR-011](adr-011-go-python-call-edges.md) (Go/Python), [ADR-017](adr-017-jvm-languages.md) (Java), [ADR-021](adr-021-kotlin-parsing.md) (Kotlin), and [`docs/language-support.md`](./language-support.md) for the full per-language matrix.
 
 ---
 
@@ -149,7 +150,7 @@ Identifies files with high **out-degree** (many internal imports) — orchestrat
 - `tsconfig.json` path aliases and `baseUrl`, or an explicit `pathAliases` config map (checked first)
 - Node.js module resolution (`node_modules`)
 - Workspace package names (cross-package `isWorkspace` edges)
-- Language-specific bare-specifier resolution via `lang-resolvers/` (Python, Lua, Go, style, markdown) before falling through to external
+- Language-specific bare-specifier resolution via `lang-resolvers/` (Python, Lua, Go, style, markdown, and one shared `JvmLangResolver` for Java/Kotlin/Scala/Groovy) before falling through to external
 
 ---
 

@@ -114,7 +114,7 @@ MCP parity (mirrors the MCP server's tools for use when MCP is unavailable):
   --workspace-affected         Cross-package blast-radius for --file in a monorepo
   --find-symbol                Find every file that exports --function <name> by exact name, with
                                 the best available caller/importer info per match (call-edge
-                                precision for TS/JS, named-import for Python, file-level otherwise)
+                                precision for TS/JS/Go/Python/Java/Kotlin, file-level otherwise)
   --watch                      Re-run on file changes. Supported with the default output, --query,
                                 --callers, --dependencies, --dependents, --affected, --find-uncovered,
                                 --find-complex-functions, --find-duplicates, --find-risk-hotspots,

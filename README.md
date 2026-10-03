@@ -9,8 +9,10 @@ and doc-drift from one graph instead of grepping around.
 
 - **Runs entirely on your machine.** No accounts, no servers, no data sent anywhere.
 - **Works offline.** The graph is built from your filesystem — no network required during analysis.
-- **Spans 15+ languages in one graph.** TypeScript, JavaScript, Python, Go, CSS/SCSS/Less/Stylus,
-  CoffeeScript, LiveScript, Lua, Gherkin, and Markdown/MDX — all in a single traversable graph.
+- **Spans 17 languages in one graph.** TypeScript, JavaScript, Python, Go, Java, Kotlin, Scala,
+  Groovy, CSS/SCSS/Less/Stylus, CoffeeScript, LiveScript, Lua, Gherkin, and Markdown/MDX — all in
+  a single traversable graph, though not all to the same depth (see
+  [docs/language-support.md](./docs/language-support.md)).
 - **AI-ready output.** Slim query mode, token-efficient responses, and structured tags are
   designed to fit naturally into LLM context windows.
 - **Integrates in minutes via MCP.** Drop it into any AI assistant that supports the Model
@@ -21,7 +23,7 @@ and doc-drift from one graph instead of grepping around.
 ## What it can tell you
 
 - **Dependency graph traversal** — dependencies, dependents, and full blast-radius (`get_affected`)
-  from any file, with call-edge precision (not just imports) for TS/JS/Go/Python.
+  from any file, with call-edge precision (not just imports) for TS/JS/Go/Python/Java/Kotlin.
 - **Cycle detection**, usable as a CI gate.
 - **Unused-file detection** — files unreachable from any entry point.
 - **Duplicate-code detection** — cross-language, suffix-array based, structural for CSS.
@@ -33,8 +35,8 @@ and doc-drift from one graph instead of grepping around.
   annotations back into test files (`apply_tags`).
 - **Type graph, API surface, module responsibility, feature-hub detection** — higher-level views
   built on top of the same graph.
-- **Monorepo support** — auto-detects Turborepo/Nx/pnpm/Yarn/npm workspaces and gives you
-  per-package graphs plus cross-package blast radius.
+- **Monorepo support** — auto-detects Turborepo/Nx/pnpm/Yarn/npm/Gradle/sbt workspaces and gives
+  you per-package graphs plus cross-package blast radius.
 
 Every capability above is available identically from the CLI and the MCP server — see
 [docs/mcp.md](./docs/mcp.md) for the full MCP tool reference and [docs/usage.md](./docs/usage.md)
@@ -47,6 +49,10 @@ for the full CLI reference.
 | TypeScript / JavaScript | `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs` | `// @tag core` |
 | Python | `.py` | `# @tag auth` |
 | Go | `.go` | `// @tag service` |
+| Java | `.java` | `// @tag service` |
+| Kotlin | `.kt`, `.kts` | `// @tag service` |
+| Scala | `.scala`, `.sc` | `// @tag service` |
+| Groovy | `.groovy`, `.gradle` | `// @tag service` |
 | CSS / SCSS / Sass / Less | `.css`, `.scss`, `.sass`, `.less` | N/A |
 | Stylus | `.styl` | N/A |
 | CoffeeScript | `.coffee` | `# @tag script` |
@@ -155,6 +161,7 @@ list, factory-function configs, and programmatic config-loading:
 - [Architecture Overview](./docs/architecture.md)
 - [Usage Guide](./docs/usage.md)
 - [Query Language Guide](./docs/query.md)
+- [Language Support Matrix](./docs/language-support.md)
 - [Graph Traversal](./docs/traversal.md)
 - [Test Tag Proposal](./docs/test-tags.md)
 - [Lock File Analysis](./docs/lock-files.md)
@@ -180,3 +187,9 @@ list, factory-function configs, and programmatic config-loading:
 - [ADR-015: Suffix-Array Duplicate Detection](./docs/adr-015-suffix-array-duplicate-detection.md)
 - [ADR-016: Branch/PR Comparison](./docs/adr-016-branch-comparison.md)
 - [ADR-017: JVM Language Support (Java, Kotlin, Scala, Groovy)](./docs/adr-017-jvm-languages.md)
+- [ADR-018: Per-Language Definition Duplicates](./docs/adr-018-per-language-definition-duplicates.md)
+- [ADR-019: Logic-Token Scoring for Duplicate Ranking](./docs/adr-019-logic-token-scoring.md)
+- [ADR-020: Whole-Workspace Analysis via WorkspaceGraph.flatten()](./docs/adr-020-workspace-flattening.md)
+- [ADR-021: A First-Party Kotlin Lezer Grammar](./docs/adr-021-kotlin-parsing.md)
+- [ADR-022: Per-Language Adapters](./docs/adr-022-language-adapters.md)
+- [ADR-023: On-Demand Coverage](./docs/adr-023-on-demand-coverage.md)

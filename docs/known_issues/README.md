@@ -1,20 +1,40 @@
 # Known issues
 
-Point-in-time issue write-ups from dogfooding mokosh v0.5.0 against real Java/Kotlin/Scala
-monorepos and against mokosh itself (2026-09-03). Each file is a self-contained plan:
-symptom, root cause with `file:line` references, fix, test plan, and cross-issue
-dependencies.
+Point-in-time issue write-ups from dogfooding mokosh (v0.5.0 through v0.5.4) against real
+Java/Kotlin/Scala/Go/Python monorepos and against mokosh itself, 2026-09-03 through 2026-09-27.
+Each file is a self-contained plan: symptom, root cause with `file:line` references, fix, test
+plan, and cross-issue dependencies.
+
+x§x§## Open
+
+Issues with real remaining scope — a partial ship, or no fix started at all. Ordered by number.
 
 | # | File | Symptom |
 |---|------|---------|
 | 6 | [`06-duplicates-query-language.md`](06-duplicates-query-language.md) | `find_duplicates` output too large for an LLM. **6a–6c shipped** (`filter` DSL + `slim` + `summary`); 6d (shared shaping layer) and the overlapping-window matcher fix remain |
 | 7 | [`07-per-language-analysis-semantics.md`](07-per-language-analysis-semantics.md) | Analyses treat every language like JS/TS; JVM data shapes, idiom exclusion, and the per-language config surface still go undetected/unbuilt (CSS vars + TS types shipped in phase 1) |
-| 8 | [`08-cross-language-reliability.md`](08-cross-language-reliability.md) | Umbrella: uneven feature parity across languages. **8a/8b/8d shipped** (parity matrix + `LANGUAGE_FIDELITY` + `analyze` `fidelity`; `example/full-house/conformance.test.ts` drift guard; per-tool `caveats`; resolver try/catch + robustness tests). **8c partially shipped** (JVM import-symbol tracking; Kotlin test-tag strategy). Remaining 8c: Kotlin call edges/complexity, Groovy audit, Coffee/LS/Lua |
-| 9 | [`09-duplicate-clone-family-noise.md`](09-duplicate-clone-family-noise.md) | `find_duplicates` reports one row per LCP-tree node instead of per clone family; connected-component clustering for the remaining non-nested cases still open (dominance filter shipped) |
+| 8 | [`08-cross-language-reliability.md`](08-cross-language-reliability.md) | Umbrella: uneven feature parity across languages. **8a/8b/8d shipped** (parity matrix + `LANGUAGE_FIDELITY` + `analyze` `fidelity`; `example/full-house/conformance.test.ts` drift guard; per-tool `caveats`; resolver try/catch + robustness tests). **8c partially shipped** (JVM import-symbol tracking; Kotlin test-tag strategy; Kotlin call edges/complexity via a first-party grammar, [ADR-021](../adr-021-kotlin-parsing.md)). Remaining 8c: Groovy audit, Coffee/LS/Lua |
 | 12 | [`12-call-edge-same-package-resolution.md`](12-call-edge-same-package-resolution.md) | Bare calls to a same-package sibling's symbol (no import needed in Kotlin/Java) produce no call edge — `get_call_graph`/`get_callers` return empty despite real, confirmed call sites |
 | 13 | [`13-call-graph-definition-ambiguity.md`](13-call-graph-definition-ambiguity.md) | `get_call_graph`'s `definedIn` silently picks one file when a function/method name is exported by more than one (e.g. an interface method implemented by several types), with no ambiguity signal |
 
-## Fixed
+## Resolved
+
+Issues whose own write-up is self-declared `fixed`/`shipped` — including ones with a minor,
+explicitly-noted optional follow-up still open (never a load-bearing gap). Kept in
+`known_issues/` rather than moved to an archive directory: several are cited by path directly in
+source comments (`src/graph/builder.ts`, `src/graph/duplication/index.ts`), and moving the files
+would mean finding and updating every such citation with no guarantee none is missed.
+
+| # | File | Symptom |
+|---|------|---------|
+| 5 | [`05-find-duplicates-and-cycles-noise.md`](05-find-duplicates-and-cycles-noise.md) | **Fixed** — `find_duplicates`/`cycles` noise: kind-aware cycle filtering (`docReference`/`samePackage` skipped by default) + generated/vendored-file skip + import-block masking + advisory `signals` |
+| 9 | [`09-duplicate-clone-family-noise.md`](09-duplicate-clone-family-noise.md) | **Fixed** — `find_duplicates` reported one row per LCP-tree node instead of per clone family; dominance filter + exact-file-set clustering fixed the reported case. Connected-component clustering for a further, non-nested noise class remains a possible follow-up, not a reopening of this issue |
+| 10 | [`10-api-surface-response-size.md`](10-api-surface-response-size.md) | **Fixed** — `get_api_surface` returned a ~14K-token full payload; now summary-first (`view: "summary"` default, ~1K tokens), and `bin` entries are recognized as entry points so CLI/MCP code stops being mislabelled unreachable |
+| 11 | [`11-disk-cache-not-invalidated-by-mokosh-version.md`](11-disk-cache-not-invalidated-by-mokosh-version.md) | **Fixed** — `clear_cache` silently left a stale on-disk workspace cache in place; it now deletes `mokosh-cache/workspace/` too. Automatic staleness detection via a version-derived manifest remains open |
+| 14 | [`14-empty-entrypoints-doc-reference-leak.md`](14-empty-entrypoints-doc-reference-leak.md) | **Fixed** — `analyze(entryPoints: [])` on a plain repo built a small, non-deterministic graph seeded only by markdown doc-reference mentions; it now discovers every source file as its own entry point |
+| 15 | [`15-gradle-unary-plus-dsl-detection.md`](15-gradle-unary-plus-dsl-detection.md) | **Fixed** — Gradle monorepo detection missed settings files using Kotlin's unary-plus `+"module"` project DSL (ktor: 0 → 136 packages) |
+
+## Details
 
 - **Issue 15** — [`15-gradle-unary-plus-dsl-detection.md`](15-gradle-unary-plus-dsl-detection.md) —
   `gradleDetector` only recognized Gradle's standard `include(":module")` syntax, so ktorio/ktor's
@@ -96,7 +116,8 @@ dependencies.
    ~~resolver-robustness pass~~ (all **shipped**: `docs/language-support.md` + `LANGUAGE_FIDELITY`
    + `analyze` `fidelity`/`caveats`; `example/full-house/conformance.test.ts`; `languageCaveats`
    wired into 8 tools; `LangResolver` try/catch + `lang-resolvers/robustness.test.ts`). 8c:
-   ~~JVM import-symbol tracking~~ + ~~Kotlin test-tag strategy~~ **shipped**. Remaining: Kotlin
-   call edges + complexity, Groovy audit, Coffee/LS/Lua, LiveScript export-tracking table fix, and
-   issue 7's remaining languages. The conformance harness now regression-locks each as a baseline
+   ~~JVM import-symbol tracking~~ + ~~Kotlin test-tag strategy~~ + ~~Kotlin call edges +
+   complexity~~ **shipped** (the last via a first-party Lezer grammar, ADR-021). Remaining: Groovy
+   audit, Coffee/LS/Lua, LiveScript export-tracking table fix, and issue 7's remaining languages.
+   The conformance harness now regression-locks each as a baseline
    change.

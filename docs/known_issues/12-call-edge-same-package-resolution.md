@@ -1,6 +1,8 @@
 # Issue 12 — Bare calls to a same-package sibling's symbol produce no call edge (Kotlin/Java)
 
-Status: **open**. Found dogfooding v0.5.4 against ktorio/ktor (call-graph tool audit).
+Status: **design decided (2026-10-01), implementation pending**. Found dogfooding v0.5.4 against
+ktorio/ktor (call-graph tool audit). See "Decided approach" below for the agreed design —
+supersedes the "Proposed fix" section's open options.
 
 ## Symptom
 
@@ -64,7 +66,60 @@ called" — a real per-symbol name lookup, not just package membership.
   — resolution would need at least an "ambiguous, picked arbitrarily" signal, similar to the
   disambiguation gap in issue 13.
 
-## Proposed fix (not built)
+## Decided approach (2026-10-01)
+
+A `Plan`-agent pass validated the proposed fix against this repo's own blast radius
+(`get_affected` on the candidate files) before this was finalized, and found two corrections to
+the analysis below the original "Proposed fix" section had missed:
+
+- **Java's gap is narrower than it looks.** Java's grammar never allows a bare, unqualified
+  cross-class call — every call is either `this.foo()` (same class, not cross-file) or already
+  qualified (`Foo.bar()` / `new Foo()`). The real Java gap is purely: `Foo` doesn't need an
+  `import` when it's a same-package sibling type, and the resolver today only recognizes
+  explicitly-imported types. So Java needs **no separate symbol index** — it reuses the exact same
+  post-drain mechanism built for Kotlin below, just triggered by "unqualified type name" instead
+  of "bare function call."
+- **`JvmLangResolver`'s package index is filesystem-walk-based**, not graph-order-dependent, which
+  made a resolver-level symbol index (reading every JVM file's full content a second time) a real
+  alternative — but it was rejected in favor of the option below for cost reasons.
+
+**Decisions:**
+
+1. **Mechanism: builder-level post-drain pass**, not a resolver-level symbol index. The post-drain
+   pass reuses `FileNode.exports` — data the normal per-file parse (via `@lezer/java` for Java,
+   the first-party grammar for Kotlin, see ADR-021) already computes — so it costs zero extra file
+   reads or re-parsing. The rejected alternative would have required re-reading and re-scanning
+   every JVM file's full content a second time, project-wide, every build.
+2. **No parse-time filter on marker emission.** The parser-side fallback fires on every
+   `localNames`/`importedTypeMap` miss (including Kotlin stdlib calls like `println`/`let`/`map`),
+   relying on the post-drain pass's cheap map-miss to drop non-matches for free, exactly as today.
+   **Before merging**, validate `rawCallEdges` volume against a real stdlib-heavy corpus (OkHttp or
+   kotlinx.coroutines, both already used for ADR-021's measurements) to confirm this doesn't
+   inflate per-file payloads unacceptably.
+3. **Marker encoding: a NUL-prefixed sentinel string** inside `toSpecifier` (e.g.
+   `` `\0jvm-same-package-call:<package>:<name>` ``), reusing the same convention
+   `GO_SAME_PACKAGE_SPECIFIER` already established for Go's same-package **import** edge. No
+   change to any shared type; the marker is parsed back out only inside the post-drain pass.
+4. **Ambiguity: drop the edge.** When more than one sibling in the same package partition declares
+   a matching name, resolve nothing rather than guessing — consistent with the existing
+   "no match → external" convention this resolver already follows elsewhere, and consistent with
+   issue 13's decision for the same underlying "don't guess" concern.
+5. **Scala/Groovy: explicitly out of scope**, not a gap being left open — neither has any
+   call-edge extraction yet (no pure-JS AST exists for either). If/when either gets a first-party
+   Lezer grammar in this repo (the path Kotlin took via ADR-021, rather than waiting on an
+   upstream grammar that doesn't exist), this same-package case should be designed in from the
+   start rather than rediscovered — noting it here so that future work knows to check.
+6. **Go/Python: confirmed no parallel fix needed.** Go requires explicit `pkg.Func()` qualification
+   for anything outside the current file — there's no bare-same-package-call shape in Go at all.
+   Python's call-edge tracking is deliberately narrow by design (ADR-011) — it already doesn't
+   resolve calls through a module/variable, so this isn't a new gap for Python either.
+7. **Incremental-cache interaction: accepted as a documented caveat, not solved in v1.** If a
+   sibling file is added/removed/renamed between builds without the calling file itself changing,
+   that file's cache-hit same-package call edges stay frozen until it's next re-parsed. This only
+   surfaces outside a full rebuild (fresh clone, CI, `--clear-cache`), which is the common path
+   anyway — worth one sentence in the eventual ADR update, not a blocker.
+
+## Proposed fix (superseded by "Decided approach" above; kept for the original reasoning)
 
 1. Parser side (Kotlin + Java; Go has room for the same idiom too, though Go's bare calls are
    same-*file*, not same-*package*, per `go.ts`'s existing same-file exclusion note — a narrower

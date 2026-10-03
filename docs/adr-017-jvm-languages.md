@@ -49,7 +49,7 @@ allows — see the tier table below):
 | Language | Parser | Import graph | Complexity / cognitive / call-edges | Duplicate detection |
 |---|---|---|---|---|
 | **Java** | `@lezer/java` (real tree) | ✅ | ✅ done (`src/parser/complexity/java.ts`; call edges = static + constructor calls only) | ✅ (free — generic tokenizer) |
-| **Kotlin** | hand-rolled scanner | ✅ | ❌ until a pure-JS AST exists | ✅ (free) |
+| **Kotlin** | hand-rolled scanner, then a first-party Lezer grammar (**done**, see [ADR-021](./adr-021-kotlin-parsing.md)) | ✅ | ✅ done (`src/parser/complexity/kotlin.ts`; call edges via the same grammar) | ✅ (free) |
 | **Scala** | hand-rolled scanner | ✅ | ❌ until a pure-JS AST exists | ✅ (free) |
 | **Groovy** | hand-rolled scanner | ✅ (lite — see below) | ❌ until a pure-JS AST exists | ✅ (free — the main motivator) |
 
@@ -379,7 +379,7 @@ No new native dependencies. One new pure-JS dependency: `@lezer/java`.
 | Limitation | Notes |
 |---|---|
 | Same-package coupling is package-granular, not symbol-precise | The synthetic `<own-package>.*` edge links a file to *every* sibling in its package, not only the ones it actually references — correct for blast-radius, noisier for `get_dependencies` |
-| Kotlin / Scala / Groovy have no complexity / call-edges | No pure-JS AST for any of them; `find_complex_functions` / `find_risk_hotspots` exclude `.kt` / `.scala` / `.groovy` functions until a grammar exists |
+| Scala / Groovy have no complexity / call-edges | No pure-JS AST for either; `find_complex_functions` / `find_risk_hotspots` exclude `.scala` / `.groovy` functions until a grammar exists. **Kotlin is no longer in this row** — a first-party Lezer grammar ([ADR-021](./adr-021-kotlin-parsing.md)) shipped real complexity, cognitive complexity, and call edges for `.kt`/`.kts` |
 | Java call edges are static + constructor calls only | `Foo.bar()` and `new Foo()` on an imported type resolve; instance calls through a variable or field (`this.converter.convert()`) need type inference and are not captured. A future pass could track local/param/field declared types against the imported-type set |
 | Scala tag injection is a marker comment, not a native tag | `apply_tags` writes `// mokosh:tags a, b` above a `.scala` suite so `propose_tags` → `apply_tags` → `list_tags` round-trips; it does **not** make `testOnly -- -n a` work. ScalaTest class-level string tags need a generated `@TagAnnotation` type; `taggedAs` is per-test. Native per-test injection is a possible future enhancement |
 | Files with no `package` declaration are unindexed | Default-package classes and package-less scripts don't resolve and can't be resolved *to*; brace-nested Scala `package a { … }` is read as the outer package only |
@@ -409,8 +409,9 @@ No new native dependencies. One new pure-JS dependency: `@lezer/java`.
 
 **Negative / trade-offs**
 
-- Kotlin, Scala, and Groovy analysis is shallower than Java (no complexity/call-edges) until
-  upstream tooling exists — an asymmetry users of Kotlin- or Scala-heavy repos will notice.
+- Scala and Groovy analysis is shallower than Java/Kotlin (no complexity/call-edges) until a
+  pure-JS grammar exists for either — an asymmetry users of Scala-heavy repos will notice. Kotlin
+  closed this gap via its own first-party grammar (ADR-021).
 - The synthetic same-package edge trades precision for recall: it inflates edge counts (roughly
   by the average package size) and makes `get_dependencies` on a JVM file list its whole package,
   in exchange for blast-radius analysis seeing coupling that has no `import` line.

@@ -7,13 +7,18 @@
 
 Every tool returned a usable response. Nothing crashed. The issues below are correctness bugs, output-quality bugs, and unbounded response sizes.
 
+**Re-verified against code on 2026-10-01:** of the 12 items in Part 4's fix list, only **#1**
+(`list_tags`) and **#10** (`get_api_surface` partitioning) have actually shipped. The other 10 —
+including both correctness bugs F1/F2 — are unchanged from when this audit was written. Status is
+marked inline on each finding below and in the Part 4 table.
+
 ---
 
 ## Part 1 — Correctness / quality findings
 
 ### F1 — `get_affected` with `testsOnly:true` leaks non-test files
 
-**Severity:** medium · **Confirmed**
+**Severity:** medium · **Confirmed** · **Status (2026-10-01): still open** — `src/graph/queries.ts:101` is unchanged; the bare `tag.name === "test"` check is still there.
 
 `get_affected({ file: "src/types/node.ts", testsOnly: true })` returns 94 entries — 93 test files plus **`src/parser/lang/python.ts`** (`category: "logic"`, exports `parsePython`), the only non-test file in the list.
 
@@ -36,7 +41,7 @@ The predicate trusts *any* tag literally named `test`, regardless of tag kind. `
 
 ### F2 — Markdown doc-reference edges pollute `detect_features` and `get_feature_graph`
 
-**Severity:** medium · **Confirmed**
+**Severity:** medium · **Confirmed** · **Status (2026-10-01): still open** — `src/graph/features/index.ts:69` only excludes `category === "test" | "barrel"`; markdown nodes (`category: "other"`) still pass the hub-candidacy filter unchanged.
 
 `detect_features` ranks documentation files as top "feature hubs / orchestrators":
 
@@ -65,7 +70,7 @@ There is precedent: `analyze` already filters `docReference` edges out of cycle 
 
 ### F3 — `get_workspace_affected` returns misleading success on a non-monorepo
 
-**Severity:** low · **Confirmed**
+**Severity:** low · **Confirmed** · **Status (2026-10-01): still open** — `handleGetWorkspaceAffected` (`src/mcp/handlers.ts:1269`) still calls `ensureFreshWorkspace` directly with no `layout.type === "none"` guard, unlike `get_workspace_packages`'s handler just above it.
 
 On this single-package repo:
 
@@ -78,7 +83,12 @@ On this single-package repo:
 
 ### F4 — `analyze` with `entryPoints: []` silently falls back on a non-monorepo
 
-**Severity:** informational
+**Severity:** informational · **Status (2026-10-01): superseded** — the underlying behavior this
+described no longer exists. `analyze(entryPoints: [])` on a non-monorepo now discovers every
+source file as its own entry point instead of silently building a partial graph (fixed via
+`docs/known_issues/14-empty-entrypoints-doc-reference-leak.md`). The suggested documentation note
+/ `isMonorepo` marker was never added, but there's no longer a misleading result to document
+against.
 
 The tool description says empty `entryPoints` triggers monorepo auto-detection. On a non-monorepo it silently builds the normal single-package graph (381 nodes) instead of erroring or reporting "no workspace detected, built single package." Acceptable behaviour, but undocumented — worth a one-line note in the tool description and/or an `isMonorepo: false` marker in the response.
 
@@ -112,39 +122,41 @@ Default response sizes, measured this run:
 | `query` (slim, 4 nodes) | ~375 | ⚠️ slim drops edges but export-name arrays uncapped |
 | `analyze`, `find_unused`, `find_symbol`, `find_complex_functions`, `find_uncovered`, `find_risk_hotspots`, `get_callers`, `get_call_graph`, `clear_cache` | <300 | ✅ naturally small |
 
-### T1 — `list_tags` is the worst offender (~7k tokens / ~28 KB)
+### T1 — `list_tags` is the worst offender (~7k tokens / ~28 KB) · **Status (2026-10-01): fixed**
 
 1,214 distinct tags, dominated by single-occurrence declaration names (`makeNode`, `noop`, `seg`, `x`, bare filenames like `node.ts`). The `/mokosh` skill instructs the model to call this "before querying with `tag:<name>`" — a 7k-token tax on tag discovery, every session.
 
 **Fix:** add `minCount` (default ≥ 2) and/or `limit`; and/or exclude `declaration`-kind names by default, returning only `marker` / `comment-marker` / `import` tags (the kinds `query` slim mode already keeps). Offer `kind` filter to opt back in.
 
-### T2 — No summary-first mode where siblings have one
+Shipped: `handleListTags` (`src/mcp/handlers.ts`) now takes `kind` / `prefix` / `minCount` / `limit`.
+
+### T2 — No summary-first mode where siblings have one · **Status (2026-10-01): still open except list_tags**
 
 `find_duplicates`, `get_api_surface`, and `compare_branches` all ship capped summary defaults with a `view` / `detail` escalation. These do not, and should:
 
-- `list_tags` — see T1.
-- `get_feature_graph` — default to `{ hub, outDegree, fileCount }` per domain + `unassignedCount`; opt-in `view:"full"` for the path lists. (Also fixes T3.)
-- `get_type_graph` inventory — add `slim` / drop-doc mode, or truncate each `doc` to its first line; add `limit`.
-- `get_module_responsibility` with no `paths` — cap to feature-hub files by default, or require `paths`, or paginate.
-- `apply_tags` — add a counts-only response (`{ updated, unchanged, errors }`) with the file list behind `verbose:true`.
+- `list_tags` — see T1. **Fixed.**
+- `get_feature_graph` — default to `{ hub, outDegree, fileCount }` per domain + `unassignedCount`; opt-in `view:"full"` for the path lists. (Also fixes T3.) **Still open** — `handleGetFeatureGraph` returns the full `features`/`unassigned` payload unconditionally, no `view` param exists.
+- `get_type_graph` inventory — add `slim` / drop-doc mode, or truncate each `doc` to its first line; add `limit`. **Still open** — `GetTypeGraphArgs` has no `limit`; `doc` is still embedded in full.
+- `get_module_responsibility` with no `paths` — cap to feature-hub files by default, or require `paths`, or paginate. **Still open** — `handleGetModuleResponsibility` returns every module when `paths` is omitted.
+- `apply_tags` — add a counts-only response (`{ updated, unchanged, errors }`) with the file list behind `verbose:true`. **Still open** — `handleApplyTags` always concatenates every package's `files` array into the response, dry-run or not.
 
-### T3 — `get_feature_graph` is pitched as the cheap option but isn't here
+### T3 — `get_feature_graph` is pitched as the cheap option but isn't here · **Status (2026-10-01): still open**
 
-Skill text: "substantially smaller than a full graph query." On this repo the no-arg call is ~2,800 tokens — larger than `query` slim for most subsystem questions — because it enumerates every owned path plus a ~130-entry `unassigned` list. Compounded by F2. A summary mode (hub names + counts) fixes both.
+Skill text: "substantially smaller than a full graph query." On this repo the no-arg call is ~2,800 tokens — larger than `query` slim for most subsystem questions — because it enumerates every owned path plus a ~130-entry `unassigned` list. Compounded by F2 (also still open). A summary mode (hub names + counts) fixes both.
 
-### T4 — `get_type_graph` inventory inflates on JSDoc
+### T4 — `get_type_graph` inventory inflates on JSDoc · **Status (2026-10-01): still open**
 
 141 types is fine; embedding each type's full multi-line `doc` (5–10 lines for some) roughly triples the payload. Truncate to first line in inventory mode; keep full `doc` only in the focused single-type response.
 
-### T5 — Uncapped nested arrays inside otherwise-bounded responses
+### T5 — Uncapped nested arrays inside otherwise-bounded responses · **Status (2026-10-01): still open**
 
-- `query` slim mode caps nothing on `exports` / `importsFiles`. `src/mcp/handlers.ts` dumped 50+ export names in one node.
+- `query` slim mode caps nothing on `exports` / `importsFiles`. `src/mcp/handlers.ts` dumped 50+ export names in one node. Confirmed unchanged: `slimSerialize` (`src/graph/queries.ts`) still `.map()`s every export name and every import path with no cap.
 - `get_affected` / `get_dependents` with `withMeta` do the same per result.
 - Suggested: cap array previews (e.g. first 15 + `+N more`) in slim/meta modes.
 
-### T6 — `analyze` repeats `languageCoverage` on every call
+### T6 — `analyze` repeats `languageCoverage` on every call · **Status (2026-10-01): still open**
 
-The ~600-char fidelity matrix is returned on every `analyze`, including re-analyze / cache-hit. Return it once (first build) or move it behind a flag.
+The ~600-char fidelity matrix is returned on every `analyze`, including re-analyze / cache-hit. Return it once (first build) or move it behind a flag. Confirmed unchanged: `handleAnalyze` computes and returns `languageCoverage` unconditionally on every call.
 
 ---
 
@@ -175,17 +187,17 @@ The 26 structural questions in this audit cost **~24,000 tokens total via mokosh
 
 ## Part 4 — Prioritized fix list
 
-| # | Fix | Type | Effort | Payoff |
-|---|---|---|---|---|
-| 1 | `list_tags`: `minCount` default ≥ 2 + `kind` filter; drop declaration names by default | token | S | ~7k → ~1k per session; biggest single win |
-| 2 | Exclude markdown nodes from `detectFeatures` / `buildFeatureGraph` / `collectUnassigned` (F2) | correctness | S | feature-graph ownership becomes correct |
-| 3 | `get_affected` `testsOnly`: stop matching bare `tag.name === "test"` (F1) | correctness | S | tests-only blast radius no longer leaks logic files |
-| 4 | `get_feature_graph`: summary-first (`hub` + counts), path lists behind `view:"full"` (T2/T3) | token | M | ~2.8k → ~500; matches its "cheap option" billing |
-| 5 | `get_type_graph` inventory: truncate `doc` to first line, add `limit` (T4) | token | S | ~2.4k → ~800 |
-| 6 | `get_workspace_affected`: throw the not-a-monorepo error like `get_workspace_packages` (F3) | correctness | S | no misleading empty success |
-| 7 | `apply_tags`: counts-only default response, file list behind `verbose` (T2) | token | S | ~1.9k → ~150 |
-| 8 | `get_module_responsibility`: bound the no-`paths` response (T2) | token | M | caps an unbounded path |
-| 9 | `query` slim + `withMeta`: cap `exports` / `importsFiles` previews (T5) | token | S | trims hub-node responses |
-| 10 | `get_api_surface`: partition non-source files out of `unreachableFromEntry` (minor) | quality | S | actionable list stays actionable |
-| 11 | `analyze`: return `languageCoverage` only on first build (T6) | token | S | ~260 → ~120 on cache hits |
-| 12 | Audit all other `tag.name === "test"` / bare-tag-name checks (F1 follow-up) | correctness | M | prevents the same class of bug elsewhere |
+| # | Fix | Type | Effort | Payoff | Status (2026-10-01) |
+|---|---|---|---|---|---|
+| 1 | `list_tags`: `minCount` default ≥ 2 + `kind` filter; drop declaration names by default | token | S | ~7k → ~1k per session; biggest single win | ✅ Fixed |
+| 2 | Exclude markdown nodes from `detectFeatures` / `buildFeatureGraph` / `collectUnassigned` (F2) | correctness | S | feature-graph ownership becomes correct | ❌ Open |
+| 3 | `get_affected` `testsOnly`: stop matching bare `tag.name === "test"` (F1) | correctness | S | tests-only blast radius no longer leaks logic files | ❌ Open |
+| 4 | `get_feature_graph`: summary-first (`hub` + counts), path lists behind `view:"full"` (T2/T3) | token | M | ~2.8k → ~500; matches its "cheap option" billing | ❌ Open |
+| 5 | `get_type_graph` inventory: truncate `doc` to first line, add `limit` (T4) | token | S | ~2.4k → ~800 | ❌ Open |
+| 6 | `get_workspace_affected`: throw the not-a-monorepo error like `get_workspace_packages` (F3) | correctness | S | no misleading empty success | ❌ Open |
+| 7 | `apply_tags`: counts-only default response, file list behind `verbose` (T2) | token | S | ~1.9k → ~150 | ❌ Open |
+| 8 | `get_module_responsibility`: bound the no-`paths` response (T2) | token | M | caps an unbounded path | ❌ Open |
+| 9 | `query` slim + `withMeta`: cap `exports` / `importsFiles` previews (T5) | token | S | trims hub-node responses | ❌ Open |
+| 10 | `get_api_surface`: partition non-source files out of `unreachableFromEntry` (minor) | quality | S | actionable list stays actionable | ✅ Fixed |
+| 11 | `analyze`: return `languageCoverage` only on first build (T6) | token | S | ~260 → ~120 on cache hits | ❌ Open |
+| 12 | Audit all other `tag.name === "test"` / bare-tag-name checks (F1 follow-up) | correctness | M | prevents the same class of bug elsewhere | ❌ Open — blocked on #3 |

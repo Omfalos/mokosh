@@ -21,6 +21,8 @@ npx mokosh [options] <entry-point1> <entry-point2> ...
 | `--propose-tags` | Identify changed files using Git and propose affected test tags. |
 | `--plain` | Output tags as plain text (one per line) instead of JSON. Use with `--propose-tags`. |
 | `--affected-tests` | Like `--propose-tags` but outputs affected test file paths instead of tags. |
+| `--base <ref>` | Diff against this ref (e.g. `origin/main`) instead of only local working-tree/staged/untracked changes. Use with `--propose-tags`/`--affected-tests`; needed in CI, where the tree is already clean. |
+| `--package <name>` | On a monorepo root (with no entry points given): narrow every command to this one package. Omit to run across the whole flattened workspace — see `--workspace-packages` for the names. |
 | `--detect-features` | Output files with high in-degree (feature hubs), sorted by number of importers descending. |
 | `--feature-threshold <N>` | Minimum number of importers for a file to be considered a feature hub (default: `5`). Applies to `--detect-features`, `--propose-tags`, and `--affected-tests`. |
 | `--find-unused` | Scan the project for files not reachable from the provided entry points. |
@@ -45,18 +47,38 @@ npx mokosh [options] <entry-point1> <entry-point2> ...
 | `--feature-graph` | Group files into feature domains under their hub orchestrators. |
 | `--call-graph --function <name>` | Look up callers and callees for a named function. |
 | `--with-edge-detail` | Include per-edge call-site detail on `--call-graph` output. |
-| `--find-symbol --function <name>` | Find every file that exports a symbol by exact name, with the best available caller/importer info per match (call-edge precision for TS/JS/Go/Python — coverage differs per language, see ADR-011 — file-level dependents otherwise). |
+| `--find-symbol --function <name>` | Find every file that exports a symbol by exact name, with the best available caller/importer info per match (call-edge precision for TS/JS/Go/Python/Java/Kotlin — coverage differs per language, see [`docs/language-support.md`](./language-support.md) — file-level dependents otherwise). |
 | `--api-surface` | Output the public API surface (expands `export *` chains). |
 | `--apply-tags` | Write `@tag` annotations into test files from graph tags. |
 | `--dry-run` | Preview `--apply-tags` changes without writing to disk. |
-| `--find-complex-functions` | List functions/methods at or above `--complexity-threshold`, sorted worst-first. Populated for TypeScript/JavaScript, Go, and Python. |
+| `--find-complex-functions` | List functions/methods at or above `--complexity-threshold`, sorted worst-first. Populated for TypeScript/JavaScript, Go, Python, Java, and Kotlin. |
 | `--metric <cognitiveComplexity\|complexity>` | Which score `--find-complex-functions` sorts/thresholds on. Default: `cognitiveComplexity`. |
 | `--complexity-threshold <N>` | Minimum score for `--find-complex-functions` to include a function. Default: `10`. |
-| `--limit <N>` | Max results returned by `--find-complex-functions`. |
+| `--limit <N>` | Max results returned by `--find-complex-functions`/`--find-duplicates`. |
+| `--find-duplicates` | Find duplicated code blocks (token-based, works for every parsed language), largest-first. Lock files, ignored-dir files, and generated/vendored files are always excluded. |
+| `--min-duplicate-lines <N>` | Minimum duplicated block size in lines to report (default `6`). Use with `--find-duplicates`. |
+| `--include-generated` | Scan generated/vendored files too (protobuf output, `*.generated.*`, `generated/`/`__snapshots__/` dirs, `*.snap`, `@generated`-marked files). Use with `--find-duplicates`. |
+| `--include-same-file` | Include matches where every occurrence is in one file (default: excluded — usually a file's own repetitive shape, not copy-paste). Use with `--find-duplicates`. |
+| `--include-svg-markup` | Include matches whose occurrences are all inline SVG / SVG-shaped JSX markup (default: excluded). Use with `--find-duplicates`. |
+| `--include-docs` | Include markdown-family matches (default: excluded — mirrored prose docs, `README ↔ *.mdx`). Use with `--find-duplicates`. |
+| `--scope <src\|tests\|all>` | Which duplicates to surface by test-file involvement (default `src` — drops test clusters; `tests` = only substantive shared test-logic clusters; `all` = everything). Use with `--find-duplicates`. |
+| `--dup-query "<k:v,...>"` | Filter `--find-duplicates` results (AND across keys): `path` / `allPaths` / `family` / `type` / `kind` / `defKind` / `minLines` / `maxLines` / `minScore` / `maxScore` / `minOccurrences` / `crossFile` / `signal`, plus `sort` (`lines`\|`score`\|`occurrences`) / `sortDir` / `limit`. Unknown keys error. |
+| `--dup-full` | Print full `--find-duplicates` groups/clusters (source text + per-occurrence metadata) instead of the compact shape. |
+| `--find-risk-hotspots` | List functions that are complex, undertested, and (if `gitStats` is enabled) frequently changed. Requires `coverageReportPath` or `coverage.mode: "static"\|"exec"` in config. |
+| `--max-coverage-pct <N>` | Max file coverage % to include (default `50`). Use with `--find-risk-hotspots`. |
+| `--min-churn <N>` | Min 90-day commit count to include (default `0`, ignored if `gitStats` is off). Use with `--find-risk-hotspots`. |
+| `--compare-branches <ref>` | Review a PR/branch: diff the current graph against `<ref>` (via a temporary git worktree) — file changes, stale post-rename references, and duplication/complexity/doc-drift/coverage deltas. See [ADR-016](./adr-016-branch-comparison.md). |
+| `--compare-full` | Print the complete `BranchComparison` instead of the compact summary. Use with `--compare-branches`. |
+| `--compare-max-items <N>` | Entries kept per summary delta list (default `8`; true counts always reported). Use with `--compare-branches`. |
+| `--list-tags` | Bounded tag inventory (always ≤250 tags): by default the query-meaningful kinds (`comment-marker`, `import`) with count ≥2, top 50, plus a `byKind` histogram. Use `--plain` for a bare name list. |
+| `--tag-kind <k\|all>` | `--list-tags`: restrict to one kind (`comment-marker`\|`import`\|`function`\|`variable`\|`library`) or `all`. |
+| `--tag-prefix <s>` | `--list-tags`: case-insensitive substring match on the tag name. |
+| `--tag-min-count <N>` | `--list-tags`: min node count per tag (default `2`). |
+| `--tag-limit <N>` | `--list-tags`: max tags to print (default `50`; hard-capped at `250`). |
 | `--workspace-packages` | List monorepo packages detected from the workspace root, with node counts and cross-package dependencies. |
 | `--workspace-affected --file <path>` | Cross-package blast-radius: every file (annotated with its package) affected if `--file` changes. |
 | `--slim` | Compact JSON output (export names, meaningful tags, flat `importsFiles` list) instead of the full shape. |
-| `--watch` | Re-run the resolved command on every debounced file change; rebuilds and re-caches the graph each time. Only supported with the default output, `--query`, `--callers`, `--dependencies`, `--dependents`, `--affected`, `--find-uncovered`, `--find-complex-functions`, `--check-cycles`, and `--check-doc-drift`. |
+| `--watch` | Re-run the resolved command on every debounced file change; rebuilds and re-caches the graph each time. Only supported with the default output, `--query`, `--callers`, `--dependencies`, `--dependents`, `--affected`, `--find-uncovered`, `--find-complex-functions`, `--find-duplicates`, `--find-risk-hotspots`, `--check-cycles`, `--check-doc-drift`, and `--list-tags`. |
 | `--clear-cache` | Delete the resolved disk cache file, if present, so the next run rebuilds from scratch. |
 | `--query <query>` | Filter the output graph using a query string (e.g., `category:logic,tag:auth`). See the [Query Language Guide](./query.md). |
 | `--query-help` | Show all supported query filter keys and examples. |
@@ -71,9 +93,11 @@ npx mokosh [options] <entry-point1> <entry-point2> ...
 Mokosh supports a wide range of languages out of the box:
 
 - **Logic**: JavaScript (.js, .mjs, .cjs), TypeScript (.ts, .tsx), Python (.py), Go (.go), CoffeeScript (.coffee), LiveScript (.ls), Lua (.lua), Gherkin (.feature).
+- **JVM**: Java (.java), Kotlin (.kt, .kts), Scala (.scala, .sc), Groovy (.groovy, .gradle).
 - **Styles**: CSS (.css), SCSS (.scss), Less (.less), Stylus (.styl).
+- **Docs**: Markdown / MDX (.md, .mdx) — contributes doc-drift detection, not a dependency graph in the usual sense.
 
-Each language is parsed using its respective AST library to ensure accurate dependency extraction. Python uses [`@lezer/python`](../docs/adr-002-python-parsing.md) — a pure-JavaScript LR parser with no native compilation required. Go uses [`@lezer/go`](../docs/adr-007-go-resolution.md), with module-local imports resolved via `go.mod`.
+Each language is parsed using its respective AST library to ensure accurate dependency extraction. Python uses [`@lezer/python`](../docs/adr-002-python-parsing.md) — a pure-JavaScript LR parser with no native compilation required. Go uses [`@lezer/go`](../docs/adr-007-go-resolution.md), with module-local imports resolved via `go.mod`. Java uses `@lezer/java`; Kotlin uses a first-party `@lezer` grammar built for mokosh ([ADR-021](./adr-021-kotlin-parsing.md)); Scala and Groovy use hand-rolled scanners. All four JVM languages share one `JvmLangResolver` (package-declaration index) — see [ADR-017](./adr-017-jvm-languages.md). Depth of support varies by language and axis — see the full matrix in [`docs/language-support.md`](./language-support.md).
 
 **Python-specific notes:**
 - All import forms are supported: `import X`, `from X import Y`, relative imports (`from . import X`, `from ..utils import Y`), star imports, aliased imports, and parenthesised multi-line imports.
@@ -280,7 +304,7 @@ const graph = await createImportMap(process.cwd(), ['src/index.ts']);
 
 ### Monorepo / Workspace Graph
 
-Use `createWorkspaceGraph` for monorepos. It auto-detects the workspace layout (Turborepo, Nx, pnpm, Yarn, npm) and builds one graph per package.
+Use `createWorkspaceGraph` for monorepos. It auto-detects the workspace layout (Turborepo, Nx, pnpm, Yarn, npm, Gradle, sbt — tried in that priority order) and builds one graph per package.
 
 ```typescript
 import { createWorkspaceGraph } from 'mokosh';

@@ -1,6 +1,7 @@
 # Plan: duplicate-detection & cycle noise reduction
 
-Status: in progress on branch `fix/cycle-scc-dedup` (3 of 8 items landed). Source: repeated
+Status: in progress (5 of 8 items landed as of 2026-10-01: F, H, C, Docs, and A's ranking phase —
+see below). Source: repeated
 dogfood audits of `find_duplicates` / `--check-cycles` against `box-ui-elements` (3,474 nodes,
 pure TS/JS/SCSS/Markdown) through 2026-09-05, building on the SVG-noise work in
 `4b527ec` and the clone-family work in `docs/known_issues/09-duplicate-clone-family-noise.md`.
@@ -54,6 +55,23 @@ Coffee→JS ports are real cross-`FileType` duplication worth keeping), `jvm`
 `src/graph/duplication/families.ts`. No measurable effect on `box-ui-elements` (pure TS/JS) —
 payoff is on polyglot repos; validate against `square/okhttp`, `pallets/flask`, `gin-gonic/gin`.
 
+### Docs — default-exclude the `markdown` family (shipped)
+
+`FindDuplicatesOptions.includeDocs` (default `false`) drops every `markdown`-family match from
+the default `find_duplicates` output, tagging survivors `signals: ["docs"]` when opted back in
+via `includeDocs: true`. Files: `src/graph/duplication/index.ts`. The "fold into `scope` as a
+fourth consideration" alternative mentioned below was not needed — a separate boolean sufficed.
+
+### A — rank by a logic-token score (ranking phase shipped, `6a84ed6`/`7996eec`; calibration not started)
+
+`DuplicateGroup.score` (logic-bearing token count) is computed per block group and used to rank
+`groups`/`clusters`; `minScore` exists as an opt-in filter (default `0` = off) — see
+[ADR-019](../adr-019-logic-token-scoring.md). What's described below as "Fix" is implemented.
+What remains — a calibrated non-zero `minScore` default per language family, so the ranking
+change also becomes a filtering change — is split out into its own plan:
+[`docs/plans/duplication-minscore-calibration.md`](duplication-minscore-calibration.md) (status:
+not started there).
+
 ### C — `scope` option: separate substantive test duplication from skeletons (`a22fdfa`)
 
 Test-file duplication was lumped in with product code — ~57% of all clusters on an icon-heavy
@@ -72,37 +90,9 @@ substantive test clusters (≥3 distinct shared blocks across ≤6 files, or one
 
 ## Remaining, roughly ordered by leverage
 
-### A — rank and threshold by a logic-token score (highest leverage)
-
-**Problem.** Sort and the `minLines` threshold both use block _size_. A 137-line Markdown copy
-(`tokens: 33`) outranks a 40-line logic dup. After `scope=src`, the residual visible noise is:
-- icon-component wrappers — the 13-file `left-sidebar/icons/*` cluster is a shared Flow
-  `type Props` + `const Icon = ({…}) => (<AccessibleSVG …><path d="…"/></AccessibleSVG>)`
-  wrapper (~138 raw tokens, `L=30`), reported as a top finding;
-- `mdx` doc pages whose fenced code blocks tokenize (`README.md ↔ ContentX.mdx` at 449
-  tokens — new #1 by token count once volume dropped);
-- ~184 groups ≥15 lines in the 40–90 raw-token band that are mostly attribute/punctuation shape.
-
-**Fix.** Add `DuplicateGroup.score` = count of _logic-bearing_ tokens in the verified block:
-keywords ∪ multi-char operators ∪ arithmetic/logic single-char operators (`+ - * % & | ! ^ ~ ?`),
-**excluding** `ID`, `NUM`, `STR`, and pure structure (`( ) { } [ ] ; , : . < > / =` — `=`/`<`/`>`/`/`
-excluded because they dominate JSX attributes). Icon wrappers land at ~8–10, Flow `type Props`
-blocks low, real 30-line functions at 25–40.
-
-- `src/graph/duplication/shingle.ts` — `significantTokenCount(tokens, start, length)` next to
-  `structuralPunctuationRatio`, exported; `DuplicateGroup.score?: number`.
-- `src/graph/duplication/suffix-duplicates.ts` — set `score` on each group in
-  `applyDominanceFilter` (it has `tokensByFile` + the span).
-- Definition matchers (`type-defs`/`object-literals`/`jsx-elements`/`style-vars`) — set
-  `score = tokens` (member/field count) as a proxy, or leave undefined and treat as `tokens`.
-- `src/graph/duplication/index.ts` — sort by `(b.score ?? b.tokens) - (a.score ?? a.tokens)`
-  then `lines`; new `minScore?: number` option (default `0` = off to start), filtering
-  `kind: "block"` groups only. Also re-sort `clusters` by max member score.
-- `docs/adr-019-logic-token-scoring.md` — the metric and why raw tokens / lines were insufficient.
-
-**Rollout.** Land sort-by-score with `minScore: 0` first (re-ranks, breaks nothing, no test
-rebaseline). Calibrate a non-zero default against `okhttp` / `flask` / `gin` + the `index.test.ts`
-corpus in a follow-up; that step needs the `index.test.ts` fixtures re-baselined.
+A's ranking phase and the Docs item (above, in Done) are no longer listed here — see those
+entries. A's remaining scope (calibrating a non-zero `minScore` default) lives in
+[`docs/plans/duplication-minscore-calibration.md`](duplication-minscore-calibration.md).
 
 ### B — `preamble` signal
 
@@ -112,15 +102,6 @@ plus a top-level `const X = defineMessages({`-shape declaration. Kills the 41- a
 defineMessages({`), `box-ui-elements`' two largest remaining clusters. Tag + default-exclude,
 same shape as `same-file` / `svg-markup`; recoverable via an `includePreamble` flag or `scope`.
 Files: `src/graph/duplication/{shingle,index}.ts`, CLI/MCP wiring.
-
-### Docs — default-exclude the `markdown` family
-
-Markdown is its own family (item H) but still in the default output: 54 clusters on
-`box-ui-elements`, but 12 of the top ~50 by token count (`README.md ↔ *.mdx`, `*.md ↔ *.md` —
-Storybook docs mirroring package READMEs). Prose isn't code duplication. Drop `markdown`-family
-clusters from `find_duplicates` by default (like lock files), with an `includeDocs` opt-in — or
-fold into `scope` as a fourth consideration. Small. Files: `src/graph/duplication/index.ts`,
-CLI/MCP wiring.
 
 ### D — `data-list` signal
 
