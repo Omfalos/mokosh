@@ -143,3 +143,12 @@ array rather than overwriting a single variable — so the fix is substantially 
   check over a symbol-name search, one over call *targets* (issue 12), one over call
   *definitions* (this issue). A combined design pass could share the underlying "is this name
   unique in scope" helper.
+
+## Addendum (2026-10-03)
+
+Dogfooding v0.5.5 against gin-gonic/gin, after this issue's fix had already shipped, found that
+`query`'s raw `callEdges` (as opposed to `get_call_graph`) still silently commits to one arbitrary
+definition for an ambiguous name — a different code path than the one this issue fixed, not
+covered by it. Filed separately as
+[issue 21](21-call-edge-toFile-silent-ambiguity.md) rather than reopening this one, since the
+`queryCallGraph` fix described above is itself complete and correct for what it scoped.

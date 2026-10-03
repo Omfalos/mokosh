@@ -1,7 +1,7 @@
 # Known issues
 
-Point-in-time issue write-ups from dogfooding mokosh (v0.5.0 through v0.5.4) against real
-Java/Kotlin/Scala/Go/Python monorepos and against mokosh itself, 2026-09-03 through 2026-09-27.
+Point-in-time issue write-ups from dogfooding mokosh (v0.5.0 through v0.5.5) against real
+Java/Kotlin/Scala/Go/Python monorepos and against mokosh itself, 2026-09-03 through 2026-10-03.
 Each file is a self-contained plan: symptom, root cause with `file:line` references, fix, test
 plan, and cross-issue dependencies.
 
@@ -14,8 +14,12 @@ Issues with real remaining scope — a partial ship, or no fix started at all. O
 | 6 | [`06-duplicates-query-language.md`](06-duplicates-query-language.md) | `find_duplicates` output too large for an LLM. **6a–6c shipped** (`filter` DSL + `slim` + `summary`); 6d (shared shaping layer) and the overlapping-window matcher fix remain |
 | 7 | [`07-per-language-analysis-semantics.md`](07-per-language-analysis-semantics.md) | Analyses treat every language like JS/TS; JVM data shapes, idiom exclusion, and the per-language config surface still go undetected/unbuilt (CSS vars + TS types shipped in phase 1) |
 | 8 | [`08-cross-language-reliability.md`](08-cross-language-reliability.md) | Umbrella: uneven feature parity across languages. **8a/8b/8d shipped** (parity matrix + `LANGUAGE_FIDELITY` + `analyze` `fidelity`; `example/full-house/conformance.test.ts` drift guard; per-tool `caveats`; resolver try/catch + robustness tests). **8c partially shipped** (JVM import-symbol tracking; Kotlin test-tag strategy; Kotlin call edges/complexity via a first-party grammar, [ADR-021](../adr-021-kotlin-parsing.md)). Remaining 8c: Groovy audit, Coffee/LS/Lua |
-| 12 | [`12-call-edge-same-package-resolution.md`](12-call-edge-same-package-resolution.md) | Bare calls to a same-package sibling's symbol (no import needed in Kotlin/Java) produce no call edge — `get_call_graph`/`get_callers` return empty despite real, confirmed call sites |
-| 13 | [`13-call-graph-definition-ambiguity.md`](13-call-graph-definition-ambiguity.md) | `get_call_graph`'s `definedIn` silently picks one file when a function/method name is exported by more than one (e.g. an interface method implemented by several types), with no ambiguity signal |
+| 16 | [`16-stale-mcp-server-process-after-rebuild.md`](16-stale-mcp-server-process-after-rebuild.md) | A long-lived `mokosh` MCP server process keeps serving pre-rebuild logic after `npm run build` — `clear_cache` cannot fix this, since it only clears cache state, never the process's already-loaded code |
+| 17 | [`17-test-pattern-registry-js-biased.md`](17-test-pattern-registry-js-biased.md) | The core test-file discovery registry (`src/parser/classify.ts`) is JS/TS-biased; Go's `_test.go` files never become graph nodes when real entry points are given, and Python's `test_*.py` convention is latently affected too |
+| 18 | [`18-find-unused-no-test-exclusion.md`](18-find-unused-no-test-exclusion.md) | `find_unused` has no test-file exclusion via MCP at all, and the CLI's own `--exclude-tests` duplicates issue 17's JS-biased pattern list in a third place |
+| 19 | [`19-kotlin-extension-property-export-gap.md`](19-kotlin-extension-property-export-gap.md) | Kotlin extension *properties* (`val Receiver.x: T get() = ...`) are mis-captured by the export scanner's name regex — the receiver type name is captured instead of the real property name |
+| 20 | [`20-query-importsfiles-pruning-undocumented.md`](20-query-importsfiles-pruning-undocumented.md) | `query`'s `importsFiles` is silently trimmed to edges whose target is also in the filtered result set — undocumented, reads as a false "this file has no imports" |
+| 21 | [`21-call-edge-toFile-silent-ambiguity.md`](21-call-edge-toFile-silent-ambiguity.md) | `CallEdge.toFile` silently picks `matches[0]` when a call target's name resolves to more than one file at build time — issue 13 fixed this for `get_call_graph`'s query-time lookup, but not for this earlier, separate build-time resolution step that `query`'s raw `callEdges` still relies on |
 
 ## Resolved
 
