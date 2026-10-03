@@ -95,3 +95,102 @@ describe("createWorkspaceGraph — shared JVM package index", { tags: ["workspac
     );
   });
 });
+
+// Issue 22: a Gradle composite build (`includeBuild`) outside the analyzed root, named
+// explicitly via `extraRoots` — the one case the ordinary `include(...)` path above doesn't
+// cover, since that detector only ever sees modules inside `root`.
+describe("createWorkspaceGraph — extraRoots (external composite build)", {
+  tags: ["workspace", "jvm"],
+}, () => {
+  let externalRoot: string;
+
+  beforeEach(() => {
+    externalRoot = fs.mkdtempSync(path.join(os.tmpdir(), "mokosh-external-build-"));
+    fs.mkdirSync(path.join(externalRoot, "src/main/kotlin/com/example/shared"), {
+      recursive: true,
+    });
+    fs.writeFileSync(
+      path.join(externalRoot, "src/main/kotlin/com/example/shared/Shared.kt"),
+      "package com.example.shared\nclass Shared\n",
+    );
+  });
+
+  afterEach(() => {
+    fs.rmSync(externalRoot, { recursive: true, force: true });
+  });
+
+  test("without extraRoots, an in-root package can't see the external build at all", async () => {
+    write(
+      "app/src/main/java/com/example/app/UsesShared.java",
+      "package com.example.app;\nimport com.example.shared.Shared;\npublic class UsesShared { Shared s; }\n",
+    );
+    const wg = await createWorkspaceGraph(root, { silent: true, parallelParsing: false });
+    expect(wg.packages.size).toBe(3);
+    expect(wg.getPackageDependencies().get("app")).not.toContain(path.basename(externalRoot));
+  });
+
+  test("an extraRoot becomes its own package, flagged externalRoot, with an escaping relativeRoot", async () => {
+    const wg = await createWorkspaceGraph(root, {
+      silent: true,
+      parallelParsing: false,
+      extraRoots: [externalRoot],
+    });
+    const name = path.basename(externalRoot);
+    expect(wg.packages.size).toBe(4);
+    const entry = wg.packages.get(name);
+    expect(entry?.pkg.externalRoot).toBe(true);
+    expect(entry?.pkg.relativeRoot.startsWith("..")).toBe(true);
+  });
+
+  test("an in-root file resolves a type declared only in the external build, no Gradle involved", async () => {
+    write(
+      "app/src/main/java/com/example/app/UsesShared.java",
+      "package com.example.app;\nimport com.example.shared.Shared;\npublic class UsesShared { Shared s; }\n",
+    );
+    const wg = await createWorkspaceGraph(root, {
+      silent: true,
+      parallelParsing: false,
+      extraRoots: [externalRoot],
+    });
+    const name = path.basename(externalRoot);
+    expect(wg.getPackageDependencies().get("app")).toContain(name);
+  });
+
+  test("the external build's own file resolves a type declared in the main tree", async () => {
+    fs.writeFileSync(
+      path.join(externalRoot, "src/main/kotlin/com/example/shared/Shared.kt"),
+      "package com.example.shared\nimport com.example.util.Util\nclass Shared { val u: Util? = null }\n",
+    );
+    const wg = await createWorkspaceGraph(root, {
+      silent: true,
+      parallelParsing: false,
+      extraRoots: [externalRoot],
+    });
+    const name = path.basename(externalRoot);
+    expect(wg.getPackageDependencies().get(name)).toContain("util");
+  });
+
+  test("a relative extraRoots entry resolves against rootDir", async () => {
+    const relativeExtraRoot = path.relative(root, externalRoot);
+    const wg = await createWorkspaceGraph(root, {
+      silent: true,
+      parallelParsing: false,
+      extraRoots: [relativeExtraRoot],
+    });
+    expect(wg.packages.has(path.basename(externalRoot))).toBe(true);
+  });
+
+  test("an extraRoots entry with no JVM source files is silently skipped", async () => {
+    const empty = fs.mkdtempSync(path.join(os.tmpdir(), "mokosh-external-empty-"));
+    try {
+      const wg = await createWorkspaceGraph(root, {
+        silent: true,
+        parallelParsing: false,
+        extraRoots: [empty],
+      });
+      expect(wg.packages.size).toBe(3);
+    } finally {
+      fs.rmSync(empty, { recursive: true, force: true });
+    }
+  });
+});

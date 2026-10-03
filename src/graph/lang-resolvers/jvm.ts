@@ -108,8 +108,19 @@ export class JvmLangResolver implements LangResolver {
    *   on top of `DEFAULT_IGNORE_DIRS` and `MOKOSH_IGNORE_DIRS`. Sourced from `MokoshConfig.ignoreDirs`
    *   so a repo can prune generated source trees (`build/generated`, protobuf output) that would
    *   otherwise inflate the scan (see docs/known_issues/02, fix 2C).
+   * @param extraRoots - Additional absolute directories to walk into the same package index,
+   *   alongside whichever `rootDir` a `resolve()` call is made with — a Gradle composite build
+   *   (`includeBuild(...)`) outside the analyzed root, named explicitly via `MokoshConfig.extraRoots`
+   *   (see `docs/known_issues/22-gradle-composite-build-not-detected.md`). An FQN import declared
+   *   in one tree and referenced from the other resolves across the boundary with no Gradle
+   *   invocation, exactly like any other cross-module import. Unlike `extraIgnoreDirs`, this is
+   *   additive scope, not a prune — deliberately explicit rather than auto-discovered, so mokosh
+   *   never walks an arbitrary filesystem path merely because a settings file names one.
    */
-  constructor(private readonly extraIgnoreDirs: string[] = []) {}
+  constructor(
+    private readonly extraIgnoreDirs: string[] = [],
+    private readonly extraRoots: string[] = [],
+  ) {}
 
   /**
    * @description Resolves a JVM import specifier to all matching local source files.
@@ -183,7 +194,7 @@ export class JvmLangResolver implements LangResolver {
   private getIndex(rootDir: string): PackageIndex {
     const cached = this.indexCache.get(rootDir);
     if (cached) return cached;
-    const index = buildPackageIndex(rootDir, this.extraIgnoreDirs);
+    const index = buildPackageIndex(rootDir, this.extraIgnoreDirs, this.extraRoots);
     this.indexCache.set(rootDir, index);
     return index;
   }
@@ -196,9 +207,18 @@ export class JvmLangResolver implements LangResolver {
  * @param rootDir - Absolute project root.
  * @param extraIgnoreDirs - Extra directory names to skip, on top of `DEFAULT_IGNORE_DIRS` and
  *   the comma-separated `MOKOSH_IGNORE_DIRS` env var.
+ * @param extraRoots - Additional absolute directories walked into the same index, deduplicated
+ *   against `rootDir` and each other so a tree is never walked twice (see the constructor's doc
+ *   comment). A directory nested inside another walked root is not separately de-overlapped —
+ *   its files are simply visited again under both, which is idempotent (same package partition,
+ *   same file list) rather than incorrect.
  * @returns A package name → partitions map. Files in the default (unnamed) package are omitted.
  */
-function buildPackageIndex(rootDir: string, extraIgnoreDirs: string[] = []): PackageIndex {
+function buildPackageIndex(
+  rootDir: string,
+  extraIgnoreDirs: string[] = [],
+  extraRoots: string[] = [],
+): PackageIndex {
   const index: PackageIndex = new Map();
   const envIgnore = (process.env.MOKOSH_IGNORE_DIRS ?? "")
     .split(",")
@@ -244,7 +264,8 @@ function buildPackageIndex(rootDir: string, extraIgnoreDirs: string[] = []): Pac
     }
   };
 
-  walk(rootDir, 0);
+  const roots = new Set([rootDir, ...extraRoots]);
+  for (const root of roots) walk(root, 0);
   for (const partitions of index.values()) {
     for (const part of partitions) part.files.sort();
   }

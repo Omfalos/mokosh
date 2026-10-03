@@ -294,6 +294,7 @@ import {
   type WorkspacePackage,
 } from "./graph";
 import { defaultLangResolvers, JvmLangResolver } from "./graph/lang-resolvers/index";
+import { buildJvmPackage } from "./graph/workspace/detectors/jvm-shared";
 
 /**
  * @description Builds a dependency graph from the given entry points, optionally reusing a
@@ -456,7 +457,7 @@ export function computeWorkspacePackageDigests(
  * @description Auto-detects the monorepo layout under `rootDir` and builds a per-package
  *   dependency graph, stitching them together into a single WorkspaceGraph.
  * @param rootDir - Absolute path to the monorepo root.
- * @param options - `packages` filters to a named subset of packages; `silent` suppresses progress; `gitStats` attaches git churn data per file; `parallelParsing` controls worker-pool offloading of file parsing per package (see {@link ParallelParsingOption}); `pathAliases` overrides/extends tsconfig path-alias resolution for every package (see `MokoshConfig.pathAliases`); `layout` supplies a pre-computed `detectMonorepo` result so detection is not repeated by callers that already ran it.
+ * @param options - `packages` filters to a named subset of packages; `silent` suppresses progress; `gitStats` attaches git churn data per file; `parallelParsing` controls worker-pool offloading of file parsing per package (see {@link ParallelParsingOption}); `pathAliases` overrides/extends tsconfig path-alias resolution for every package (see `MokoshConfig.pathAliases`); `layout` supplies a pre-computed `detectMonorepo` result so detection is not repeated by callers that already ran it; `extraRoots` folds additional directories outside `rootDir` in as their own packages (see `MokoshConfig.extraRoots`).
  * @returns A WorkspaceGraph where each package has its own Graph and cross-package edges are resolved.
  */
 export async function createWorkspaceGraph(
@@ -474,6 +475,11 @@ export async function createWorkspaceGraph(
     /** A previously built workspace graph; each package reuses its prior graph as an incremental
      *  base so unchanged files are not re-parsed (mtime+size match). */
     previousWorkspace?: WorkspaceGraph | undefined;
+    /** Additional directories outside `rootDir`, each folded in as its own `WorkspacePackage`
+     *  (`externalRoot: true`). Relative entries resolve against `rootDir`. An entry with no JVM
+     *  source files is silently dropped. See `MokoshConfig.extraRoots` and
+     *  `docs/known_issues/22-gradle-composite-build-not-detected.md`. */
+    extraRoots?: string[] | undefined;
   } = {},
 ): Promise<WorkspaceGraph> {
   const abs = path.resolve(rootDir);
@@ -481,20 +487,42 @@ export async function createWorkspaceGraph(
   const projectFiles = options.projectFiles ?? getAllProjectFiles(abs);
   const additionalIgnoreDirs = options.additionalIgnoreDirs ?? [];
 
+  // Each extra root becomes an ordinary WorkspacePackage, built relative to `abs` exactly like
+  // any in-root package (its `relativeRoot`/node paths legitimately carry `..` segments — see
+  // `WorkspacePackage.externalRoot`'s doc comment for why that's safe rather than a path-ownership
+  // bug: `path.relative`/`startsWith` prefix matching work unmodified on a `..`-leading string).
+  const externalPackages = (options.extraRoots ?? [])
+    .map((extraRoot) => path.resolve(abs, extraRoot))
+    .map((absExtraRoot): WorkspacePackage | null => {
+      const pkg = buildJvmPackage(abs, absExtraRoot, path.basename(absExtraRoot));
+      return pkg ? { ...pkg, externalRoot: true } : null;
+    })
+    .filter((pkg): pkg is WorkspacePackage => pkg !== null);
+
+  const allPkgs = [...layout.packages, ...externalPackages];
   const pkgs = options.packages
-    ? layout.packages.filter(
+    ? allPkgs.filter(
         (pkg) =>
           options.packages?.includes(pkg.name) || options.packages?.includes(pkg.relativeRoot),
       )
-    : layout.packages;
+    : allPkgs;
 
-  const workspaceMap = new Map(layout.packages.map((pkg) => [pkg.name, pkg.root]));
+  // Built from every package, not the `options.packages`-filtered subset above, so an import
+  // into a package excluded from this build still resolves (unchanged from the pre-extraRoots
+  // behavior, which used `layout.packages` rather than the filtered `pkgs` for the same reason).
+  const workspaceMap = new Map(allPkgs.map((pkg) => [pkg.name, pkg.root]));
   const wg = new WorkspaceGraph(abs, layout.type);
 
   // One JVM resolver for the whole workspace: its package-declaration index is keyed by the
   // (shared) monorepo root and built lazily on first use, so every package build after the
-  // first reuses it instead of re-scanning every .java/.kt/.scala file in the repo.
-  const sharedJvmResolver = new JvmLangResolver(additionalIgnoreDirs);
+  // first reuses it instead of re-scanning every .java/.kt/.scala file in the repo. Every
+  // package — in-root or external — builds with `rootDir: abs` (below), so they all share this
+  // one cache entry; `externalPackages`' own roots are folded into the same index as extra scan
+  // roots, letting an FQN import cross the root boundary either direction.
+  const sharedJvmResolver = new JvmLangResolver(
+    additionalIgnoreDirs,
+    externalPackages.map((pkg) => pkg.root),
+  );
 
   // Walk the monorepo doc tree once here and hand each package its own slice, instead of every
   // package's GraphBuilder re-walking the whole monorepo for `.md`/`.mdx` (see known_issues/01, 1D).

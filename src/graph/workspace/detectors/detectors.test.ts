@@ -396,6 +396,70 @@ describe("gradleDetector", { tags: ["gradle", "gradleDetector", "jvm"] }, () => 
       expect(core?.relativeRoot).toBe(path.join("modules", "nested", "core"));
     });
   });
+
+  // Issue 22: includeBuild(...) (composite builds) uses filesystem paths, a distinct mechanism
+  // from include(...)'s colon-prefixed project paths, and was previously not parsed at all.
+  describe("includeBuild (composite builds)", () => {
+    test("resolves an in-root includeBuild target as its own package, alongside include(...)", () => {
+      write(
+        "settings.gradle.kts",
+        'rootProject.name = "demo"\ninclude(":app")\nincludeBuild("shared-lib")\n',
+      );
+      write("app/src/main/kotlin/App.kt", "package app\nclass App\n");
+      write("shared-lib/src/main/kotlin/Shared.kt", "package shared\nclass Shared\n");
+      const pkgs = gradleDetector.detect(root);
+      expect(pkgs?.map((p) => p.name).sort()).toEqual(["app", "shared-lib"]);
+      const shared = pkgs?.find((p) => p.name === "shared-lib");
+      expect(shared?.relativeRoot).toBe("shared-lib");
+    });
+
+    test("resolves includeBuild with the Groovy single-quote form and a configuration lambda", () => {
+      write("settings.gradle", "includeBuild('shared-lib') {\n  dependencySubstitution { }\n}\n");
+      write("shared-lib/src/main/java/Shared.java", "package shared;\nclass Shared {}\n");
+      const pkgs = gradleDetector.detect(root);
+      expect(pkgs?.map((p) => p.name)).toEqual(["shared-lib"]);
+    });
+
+    test("a relative includeBuild target that escapes rootDir is skipped, not guessed at", () => {
+      write("settings.gradle.kts", 'include(":app")\nincludeBuild("../shared-lib")\n');
+      write("app/src/main/kotlin/App.kt", "package app\nclass App\n");
+      const pkgs = gradleDetector.detect(root);
+      expect(pkgs?.map((p) => p.name)).toEqual(["app"]);
+    });
+
+    test("an absolute includeBuild target outside rootDir is skipped, not guessed at", () => {
+      const outside = fs.mkdtempSync(path.join(os.tmpdir(), "mokosh-composite-"));
+      try {
+        fs.mkdirSync(path.join(outside, "src/main/kotlin"), { recursive: true });
+        fs.writeFileSync(
+          path.join(outside, "src/main/kotlin/External.kt"),
+          "package external\nclass External\n",
+        );
+        write(
+          "settings.gradle.kts",
+          `include(":app")\nincludeBuild("${outside.replace(/\\/g, "\\\\")}")\n`,
+        );
+        write("app/src/main/kotlin/App.kt", "package app\nclass App\n");
+        const pkgs = gradleDetector.detect(root);
+        expect(pkgs?.map((p) => p.name)).toEqual(["app"]);
+      } finally {
+        fs.rmSync(outside, { recursive: true, force: true });
+      }
+    });
+
+    test("returns null when includeBuild is the only module declaration and its target has no sources", () => {
+      write("settings.gradle.kts", 'includeBuild("empty-build")\n');
+      fs.mkdirSync(path.join(root, "empty-build"), { recursive: true });
+      expect(gradleDetector.detect(root)).toBeNull();
+    });
+
+    test("fires the detector from includeBuild alone, with no include(...) or unary-plus present", () => {
+      write("settings.gradle.kts", 'rootProject.name = "demo"\nincludeBuild("shared-lib")\n');
+      write("shared-lib/src/main/kotlin/Shared.kt", "package shared\nclass Shared\n");
+      const pkgs = gradleDetector.detect(root);
+      expect(pkgs?.map((p) => p.name)).toEqual(["shared-lib"]);
+    });
+  });
 });
 
 // ─── sbt ──────────────────────────────────────────────────────────────────────

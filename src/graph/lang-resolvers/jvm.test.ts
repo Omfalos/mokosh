@@ -227,3 +227,57 @@ describe("jvmPathPartition", { tags: ["jvm"] }, () => {
     });
   });
 });
+
+// Issue 22: a Gradle composite build (`includeBuild`) outside the analyzed root, named explicitly
+// via `extraRoots` — the package index must span both trees so an FQN import crosses the boundary
+// with no Gradle invocation, in either direction.
+describe("JvmLangResolver — extraRoots (cross-root resolution)", { tags: ["jvm"] }, () => {
+  let mainRoot: string;
+  let externalRoot: string;
+
+  beforeAll(() => {
+    mainRoot = setup({
+      "app/src/main/kotlin/com/x/App.kt": "com.x",
+    });
+    externalRoot = setup({
+      "src/main/kotlin/com/x/lib/Shared.kt": "com.x.lib",
+    });
+  });
+  afterAll(() => {
+    fs.rmSync(mainRoot, { recursive: true, force: true });
+    fs.rmSync(externalRoot, { recursive: true, force: true });
+  });
+
+  const rel = (results: { path: string }[] | null) =>
+    results?.map((r) => r.path.replace(/\\/g, "/")) ?? null;
+
+  test("without extraRoots, a type declared only in the external tree is unresolvable", () => {
+    const resolver = new JvmLangResolver();
+    expect(resolver.resolve("", "com.x.lib.Shared", mainRoot, noop)).toBeNull();
+  });
+
+  test("with extraRoots, the main tree resolves a type declared in the external tree", () => {
+    const resolver = new JvmLangResolver([], [externalRoot]);
+    expect(rel(resolver.resolve("", "com.x.lib.Shared", mainRoot, noop))).toEqual([
+      path.join(externalRoot, "src/main/kotlin/com/x/lib/Shared.kt"),
+    ]);
+  });
+
+  test("the reverse direction also resolves: the external tree's file resolves a main-tree type", () => {
+    // A single JvmLangResolver instance is shared across every package build in a real
+    // createWorkspaceGraph call, and every package calls resolve() with the same `rootDir`
+    // (always `abs`, per src/index.ts) — this asserts that shared-instance, shared-rootDir shape
+    // directly, rather than resolving against the external root as a `rootDir` of its own.
+    const resolver = new JvmLangResolver([], [externalRoot]);
+    expect(rel(resolver.resolve("", "com.x.App", mainRoot, noop))).toEqual([
+      path.join(mainRoot, "app/src/main/kotlin/com/x/App.kt"),
+    ]);
+  });
+
+  test("walking the same directory twice (rootDir listed again in extraRoots) does not duplicate results", () => {
+    const resolver = new JvmLangResolver([], [mainRoot, externalRoot]);
+    expect(rel(resolver.resolve("", "com.x.App", mainRoot, noop))).toEqual([
+      path.join(mainRoot, "app/src/main/kotlin/com/x/App.kt"),
+    ]);
+  });
+});

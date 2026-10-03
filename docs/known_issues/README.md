@@ -39,9 +39,23 @@ would mean finding and updating every such citation with no guarantee none is mi
 | 12 | [`12-call-edge-same-package-resolution.md`](12-call-edge-same-package-resolution.md) | **Fixed** — bare calls to a same-package sibling's symbol (no import needed in Kotlin/Java) produced no call edge; a deferred marker + post-drain resolution pass now resolves them against the package partition's `exports`, dropping silently on ambiguity rather than guessing |
 | 14 | [`14-empty-entrypoints-doc-reference-leak.md`](14-empty-entrypoints-doc-reference-leak.md) | **Fixed** — `analyze(entryPoints: [])` on a plain repo built a small, non-deterministic graph seeded only by markdown doc-reference mentions; it now discovers every source file as its own entry point |
 | 15 | [`15-gradle-unary-plus-dsl-detection.md`](15-gradle-unary-plus-dsl-detection.md) | **Fixed** — Gradle monorepo detection missed settings files using Kotlin's unary-plus `+"module"` project DSL (ktor: 0 → 136 packages) |
+| 22 | [`22-gradle-composite-build-not-detected.md`](22-gradle-composite-build-not-detected.md) | **Fixed** — Gradle composite builds (`includeBuild(...)`) were invisible to the workspace graph; an in-root target now detects like any `include(...)` module (validated on `square/workflow-kotlin`), and an out-of-root target can be named explicitly via `MokoshConfig.extraRoots`, resolving cross-module refs in both directions with no Gradle invocation |
 
 ## Details
 
+- **Issue 22** — [`22-gradle-composite-build-not-detected.md`](22-gradle-composite-build-not-detected.md) —
+  `includeBuild(...)` (composite builds — a distinct mechanism from `include(":module")`) was
+  never parsed by `gradleDetector`, so an included build was invisible to the workspace graph
+  regardless of whether it sat inside or outside the analyzed root. Fixed in two slices: an
+  in-root target now resolves exactly like any `include(...)` module (validated on a real repo,
+  `square/workflow-kotlin`'s `includeBuild("build-logic")`: 2 → 3 packages, `workflow-core`'s
+  dependency on `build-logic` now correctly reported); an out-of-root target (a sibling checkout)
+  is named explicitly via a new `MokoshConfig.extraRoots: string[]` field rather than
+  auto-discovered, folding in as its own `externalRoot: true` package whose `relativeRoot`/node
+  paths legitimately carry `..` segments — `JvmLangResolver`'s package index spans every named
+  root, so an FQN import crosses the boundary in either direction with no Gradle invocation. No
+  new CLI flag or MCP arg was needed: both already apply every `MokoshConfig` field uniformly via
+  `configToGraphOptions()`.
 - **Issue 15** — [`15-gradle-unary-plus-dsl-detection.md`](15-gradle-unary-plus-dsl-detection.md) —
   `gradleDetector` only recognized Gradle's standard `include(":module")` syntax, so ktorio/ktor's
   custom settings-plugin DSL (Kotlin's unary-plus operator, `+"module-name"`, instead of

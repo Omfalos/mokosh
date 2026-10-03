@@ -8,6 +8,11 @@ export interface WorkspacePackage {
   relativeRoot: string;
   /** Resolved entry point absolute paths, in priority order. */
   entryPoints: string[];
+  /** `true` when `root` lies outside the analyzed `rootDir` (e.g. a Gradle composite build named
+   *  via `MokoshConfig.extraRoots` — see `docs/known_issues/22-gradle-composite-build-not-detected.md`).
+   *  `relativeRoot` and every node path under this package legitimately start with `..` segments;
+   *  this flag exists so callers don't have to re-derive that from the string shape. */
+  externalRoot?: boolean;
 }
 
 /** @description Result returned by `detectMonorepo` describing the workspace layout. */
