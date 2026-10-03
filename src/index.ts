@@ -38,6 +38,7 @@ export {
   summarizeApiSurface,
 } from "./graph/api-surface";
 export type { ParallelParsingOption } from "./graph/builder";
+export type { QueryCallGraphOptions } from "./graph/call-graph";
 export { queryCallGraph } from "./graph/call-graph";
 export type {
   CalleeEntry,

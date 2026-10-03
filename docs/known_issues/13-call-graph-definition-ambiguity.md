@@ -1,8 +1,25 @@
 # Issue 13 — `get_call_graph`'s `definedIn` silently picks one definition when a function/method name isn't unique
 
-Status: **design decided (2026-10-01), implementation pending**. Found dogfooding v0.5.4 against
-gin-gonic/gin (call-graph tool audit). See "Decided approach" below for the agreed design —
-supersedes the "Proposed fix" section's open options.
+Status: **shipped** (2026-10-01). Found dogfooding v0.5.4 against gin-gonic/gin (call-graph tool
+audit). See "Decided approach" below for the agreed design, implemented as described.
+
+**Fix shipped:** `queryCallGraph` (`src/graph/call-graph/index.ts`) now collects every node whose
+`exports` matches `functionName` into a `candidates` array (mirroring `findSymbol`'s,
+`src/graph/symbol.ts`, "collect every match" pattern) instead of overwriting a single variable.
+`FunctionCallInfo` (`src/graph/call-graph/types.ts`) gained an always-present
+`definedInCandidateCount: number` field — `1` in the normal, unambiguous case, where `definedIn`
+and `callees` behave exactly as before (zero regression). When it's `>1` and no `file` arg
+narrowed the search, `definedIn` is `null` and `callees` is empty rather than guessed; `callers`
+is still returned either way, since it's just every call edge in the graph whose `to` matches
+`functionName`, independent of which file "really" defines it. A new `file` arg (MCP
+`get_call_graph` / `queryCallGraph`'s `options.file`) disambiguates by narrowing the search to one
+specific path, bypassing the ambiguity entirely; `includeCandidates: true` opts into the full
+`candidates: string[]` list. The `receiverType` disambiguator and the shared
+`findExportingNodes()` helper with issue 12 remain deferred, per the decided approach below.
+Covered by `src/graph/call-graph/index.test.ts` (including a 25-candidate fixture mirroring
+mokosh's own `run` collision across `src/cli/commands/*.ts` + `src/cli/runner.ts`) and
+`src/mcp/handlers.test.ts`. See [ADR-003](../adr-003-call-edge-graph.md)'s Query API section and
+[docs/mcp.md](../mcp.md)'s `get_call_graph` entry for the shipped contract.
 
 ## Symptom
 

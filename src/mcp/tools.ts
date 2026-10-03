@@ -42,19 +42,19 @@ export const TOOL_DEFINITIONS = [
         eager: {
           type: "boolean",
           description:
-            "Monorepo only: build every package graph before returning (restores the { nodeCount, categories, cycles } payload) instead of the fast layout-only response. Default false.",
+            "Monorepo only: build every package graph up front (restores the full payload) instead of lazily. Default false.",
         },
         packages: {
           type: "array",
           items: { type: "string" },
           description:
-            "Monorepo only: restrict the build to these package names or relative roots. The escape hatch for very large monorepos.",
+            "Monorepo only: restrict the build to these package names/roots. Escape hatch for very large monorepos.",
         },
         cycleKinds: {
           type: "array",
           items: { type: "string", enum: ["docReference", "samePackage"] },
           description:
-            "Include normally-filtered cycle edge kinds in the `cycles` output: 'docReference' (Markdown doc cross-links, ADR-009), 'samePackage' (JVM same-package siblings). Default: none — only genuine import cycles are reported.",
+            "Include normally-filtered cycle kinds in `cycles`: 'docReference' (Markdown cross-links), 'samePackage' (JVM same-package siblings). Default: none.",
         },
       },
       required: ["root", "entryPoints"],
@@ -596,7 +596,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "get_call_graph",
     description:
-      "Look up callers and callees for a named function. Returns the file that defines it, all files/functions that call it, and all it calls. Always requires a function name — never returns the full call graph unfiltered. Only imported symbols are tracked, never same-file calls.",
+      "Look up callers and callees for a named function. Returns the file that defines it, all files/functions that call it, and all it calls. Requires a function name — never returns the full call graph unfiltered. Only imported symbols are tracked, never same-file calls.",
     inputSchema: {
       type: "object",
       properties: {
@@ -605,6 +605,8 @@ export const TOOL_DEFINITIONS = [
           type: "string",
           description: "Exact name of the function to look up (e.g. 'parseFile').",
         },
+        file: { type: "string", description: "Disambiguate a colliding name by path." },
+        includeCandidates: { type: "boolean", description: "List every colliding file" },
         package: SINGLE_PACKAGE_PROPERTY,
       },
       required: ["root", "function"],

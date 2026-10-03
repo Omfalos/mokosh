@@ -26,11 +26,35 @@ export interface FunctionCallInfo {
   functionName: string;
   /**
    * Project-relative path of the file that exports or defines this function.
-   * `null` when no file in the graph exports a symbol with this name.
+   * `null` when no file in the graph exports a symbol with this name, OR when
+   * `definedInCandidateCount > 1` (the name is ambiguous and no `file` disambiguator was
+   * passed) — in the ambiguous case this is a deliberate `null`, not a guess, see
+   * `definedInCandidateCount`.
    */
   definedIn: string | null;
-  /** Files and functions that call this function. */
+  /**
+   * Number of files in the graph whose exports include a symbol named `functionName`. `1` in
+   * the normal, unambiguous case (the common case, and the only one `definedIn` resolves for
+   * today). When this is `0`, no file exports the name. When it's `>1`, the name collides
+   * across files (e.g. an interface method implemented by several receiver types, or a common
+   * helper name reused across packages) and — unless a `file` disambiguator was passed to
+   * `queryCallGraph` — `definedIn` is `null` and `callees` is empty, since picking one file's
+   * callees would be exactly the kind of silent guess this field exists to surface instead of
+   * hide. Pass `includeCandidates: true` to `queryCallGraph` to get the full `candidates` list,
+   * or pass `file` to narrow the search to one specific defining file. See
+   * docs/known_issues/13-call-graph-definition-ambiguity.md.
+   */
+  definedInCandidateCount: number;
+  /** Files and functions that call this function. Computed independently of `definedIn` — it's
+   *  just every call edge in the graph whose `to` matches `functionName`, so it's unaffected by
+   *  ambiguity. */
   callers: CallerEntry[];
-  /** Files and functions that this function calls. */
+  /** Files and functions that this function calls. Empty when the name is ambiguous
+   *  (`definedInCandidateCount > 1`) and no `file` disambiguator narrowed it to one file. */
   callees: CalleeEntry[];
+  /**
+   * Every matching file's path. Only present when `includeCandidates: true` was passed to
+   * `queryCallGraph` — omitted by default to keep the common (unambiguous) response small.
+   */
+  candidates?: string[];
 }

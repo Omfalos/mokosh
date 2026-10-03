@@ -66,10 +66,16 @@ External call edges (calls into `node_modules`) are dropped because they are irr
 
 ### Query API
 
-**`queryCallGraph(graph, functionName)`**:
-- Scans every node's `callEdges` for edges where `to === functionName` → callers.
-- Looks up the defining node (via `exports`) and reads its `callEdges` for edges where `from === functionName` → callees.
-- Returns `FunctionCallInfo { functionName, definedIn, callers, callees }`.
+**`queryCallGraph(graph, functionName, options?)`**:
+- Scans every node's `callEdges` for edges where `to === functionName` → callers (always computed, regardless of ambiguity below).
+- Collects every node whose `exports` matches `functionName` into a `candidates` list (mirroring `findSymbol`'s, `src/graph/symbol.ts`, "collect every match" pattern) — `definedInCandidateCount` is this list's length.
+  - Exactly one match (the common case): `definedIn` is that file, and `callees` is read from its `callEdges` for edges where `from === functionName` — unchanged from the original behavior.
+  - Zero matches: `definedIn` is `null`, as always.
+  - More than one match (the name collides across files — e.g. an interface method implemented by several receiver types): `definedIn` is `null` and `callees` is empty, **unless** `options.file` was passed, in which case the search is narrowed to that one path first, bypassing the ambiguity entirely.
+  - `options.includeCandidates` adds the full `candidates: string[]` to the response; omitted by default.
+- Returns `FunctionCallInfo { functionName, definedIn, definedInCandidateCount, callers, callees, candidates? }`.
+
+Originally this loop just overwrote `definedIn` on every match while iterating `graph.nodes.values()` — the last match (Map iteration order = insertion order, not meaningful to a caller) silently won, with no signal that other definitions existed. Fixed per the design in [docs/known_issues/13-call-graph-definition-ambiguity.md](./known_issues/13-call-graph-definition-ambiguity.md): an additive `definedInCandidateCount` field (zero regression for the unambiguous case, a public exported type stayed non-breaking), `definedIn`/`callees` withheld rather than guessed once ambiguous, and a `file` disambiguator shipped in the same change. A per-receiver-type disambiguator and a shared `findExportingNodes()` helper with the related same-package call-edge issue (issue 12) are both deferred.
 
 **MCP tools**:
 - `get_call_graph` — looks up callers and callees for a named function. Never returns the full unfiltered graph; always requires a function name.
