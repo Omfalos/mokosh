@@ -11,6 +11,7 @@
  *  (Phase 2 of the Kotlin plan) will live in this same file alongside these helpers. */
 import type { SyntaxNode, Tree } from "@lezer/common";
 import type { FunctionComplexity } from "../../types/node";
+import { jvmSamePackageCallSpecifier } from "../lang/jvm-scan";
 import type { RawCallEdge } from "../types";
 import { childrenOf, lineAt, nodeHasError } from "./lezer-utils";
 
@@ -117,6 +118,11 @@ function readCallee(callExpr: SyntaxNode, content: string): Callee | null {
  * @param content - Full source text.
  * @param localNames - Simple/aliased local name → FQN specifier map (built from the file's own
  *   import lines, including `as` aliases that `ImportEdge` itself never retains).
+ * @param ownPackage - The file's own declared `package`, or `null` for the default package. A
+ *   bare call that misses `localNames` gets a deferred same-package marker instead of being
+ *   dropped (see docs/known_issues/12-call-edge-same-package-resolution.md) — resolved later by
+ *   `GraphBuilder`'s post-drain pass, never here, since a sibling file's `exports` may not exist
+ *   yet while this file is being parsed. No marker is possible without a known package.
  * @param edges - Accumulator array, appended to in place.
  */
 function walkBody(
@@ -124,6 +130,7 @@ function walkBody(
   callerName: string,
   content: string,
   localNames: ReadonlyMap<string, string>,
+  ownPackage: string | null,
   edges: RawCallEdge[],
 ): void {
   if (bodyNode.type.name === "CallExpression") {
@@ -134,12 +141,22 @@ function walkBody(
         if (toSpecifier) edges.push({ from: callerName, to: callee.name, toSpecifier });
       } else {
         const toSpecifier = localNames.get(callee.name);
+        const isConstructorCall = /^[A-Z]/.test(callee.name);
         if (toSpecifier) {
-          const isConstructorCall = /^[A-Z]/.test(callee.name);
           edges.push({
             from: callerName,
             to: isConstructorCall ? "new" : callee.name,
             toSpecifier,
+          });
+        } else if (ownPackage) {
+          // Same-package miss (issue 12): no parse-time filter — every miss (including a bare
+          // call to a stdlib function, or to a same-file local declaration, which the post-drain
+          // pass's exports-based lookup will simply fail to match against any *other* file and
+          // drop) gets a marker. The builder's cheap map lookup absorbs the noise.
+          edges.push({
+            from: callerName,
+            to: isConstructorCall ? "new" : callee.name,
+            toSpecifier: jvmSamePackageCallSpecifier(ownPackage, callee.name),
           });
         }
       }
@@ -147,7 +164,7 @@ function walkBody(
   }
   let child = bodyNode.firstChild;
   while (child) {
-    walkBody(child, callerName, content, localNames, edges);
+    walkBody(child, callerName, content, localNames, ownPackage, edges);
     child = child.nextSibling;
   }
 }
@@ -160,12 +177,15 @@ function walkBody(
  * @param tree - The parsed Kotlin tree.
  * @param content - Full source text.
  * @param localNames - Simple/aliased local name → FQN specifier map.
+ * @param ownPackage - The file's own declared `package`, or `null` — see {@link walkBody}'s
+ *   matching parameter doc comment.
  * @returns One edge per resolvable superclass constructor call, `from` the declaring type.
  */
 function collectSuperclassCallEdges(
   tree: Tree,
   content: string,
   localNames: ReadonlyMap<string, string>,
+  ownPackage: string | null,
 ): RawCallEdge[] {
   const edges: RawCallEdge[] = [];
   const cursor = tree.cursor();
@@ -185,7 +205,15 @@ function collectSuperclassCallEdges(
       const simpleName = simpleTypeName(inv.firstChild, content);
       if (!simpleName) continue;
       const toSpecifier = localNames.get(simpleName);
-      if (toSpecifier) edges.push({ from: ownerName, to: "new", toSpecifier });
+      if (toSpecifier) {
+        edges.push({ from: ownerName, to: "new", toSpecifier });
+      } else if (ownPackage) {
+        edges.push({
+          from: ownerName,
+          to: "new",
+          toSpecifier: jvmSamePackageCallSpecifier(ownPackage, simpleName),
+        });
+      }
     }
   } while (cursor.next());
   return edges;
@@ -202,12 +230,16 @@ function collectSuperclassCallEdges(
  * @param content - Full source text.
  * @param localNames - Simple/aliased local name → FQN specifier map, built from the file's
  *   `import ... as ...` lines (see `src/parser/lang/kotlin.ts`).
+ * @param ownPackage - The file's own declared `package`, or `null` for the default package —
+ *   threaded through to {@link walkBody}/{@link collectSuperclassCallEdges} so a same-package miss
+ *   gets a deferred marker instead of being dropped (docs/known_issues/12).
  * @returns All resolvable call edges, function-body edges before superclass-constructor edges.
  */
 export function collectCallEdges(
   tree: Tree,
   content: string,
   localNames: ReadonlyMap<string, string>,
+  ownPackage: string | null = null,
 ): RawCallEdge[] {
   const edges: RawCallEdge[] = [];
   const cursor = tree.cursor();
@@ -233,10 +265,10 @@ export function collectCallEdges(
     // No per-function error gate here (unlike collectFunctionComplexity below): an edge is read
     // from one `CallExpression` node, so an error elsewhere in the body can't corrupt it.
     const body = cursor.node.getChild("Block") ?? cursor.node.getChild("Expression");
-    if (body) walkBody(body, callerName, content, localNames, edges);
+    if (body) walkBody(body, callerName, content, localNames, ownPackage, edges);
   } while (cursor.next());
 
-  edges.push(...collectSuperclassCallEdges(tree, content, localNames));
+  edges.push(...collectSuperclassCallEdges(tree, content, localNames, ownPackage));
   return edges;
 }
 

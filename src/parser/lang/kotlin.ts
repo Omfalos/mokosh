@@ -160,7 +160,7 @@ export function parseKotlin(filePath: string, content: string): ParseResult {
         ];
       }
       if (CALL_EDGES_ENABLED && category !== "test") {
-        rawCallEdges = collectCallEdges(tree, content, localNames);
+        rawCallEdges = collectCallEdges(tree, content, localNames, ownPackage);
       }
     }
   } catch {

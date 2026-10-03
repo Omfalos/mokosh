@@ -15,6 +15,7 @@ Issues with real remaining scope — a partial ship, or no fix started at all. O
 | 7 | [`07-per-language-analysis-semantics.md`](07-per-language-analysis-semantics.md) | Analyses treat every language like JS/TS; JVM data shapes, idiom exclusion, and the per-language config surface still go undetected/unbuilt (CSS vars + TS types shipped in phase 1) |
 | 8 | [`08-cross-language-reliability.md`](08-cross-language-reliability.md) | Umbrella: uneven feature parity across languages. **8a/8b/8d shipped** (parity matrix + `LANGUAGE_FIDELITY` + `analyze` `fidelity`; `example/full-house/conformance.test.ts` drift guard; per-tool `caveats`; resolver try/catch + robustness tests). **8c partially shipped** (JVM import-symbol tracking; Kotlin test-tag strategy; Kotlin call edges/complexity via a first-party grammar, [ADR-021](../adr-021-kotlin-parsing.md)). Remaining 8c: Groovy audit, Coffee/LS/Lua |
 | 12 | [`12-call-edge-same-package-resolution.md`](12-call-edge-same-package-resolution.md) | Bare calls to a same-package sibling's symbol (no import needed in Kotlin/Java) produce no call edge — `get_call_graph`/`get_callers` return empty despite real, confirmed call sites |
+| 13 | [`13-call-graph-definition-ambiguity.md`](13-call-graph-definition-ambiguity.md) | `get_call_graph`'s `definedIn` silently picks one file when a function/method name is exported by more than one (e.g. an interface method implemented by several types), with no ambiguity signal |
 
 ## Resolved
 
@@ -31,6 +32,7 @@ would mean finding and updating every such citation with no guarantee none is mi
 | 10 | [`10-api-surface-response-size.md`](10-api-surface-response-size.md) | **Fixed** — `get_api_surface` returned a ~14K-token full payload; now summary-first (`view: "summary"` default, ~1K tokens), and `bin` entries are recognized as entry points so CLI/MCP code stops being mislabelled unreachable |
 | 11 | [`11-disk-cache-not-invalidated-by-mokosh-version.md`](11-disk-cache-not-invalidated-by-mokosh-version.md) | **Fixed** — `clear_cache` silently left a stale on-disk workspace cache in place; it now deletes `mokosh-cache/workspace/` too. Automatic staleness detection via a version-derived manifest remains open |
 | 13 | [`13-call-graph-definition-ambiguity.md`](13-call-graph-definition-ambiguity.md) | **Fixed** — `get_call_graph`'s `definedIn` silently picked one file when a function/method name was exported by more than one; now reports `definedInCandidateCount` and withholds `definedIn`/`callees` (not `callers`) rather than guessing, with a `file` arg to disambiguate |
+| 12 | [`12-call-edge-same-package-resolution.md`](12-call-edge-same-package-resolution.md) | **Fixed** — bare calls to a same-package sibling's symbol (no import needed in Kotlin/Java) produced no call edge; a deferred marker + post-drain resolution pass now resolves them against the package partition's `exports`, dropping silently on ambiguity rather than guessing |
 | 14 | [`14-empty-entrypoints-doc-reference-leak.md`](14-empty-entrypoints-doc-reference-leak.md) | **Fixed** — `analyze(entryPoints: [])` on a plain repo built a small, non-deterministic graph seeded only by markdown doc-reference mentions; it now discovers every source file as its own entry point |
 | 15 | [`15-gradle-unary-plus-dsl-detection.md`](15-gradle-unary-plus-dsl-detection.md) | **Fixed** — Gradle monorepo detection missed settings files using Kotlin's unary-plus `+"module"` project DSL (ktor: 0 → 136 packages) |
 
@@ -60,6 +62,14 @@ would mean finding and updating every such citation with no guarantee none is mi
   disambiguator and a shared `findExportingNodes()` helper with issue 12 are deferred. See
   [ADR-003](../adr-003-call-edge-graph.md)'s Query API section and
   [docs/mcp.md](../mcp.md)'s `get_call_graph` entry.
+- **Issue 12** — [`12-call-edge-same-package-resolution.md`](12-call-edge-same-package-resolution.md) —
+  bare calls to a same-package sibling's symbol (no import needed in Kotlin/Java) produced no call
+  edge — `get_call_graph`/`get_callers` returned empty despite real, confirmed call sites. Fixed:
+  the parser side emits a deferred `\0jvm-same-package-call:<package>:<name>` marker on every
+  `localNames`/`importedTypeMap` miss (Kotlin bare calls, Java unqualified type references), and a
+  new `GraphBuilder.resolveJvmSamePackageCallEdges` post-drain pass resolves each marker against
+  the matching package partition's `FileNode.exports` once the whole graph exists — exactly one
+  match becomes a `CallEdge`, ambiguous (two+ matches) drops silently.
 - **Issue 14** — [`14-empty-entrypoints-doc-reference-leak.md`](14-empty-entrypoints-doc-reference-leak.md) —
   `analyze(entryPoints: [])` on a plain (non-monorepo) repo left the build queue empty, so the
   only files that ever entered the graph were whatever a markdown doc-reference edge happened to

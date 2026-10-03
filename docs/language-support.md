@@ -74,9 +74,13 @@ are `full`.
 type name across the module, not by resolving the exact package path — see
 `docs/known_issues/08-cross-language-reliability.md`). Call edges cover static calls and
 constructors, including through generics ([#10](https://github.com/)/issue 4), but not virtual
-dispatch. Complexity is `full` (`src/parser/complexity/java.ts`). Import symbols are `partial`:
-one symbol per import (the FQN's last segment, or the static member for `import static`) —
-wildcard imports carry none, and re-exports aren't tracked.
+dispatch. An unqualified type reference (`Foo.bar()` / `new Foo()`) that names a same-package,
+non-imported sibling now also resolves, via a `GraphBuilder` post-drain pass over the graph's
+already-computed `exports` (`docs/known_issues/12-call-edge-same-package-resolution.md`) —
+ambiguous (two same-named sibling types) drops the edge. Complexity is `full`
+(`src/parser/complexity/java.ts`). Import symbols are `partial`: one symbol per import (the FQN's
+last segment, or the static member for `import static`) — wildcard imports carry none, and
+re-exports aren't tracked.
 
 **Kotlin / Scala / Groovy** — [ADR-017](./adr-017-jvm-languages.md). Share Java's index-based
 `JvmLangResolver`, and now its `partial` import-symbol tracking too (`src/parser/lang/jvm-scan.ts`
@@ -98,7 +102,11 @@ brace body and `when` branches are separated by a newline-aware `Nl` token
 ([ADR-021](./adr-021-kotlin-parsing.md), "Newline-separated statements"), so consecutive calls
 each keep their own edge, including with-arguments constructor calls (`Bar(1)`). The remaining gap
 is unsupported syntax: labeled returns (`return@x`), star projections (`List<*>`) and explicit call type arguments (`emptyList<T>()`) parse with
-error nodes, which can drop edges in that region. Complexity (`src/parser/complexity/kotlin.ts`) mirrors `complexity/java.ts`'s
+error nodes, which can drop edges in that region. A bare call with no `localNames` entry (a
+same-package sibling, which needs no import in Kotlin) now also resolves, via the same
+`GraphBuilder` post-drain pass Java uses
+(`docs/known_issues/12-call-edge-same-package-resolution.md`) — every miss defers, including
+stdlib calls, and the post-drain lookup drops anything ambiguous. Complexity (`src/parser/complexity/kotlin.ts`) mirrors `complexity/java.ts`'s
 cyclomatic + cognitive scoring, with two Kotlin-specific quirks handled explicitly: this grammar
 gives no tree node at all to `&&`/`||` (an unnamed literal token is simply absent from the tree —
 their presence is instead read from the source text between a `BinaryExpression`'s two operand
