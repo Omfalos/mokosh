@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { jvmSamePackageCallSpecifier } from "./jvm-scan";
 import { parseKotlin } from "./kotlin";
 
 describe("kotlin call edges", { tags: ["kotlin", "parseKotlin", "call-edges"] }, () => {
@@ -101,14 +102,56 @@ class Client {
     ]);
   });
 
-  test("bare call to a same-package (unimported) function still does not resolve — issue 12", () => {
-    // Documents the known gap (docs/known_issues/12): unlike the imported case above, a bare
-    // call to a sibling file's function in the same package (no import needed in Kotlin) has no
-    // localNames entry, so it stays unresolved.
+  test("bare call to a same-package (unimported) function emits a deferred marker — issue 12", () => {
+    // docs/known_issues/12: a bare call to a sibling file's function in the same package (no
+    // import needed in Kotlin) has no localNames entry, so parsing alone can't resolve it — it
+    // emits a same-package marker instead of nothing, resolved later by GraphBuilder's
+    // post-drain pass once every file in the package exists (see builder.test.ts).
     const { rawCallEdges } = parseKotlin(
       "src/main/kotlin/p/Client.kt",
       `package p
 class Client {
+  fun run() { parseThing(1) }
+}`,
+    );
+    expect(rawCallEdges).toEqual([
+      {
+        from: "Client.run",
+        to: "parseThing",
+        toSpecifier: jvmSamePackageCallSpecifier("p", "parseThing"),
+      },
+    ]);
+  });
+
+  test("bare constructor-shaped call to a same-package (unimported) type emits a deferred marker", () => {
+    const { rawCallEdges } = parseKotlin(
+      "src/main/kotlin/p/Client.kt",
+      `package p
+class Client {
+  fun make(): Helper { return Helper() }
+}`,
+    );
+    expect(rawCallEdges).toEqual([
+      { from: "Client.make", to: "new", toSpecifier: jvmSamePackageCallSpecifier("p", "Helper") },
+    ]);
+  });
+
+  test("a same-package (unimported) superclass constructor delegation emits a deferred marker", () => {
+    const { rawCallEdges } = parseKotlin(
+      "src/main/kotlin/p/Client.kt",
+      `package p
+class Client : Base() {
+}`,
+    );
+    expect(rawCallEdges).toEqual([
+      { from: "Client", to: "new", toSpecifier: jvmSamePackageCallSpecifier("p", "Base") },
+    ]);
+  });
+
+  test("no package declaration → no deferred marker for an otherwise-same-package miss", () => {
+    const { rawCallEdges } = parseKotlin(
+      "src/main/kotlin/p/Client.kt",
+      `class Client {
   fun run() { parseThing(1) }
 }`,
     );
@@ -231,7 +274,11 @@ class Client {
   test("regression: an imported constant used as a `when` condition is not read as a qualifier", () => {
     // Brace-less consecutive branches used to collapse into an InfixExpression, and the (since
     // removed) tree-walking recovery then fabricated `TYPE_PING.readPing` from
-    // `TYPE_PING -> readPing(...)`.
+    // `TYPE_PING -> readPing(...)`. The regression this guards against is specifically that
+    // misparse — confirmed here by each bare call deferring under its own real name
+    // (`readPing`/`readGoAway`/`other`), not a fabricated `TYPE_PING.readPing`-shaped qualified
+    // edge. Each one is a genuine bare call miss, so each now gets a same-package marker (issue
+    // 12) rather than staying silent, same as any other unimported bare call.
     const { rawCallEdges } = parseKotlin(
       "src/main/kotlin/p/Client.kt",
       `package p
@@ -247,7 +294,19 @@ class Client {
   }
 }`,
     );
-    expect(rawCallEdges ?? []).toEqual([]);
+    expect(rawCallEdges).toEqual([
+      {
+        from: "Client.read",
+        to: "readPing",
+        toSpecifier: jvmSamePackageCallSpecifier("p", "readPing"),
+      },
+      {
+        from: "Client.read",
+        to: "readGoAway",
+        toSpecifier: jvmSamePackageCallSpecifier("p", "readGoAway"),
+      },
+      { from: "Client.read", to: "other", toSpecifier: jvmSamePackageCallSpecifier("p", "other") },
+    ]);
   });
   test("calls inside an extension function are attributed to it by its own name", () => {
     const { rawCallEdges } = parseKotlin(
@@ -291,7 +350,12 @@ class Client {
     expect(edgesOf("list.forEach loop@{ Foo.stat(it) }")).toEqual([
       { from: "Client.run", to: "stat", toSpecifier: "a.b.Foo" },
     ]);
+    // `run { ... }` is itself a bare call (to the stdlib `run` scope function) with no
+    // `localNames` entry, so it now also defers under a same-package marker (issue 12) — the
+    // builder's post-drain pass will fail to match "run" against any file in this package and
+    // drop it, same as any other stdlib miss.
     expect(edgesOf("run { Foo.stat(1); return@run }")).toEqual([
+      { from: "Client.run", to: "run", toSpecifier: jvmSamePackageCallSpecifier("p", "run") },
       { from: "Client.run", to: "stat", toSpecifier: "a.b.Foo" },
     ]);
   });

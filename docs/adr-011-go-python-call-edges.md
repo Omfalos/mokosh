@@ -39,6 +39,15 @@ Both mirror `src/parser/complexity.ts`'s algorithm — McCabe base 1, `+1` per d
 
 Both skip `category === "test"` files, matching ADR-003.
 
+**Same-package call edges (2026-10-01):** JVM languages (Kotlin/Java) gained same-package
+call-edge resolution — see `docs/known_issues/12-call-edge-same-package-resolution.md` and
+ADR-021's "Same-package call-edge resolution" section. Go and Python were checked and need no
+parallel fix: Go requires explicit `pkg.Func()` qualification for anything outside the current
+file, so there's no bare-same-package-call shape in Go at all (an *unqualified same-file* call is
+already excluded above, a different, narrower case); Python's tracking is deliberately narrow by
+design (only `from pkg import func; func()`, never `import pkg; pkg.func()`), so a same-package
+miss was already out of scope before issue 12, not a new gap it left open.
+
 ### `find_symbol` precision consequence
 
 `src/graph/symbol.ts`'s `findSymbol` previously had a third precision tier, `"import-symbol"`, that fired for languages in `IMPORT_SYMBOL_TYPES` (`typescript`, `javascript`, `python`) but not `CALL_EDGE_TYPES`. Since `IMPORT_SYMBOL_TYPES` is now fully contained in `CALL_EDGE_TYPES`, Python matches upgrade from `"import-symbol"` precision to `"call"` precision, and Go matches upgrade from `"file-level"` to `"call"`. That left the `"import-symbol"` branch unreachable by any real `FileType` — it was deleted outright (along with the `"import-symbol"` value from the `SymbolPrecision` type) rather than kept around for a hypothetical future language; `IMPORT_SYMBOL_TYPES` itself stays, since `getLanguageCoverage()` still uses it independently to report whether `ImportEdge.symbols` is populated, a real capability distinct from call-edge tracking.

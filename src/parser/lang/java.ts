@@ -16,6 +16,7 @@ import {
   extractJvmPackage,
   importSymbolFromSpecifier,
   jvmPackageEdge,
+  jvmSamePackageCallSpecifier,
 } from "./jvm-scan";
 
 /** Node name → the signature keyword `get_api_surface` / the type graph classify on. */
@@ -129,10 +130,30 @@ function constructedTypeName(typeNode: SyntaxNode, src: string): string | null {
   return null;
 }
 
+/**
+ * @description Reports whether a constructed-type node (as passed to {@link constructedTypeName})
+ *   names an **unqualified** type — a bare `TypeName`, optionally wrapped in `GenericType`, as
+ *   opposed to a `ScopedTypeName` (already dotted, e.g. `java.util.ArrayList`). Java never allows
+ *   a bare unqualified cross-class call — every call is `this.foo()` (same class) or already
+ *   qualified — so the one real gap is: an unqualified type (`Foo` in `Foo.bar()` / `new Foo()`)
+ *   doesn't need an `import` when it's a same-package sibling, and this is the shape that might be
+ *   one (see docs/known_issues/12). An already-dotted `ScopedTypeName` names a different package
+ *   outright (or a nested type within one already resolved), never a same-package miss, so it's
+ *   excluded here.
+ * @param typeNode - The child node in the type position.
+ * @returns `true` for a bare (optionally generic) `TypeName`.
+ */
+function isUnqualifiedConstructedType(typeNode: SyntaxNode): boolean {
+  let node: SyntaxNode | null = typeNode;
+  if (node.name === "GenericType") node = node.firstChild;
+  return node?.name === "TypeName";
+}
+
 function collectRawCallEdges(
   tree: Tree,
   content: string,
   importedTypes: Map<string, string>,
+  ownPackage: string | null,
 ): RawCallEdge[] {
   const edges: RawCallEdge[] = [];
 
@@ -141,13 +162,25 @@ function collectRawCallEdges(
     if (name === "MethodInvocation") {
       const qualifier = node.firstChild;
       if (qualifier?.type.name === "Identifier") {
-        const toSpecifier = importedTypes.get(content.slice(qualifier.from, qualifier.to));
+        const qualifierName = content.slice(qualifier.from, qualifier.to);
+        const toSpecifier = importedTypes.get(qualifierName);
         const methodNode = node.getChild("MethodName");
-        if (toSpecifier && methodNode) {
+        if (methodNode && toSpecifier) {
           edges.push({
             from: callerName,
             to: content.slice(methodNode.from, methodNode.to),
             toSpecifier,
+          });
+        } else if (methodNode && ownPackage && /^[A-Z]/.test(qualifierName)) {
+          // Same-package miss (issue 12): `Foo` doesn't need an `import` when it's a same-package
+          // sibling type, and `importedTypes` only knows explicitly-imported ones. Restricted to
+          // a capitalized qualifier (Java type-naming convention) so an ordinary instance call
+          // through a lowercase variable (`list.add(x)`) never pays this cost — that's not an
+          // unqualified type reference at all. Deferred to the builder's post-drain pass.
+          edges.push({
+            from: callerName,
+            to: content.slice(methodNode.from, methodNode.to),
+            toSpecifier: jvmSamePackageCallSpecifier(ownPackage, qualifierName),
           });
         }
       }
@@ -159,7 +192,15 @@ function collectRawCallEdges(
       const simple = typeNode && constructedTypeName(typeNode, content);
       if (simple) {
         const toSpecifier = importedTypes.get(simple);
-        if (toSpecifier) edges.push({ from: callerName, to: "new", toSpecifier });
+        if (toSpecifier) {
+          edges.push({ from: callerName, to: "new", toSpecifier });
+        } else if (ownPackage && typeNode && isUnqualifiedConstructedType(typeNode)) {
+          edges.push({
+            from: callerName,
+            to: "new",
+            toSpecifier: jvmSamePackageCallSpecifier(ownPackage, simple),
+          });
+        }
       }
     }
     let child = node.firstChild;
@@ -270,7 +311,9 @@ export function parseJava(filePath: string, content: string): ParseResult {
   const { complexity, cognitiveComplexity } = computeComplexity(tree.topNode, content);
   const functions = collectFunctionComplexity(tree, content);
   const rawCallEdges =
-    category === "test" ? [] : collectRawCallEdges(tree, content, importedTypeMap(imports));
+    category === "test"
+      ? []
+      : collectRawCallEdges(tree, content, importedTypeMap(imports), ownPackage);
 
   const description = extractLeadingDoc(content);
 
