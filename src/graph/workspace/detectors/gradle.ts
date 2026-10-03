@@ -64,6 +64,57 @@ function parseUnaryPlusIncludes(stripped: string): string[] {
 }
 
 /**
+ * @description Parses `includeBuild("path")` / `includeBuild('path')` composite-build targets
+ *   out of a `settings.gradle(.kts)` file — Groovy and Kotlin-DSL forms are identical here, both
+ *   calling a function with one string-literal path argument, optionally followed by a
+ *   configuration lambda this doesn't need to parse. Composite-build targets are filesystem
+ *   paths, not Gradle's colon-prefixed project-path syntax {@link parseIncludes} handles, so this
+ *   is a separate scan. See `docs/known_issues/22-gradle-composite-build-not-detected.md`.
+ * @param {string} stripped - `settings.gradle(.kts)` contents with comments already stripped.
+ * @returns {string[]} Unique raw path strings exactly as written (not yet resolved to absolute
+ *   paths — resolution is relative to the settings file's own directory, done by the caller).
+ */
+function parseIncludeBuilds(stripped: string): string[] {
+  const seen = new Set<string>();
+  for (const match of stripped.matchAll(/includeBuild\(\s*['"]([^'"]+)['"]/g)) {
+    const target = match[1];
+    if (target) seen.add(target);
+  }
+  return [...seen];
+}
+
+/**
+ * @description Resolves every `includeBuild(...)` target to a `WorkspacePackage`, named by the
+ *   target directory's basename (Gradle itself defaults to this when a composite build doesn't
+ *   override its name via `name = "..."` in its own `settings.gradle` — not parsed here, a
+ *   documented limitation). A target outside `rootDir` is skipped, not guessed at: a single-root
+ *   detector has no way to walk a directory it isn't scanning, and representing it would need an
+ *   explicit extra-root mechanism (`docs/known_issues/22-gradle-composite-build-not-detected.md`
+ *   — planned, not yet built). This is the same "declared but not resolvable from what this scan
+ *   can see" tolerance `parseUnaryPlusIncludes`'s caller already has for an unmatched module name.
+ * @param {string} rootDir - Absolute analyzed root; targets outside it are skipped.
+ * @param {string} settingsDir - Absolute directory containing the `settings.gradle(.kts)` file,
+ *   the base `includeBuild` paths resolve against.
+ * @param {string[]} targets - Raw path strings from {@link parseIncludeBuilds}.
+ * @returns {WorkspacePackage[]} One package per in-root, source-bearing composite-build target.
+ */
+function resolveIncludeBuilds(
+  rootDir: string,
+  settingsDir: string,
+  targets: string[],
+): WorkspacePackage[] {
+  const packages: WorkspacePackage[] = [];
+  for (const target of targets) {
+    const absTarget = path.resolve(settingsDir, target);
+    const rel = path.relative(rootDir, absTarget);
+    if (rel.startsWith("..") || path.isAbsolute(rel)) continue;
+    const pkg = buildJvmPackage(rootDir, absTarget, path.basename(absTarget));
+    if (pkg) packages.push(pkg);
+  }
+  return packages;
+}
+
+/**
  * @description Whether `dir` has a `build.gradle(.kts)` directly inside it — the strongest
  *   available signal that a directory is a real Gradle module, versus an unrelated directory
  *   that merely happens to share a module's basename (e.g. a `core` module vs. some unrelated
@@ -137,9 +188,14 @@ function indexDirectoriesByBasename(rootDir: string): Map<string, string[]> {
  *   than a computed path — best-effort, not exact, since that DSL's real resolution is
  *   plugin-specific (see `parseUnaryPlusIncludes`'s doc comment).
  *
+ *   `includeBuild("path")` (composite builds) is parsed separately and merged into either form's
+ *   result: an in-root target becomes an ordinary `WorkspacePackage` named by its directory
+ *   basename; a target outside `rootDir` is skipped (see `resolveIncludeBuilds`'s doc comment and
+ *   `docs/known_issues/22-gradle-composite-build-not-detected.md`).
+ *
  *   Returns `null` (detector does not fire, repo builds as one flat graph) when no
- *   `settings.gradle*` exists or neither form declares any resolvable modules — a single-module
- *   Gradle build is not a workspace.
+ *   `settings.gradle*` exists or none of the three forms declares any resolvable modules — a
+ *   single-module Gradle build is not a workspace.
  */
 export const gradleDetector: MonorepoDetector = {
   type: "gradle",
@@ -156,10 +212,20 @@ export const gradleDetector: MonorepoDetector = {
       return null;
     }
     const stripped = stripComments(source);
+    const settingsDir = path.dirname(settingsPath);
+
+    // includeBuild(...) (composite builds) is additive to whichever of the two module-declaration
+    // forms below fires — a repo can combine ordinary sub-modules with composite builds in the
+    // same settings file — so it's resolved once up front and merged into either branch's result.
+    const compositePackages = resolveIncludeBuilds(
+      rootDir,
+      settingsDir,
+      parseIncludeBuilds(stripped),
+    );
 
     const projectPaths = parseIncludes(stripped);
     if (projectPaths.length > 0) {
-      const packages: WorkspacePackage[] = [];
+      const packages: WorkspacePackage[] = [...compositePackages];
       for (const projectPath of projectPaths) {
         const moduleRoot = path.join(rootDir, ...projectPath.split(":"));
         const pkg = buildJvmPackage(rootDir, moduleRoot, projectPath);
@@ -169,10 +235,12 @@ export const gradleDetector: MonorepoDetector = {
     }
 
     const unaryPlusNames = parseUnaryPlusIncludes(stripped);
-    if (unaryPlusNames.length === 0) return null;
+    if (unaryPlusNames.length === 0) {
+      return compositePackages.length > 0 ? compositePackages : null;
+    }
 
     const byBasename = indexDirectoriesByBasename(rootDir);
-    const packages: WorkspacePackage[] = [];
+    const packages: WorkspacePackage[] = [...compositePackages];
     for (const name of unaryPlusNames) {
       const moduleRoot = byBasename.get(name)?.[0];
       if (!moduleRoot) continue;

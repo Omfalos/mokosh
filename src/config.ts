@@ -20,6 +20,17 @@ import type { TagFramework } from "./tags/strategies";
 export interface MokoshConfig {
   /** Additional directories to skip when scanning (merged with built-in defaults). */
   ignoreDirs?: string[];
+  /**
+   * Additional absolute (or project-root-relative) directories to fold into the workspace graph
+   * as their own packages, outside `rootDir` — currently the only way to represent a Gradle
+   * composite build (`includeBuild("../other-repo")`) that lives outside the analyzed checkout:
+   * mokosh never auto-discovers such a path from a settings file, only from this explicit list
+   * (see `docs/known_issues/22-gradle-composite-build-not-detected.md`). Each entry with no JVM
+   * source files is silently skipped, the same tolerance an `include(...)`/`includeBuild(...)`
+   * target pointing at an empty directory already has. Workspace-graph (`createWorkspaceGraph`)
+   * only; ignored by `createImportMap`.
+   */
+  extraRoots?: string[];
   /** Additional file extensions to scan (merged with built-in defaults). */
   extensions?: string[];
   /** Override the default cache path (`mokosh-cache/graph.json`). */
@@ -239,7 +250,7 @@ export function applyConfig(config: MokoshConfig): void {
 
 /**
  * @description Extracts the subset of `MokoshConfig` fields that affect graph
- *   construction (`gitStats`, `parallelParsing`, `pathAliases`, `ignoreDirs`) into a plain
+ *   construction (`gitStats`, `parallelParsing`, `pathAliases`, `ignoreDirs`, `extraRoots`) into a plain
  *   options object, ready to spread into `createImportMap`/`createWorkspaceGraph` calls. Single
  *   source of truth for this mapping so every graph-building call site — CLI, MCP,
  *   and secondary command-level rebuilds — stays in sync as new config fields are added.
@@ -251,11 +262,13 @@ export function configToGraphOptions(config: MokoshConfig | undefined): {
   parallelParsing: ParallelParsingOption | undefined;
   pathAliases: Record<string, string[]> | undefined;
   additionalIgnoreDirs: string[] | undefined;
+  extraRoots: string[] | undefined;
 } {
   return {
     gitStats: config?.gitStats ?? false,
     parallelParsing: config?.parallelParsing,
     pathAliases: config?.pathAliases,
     additionalIgnoreDirs: config?.ignoreDirs,
+    extraRoots: config?.extraRoots,
   };
 }

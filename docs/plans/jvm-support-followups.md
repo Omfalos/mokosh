@@ -96,7 +96,9 @@ Single-module builds return `null` (repo stays a flat graph). Cross-module edges
 `isWorkspace` by `WorkspaceGraph.annotateCrossPackageEdges()` — a post-build pass, since
 `JvmLangResolver` resolves across modules but is not package-boundary aware.
 
-**Remaining:** none for this item. **Addendum (2026-09-28):** `gradleDetector` initially only
+**Remaining:** none. Composite builds (`includeBuild(...)`) were a distinct gap, closed separately
+— see `docs/known_issues/22-gradle-composite-build-not-detected.md` (in-root auto-detected;
+out-of-root via `MokoshConfig.extraRoots`). **Addendum (2026-09-28):** `gradleDetector` initially only
 recognized the standard `include(":module")` Groovy/Kotlin-DSL form; ktorio/ktor's custom
 settings-plugin DSL (Kotlin's unary-plus operator, `+"module-name"`) went undetected — see
 `docs/known_issues/15-gradle-unary-plus-dsl-detection.md`. Fixed: a fallback parser extracts

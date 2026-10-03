@@ -25,6 +25,31 @@ after all packages are built by `WorkspaceGraph.annotateCrossPackageEdges()` —
 not itself package-boundary aware. Non-standard `projectDir` / `unmanagedSourceDirectories`
 overrides are not honoured (see `docs/adr-017-jvm-languages.md`).
 
+### Gradle composite builds (`includeBuild`)
+
+`includeBuild("path")` — a distinct mechanism from `include(":module")`, used to fold another
+build into this one, commonly for build-logic convention plugins or for local-development
+substitution of a dependency — is detected automatically **when the target is inside `rootDir`**:
+it becomes an ordinary workspace package, same as any `include(...)` module, no configuration
+needed.
+
+A target **outside** `rootDir` (a sibling checkout, e.g. `includeBuild("../shared-lib")`) is not
+auto-discovered — mokosh analyzes only the root(s) a caller explicitly names, never an arbitrary
+filesystem path merely because a settings file mentions one. Name it explicitly instead, via
+`extraRoots` in `mokosh.config.json`:
+
+```json
+{ "extraRoots": ["../shared-lib"] }
+```
+
+(Relative entries resolve against the project root.) Each entry becomes its own workspace package
+(`externalRoot: true`, `relativeRoot`/node paths legitimately prefixed with `..`), and its package
+declarations join the same JVM package index used for every other module — so an FQN import
+crosses the root boundary in either direction, resolved with no Gradle invocation, exactly like
+any other cross-module import. `extraRoots` works for `createWorkspaceGraph` (CLI/MCP
+whole-workspace mode) only, not `createImportMap`. See
+`docs/known_issues/22-gradle-composite-build-not-detected.md`.
+
 ## CLI
 
 Pass no entry points — the CLI detects the workspace automatically. `--workspace-packages` and
