@@ -273,6 +273,17 @@ Find non-test files whose line coverage is below a threshold. Requires a prior `
 
 **Requires:** a prior `analyze` call for the same `root`.
 
+**Config-required response:** `find_uncovered`, `find_risk_hotspots` (coverage) and `check_doc_drift` (`gitStats`) return a structured error instead of an empty result when their data source was never loaded, so an LLM can fix it without guessing:
+
+```json
+{ "error": "CONFIG_REQUIRED", "tool": "find_uncovered", "reason": "...", "missingConfig": "coverage",
+  "fix": { "file": "<root>/mokosh.config.json", "add": { "coverage": { "mode": "static" } },
+           "alternatives": [ ... ], "notes": [ ... ] },
+  "nextSteps": ["clear_cache", "analyze", "find_uncovered"] }
+```
+
+Only `mokosh.config.json` is read by the MCP server (`mokosh.config.js` is ignored). `check_doc_drift` uses `missingConfig: "gitStats"` with `add: { "gitStats": true }`. Built by `buildConfigRequired()` in `src/config-required.ts`; the CLI twins return the same payload with CLI-worded `nextSteps`.
+
 ---
 
 ### `list_tags`

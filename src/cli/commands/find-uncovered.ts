@@ -1,4 +1,5 @@
 /** CLI command: lists non-test files below the configured coverage threshold. */
+import { buildConfigRequired } from "../../config-required";
 import { hasCoverageData } from "../../index";
 import type { CommandContext } from "./types";
 
@@ -17,10 +18,12 @@ export async function run(ctx: CommandContext): Promise<void> {
   if (!hasCoverageData(graph)) {
     console.log(
       JSON.stringify(
-        {
-          error:
-            'No coverage data available. Set coverageReportPath in mokosh.config, or coverage.mode: "static" (instant estimate) or "exec" (real, runs tests), and rebuild the graph.',
-        },
+        buildConfigRequired({
+          tool: "find_uncovered",
+          root: ctx.rootDir,
+          missing: "coverage",
+          surface: "cli",
+        }),
         null,
         2,
       ),
