@@ -1,4 +1,5 @@
 /** CLI command: flags markdown docs whose referenced files changed more recently than the doc itself. */
+import { buildConfigRequired } from "../../config-required";
 import { hasGitTimestampData } from "../../index";
 import type { CommandContext } from "./types";
 
@@ -18,7 +19,20 @@ export async function run(ctx: CommandContext): Promise<void> {
     process.stderr.write(
       "Warning: no git-stats data — rebuild with --git-stats (or config equivalent). Doc drift cannot be detected.\n",
     );
-    console.log("No doc drift detected.");
+    // Exit code stays 0 (CI-friendly) but stdout no longer claims "No doc drift detected." —
+    // that read as "all clear" when nothing was checked.
+    console.log(
+      JSON.stringify(
+        buildConfigRequired({
+          tool: "check_doc_drift",
+          root: ctx.rootDir,
+          missing: "gitStats",
+          surface: "cli",
+        }),
+        null,
+        2,
+      ),
+    );
     return;
   }
 

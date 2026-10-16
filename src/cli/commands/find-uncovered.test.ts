@@ -60,7 +60,9 @@ describe("find-uncovered command", { tags: ["find-uncovered"] }, () => {
     await run(makeContext({ graph: graphWithoutCoverage() }));
 
     const output = JSON.parse(logSpy.mock.calls[0]?.[0] as string);
-    expect(output.error).toMatch(/No coverage data available/);
+    expect(output.error).toBe("CONFIG_REQUIRED");
+    expect(output.missingConfig).toBe("coverage");
+    expect(output.fix.add).toEqual({ coverage: { mode: "static" } });
   });
 
   it("lists only files below the threshold when coverage data is present", async () => {

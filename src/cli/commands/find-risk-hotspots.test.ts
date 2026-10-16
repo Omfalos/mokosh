@@ -67,7 +67,8 @@ describe("find-risk-hotspots command", { tags: ["find-risk-hotspots"] }, () => {
     await run(makeContext({ graph: graphWithoutCoverage() }));
 
     const output = JSON.parse(logSpy.mock.calls[0]?.[0] as string);
-    expect(output.error).toMatch(/No coverage data available/);
+    expect(output.error).toBe("CONFIG_REQUIRED");
+    expect(output.tool).toBe("find_risk_hotspots");
   });
 
   it("lists only complex functions in poorly-covered files", async () => {

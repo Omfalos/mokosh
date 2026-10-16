@@ -1,4 +1,5 @@
 /** CLI command: lists functions that are complex, undertested, and (if git stats are loaded) frequently changed. */
+import { buildConfigRequired } from "../../config-required";
 import { findRiskHotspots, hasCoverageData } from "../../index";
 import type { CommandContext } from "./types";
 
@@ -15,14 +16,15 @@ import type { CommandContext } from "./types";
  */
 export async function run(ctx: CommandContext): Promise<void> {
   const { graph, metric, complexityThreshold, maxCoveragePct, minChurn, limit } = ctx;
-
   if (!hasCoverageData(graph)) {
     console.log(
       JSON.stringify(
-        {
-          error:
-            'No coverage data available. Set coverageReportPath in mokosh.config, or coverage.mode: "static" (instant estimate) or "exec" (real, runs tests), and rebuild the graph.',
-        },
+        buildConfigRequired({
+          tool: "find_risk_hotspots",
+          root: ctx.rootDir,
+          missing: "coverage",
+          surface: "cli",
+        }),
         null,
         2,
       ),

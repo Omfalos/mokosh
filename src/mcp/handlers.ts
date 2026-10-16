@@ -1,4 +1,5 @@
 import path from "node:path";
+import { buildConfigRequired } from "../config-required";
 import { DefaultGitProvider } from "../git";
 import {
   type ApiSurface,
@@ -675,10 +676,7 @@ export async function handleFindUncovered(
   const multi = graphs.length > 1;
 
   if (!graphs.some(({ graph }) => hasCoverageData(graph))) {
-    return text({
-      error:
-        'No coverage data available. Set coverageReportPath in mokosh.config, or coverage.mode: "static" (instant estimate) or "exec" (real, runs tests), and call analyze again.',
-    });
+    return text(buildConfigRequired({ tool: "find_uncovered", root, missing: "coverage" }));
   }
 
   const uncovered = graphs.flatMap(({ graph, package: pkgName }) =>
@@ -714,10 +712,7 @@ export async function handleCheckDocDrift(
   // Same convention as find_uncovered / find_risk_hotspots: an explicit error when the data the
   // tool depends on was never loaded, rather than an empty result that reads as "all clear".
   if (!graphs.some(({ graph }) => hasGitTimestampData(graph))) {
-    return text({
-      error:
-        "No git-stats data available. Set gitStats: true in mokosh.config and call analyze again.",
-    });
+    return text(buildConfigRequired({ tool: "check_doc_drift", root, missing: "gitStats" }));
   }
 
   const staleDocs = graphs.flatMap(({ graph, package: pkgName }) =>
@@ -808,10 +803,7 @@ export async function handleFindRiskHotspots(
   const multi = graphs.length > 1;
 
   if (!graphs.some(({ graph }) => hasCoverageData(graph))) {
-    return text({
-      error:
-        'No coverage data available. Set coverageReportPath in mokosh.config, or coverage.mode: "static" (instant estimate) or "exec" (real, runs tests), and call analyze again.',
-    });
+    return text(buildConfigRequired({ tool: "find_risk_hotspots", root, missing: "coverage" }));
   }
 
   const perPackage = graphs.map(({ graph, package: pkgName }) => ({

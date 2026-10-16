@@ -54,7 +54,7 @@ describe("check-doc-drift command", { tags: ["check-doc-drift"] }, () => {
     expect(logSpy).toHaveBeenCalledWith("No doc drift detected.");
   });
 
-  it("warns (still exit 0) when the graph has no git-stats data", async () => {
+  it("reports CONFIG_REQUIRED (still exit 0) when the graph has no git-stats data", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
     const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => undefined as never);
@@ -62,7 +62,10 @@ describe("check-doc-drift command", { tags: ["check-doc-drift"] }, () => {
     await run(makeContext({ graph: makeFixtureGraph() }));
 
     expect(writeSpy).toHaveBeenCalledWith(expect.stringContaining("no git-stats data"));
-    expect(logSpy).toHaveBeenCalledWith("No doc drift detected.");
+    expect(logSpy).not.toHaveBeenCalledWith("No doc drift detected.");
+    const output = JSON.parse(logSpy.mock.calls[0]?.[0] as string);
+    expect(output.error).toBe("CONFIG_REQUIRED");
+    expect(output.missingConfig).toBe("gitStats");
     expect(exitSpy).not.toHaveBeenCalled();
   });
 

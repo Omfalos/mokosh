@@ -8,11 +8,13 @@ import type { SerializedGraph } from "../types/graph";
 import { SessionState } from "./cache";
 import {
   handleAnalyze,
+  handleCheckDocDrift,
   handleDetectFeatures,
   handleFindComplexFunctions,
   handleFindDuplicates,
   handleFindRiskHotspots,
   handleFindSymbol,
+  handleFindUncovered,
   handleFindUnused,
   handleGetAffected,
   handleGetApiSurface,
@@ -752,9 +754,41 @@ describe("handleFindRiskHotspots", {
   test("errors instead of reporting false positives when no coverage data was loaded", async () => {
     const data = parse(await handleFindRiskHotspots(makeNoCoverageCache(), { root: ROOT })) as {
       error: string;
+      tool: string;
+      fix: { file: string; add: unknown };
+      nextSteps: string[];
     };
 
-    expect(data.error).toMatch(/No coverage data available/);
+    expect(data.error).toBe("CONFIG_REQUIRED");
+    expect(data.tool).toBe("find_risk_hotspots");
+    expect(data.fix.file).toBe(`${ROOT}/mokosh.config.json`);
+    expect(data.fix.add).toEqual({ coverage: { mode: "static" } });
+    expect(data.nextSteps).toEqual(["clear_cache", "analyze", "find_risk_hotspots"]);
+  });
+
+  test("find_uncovered returns the same CONFIG_REQUIRED payload when no coverage was loaded", async () => {
+    const cache = Object.assign(makeNoCoverageCache(), { getConfig: vi.fn() });
+    const data = parse(await handleFindUncovered(cache, { root: ROOT })) as {
+      error: string;
+      tool: string;
+      nextSteps: string[];
+    };
+
+    expect(data.error).toBe("CONFIG_REQUIRED");
+    expect(data.tool).toBe("find_uncovered");
+    expect(data.nextSteps).toEqual(["clear_cache", "analyze", "find_uncovered"]);
+  });
+
+  test("check_doc_drift asks for gitStats when no commit timestamps were loaded", async () => {
+    const data = parse(await handleCheckDocDrift(makeNoCoverageCache(), { root: ROOT })) as {
+      error: string;
+      missingConfig: string;
+      fix: { add: unknown };
+    };
+
+    expect(data.error).toBe("CONFIG_REQUIRED");
+    expect(data.missingConfig).toBe("gitStats");
+    expect(data.fix.add).toEqual({ gitStats: true });
   });
 
   test("filters by complexity and coverage, sorted worst-first", async () => {
