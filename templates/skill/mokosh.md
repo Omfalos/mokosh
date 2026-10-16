@@ -51,15 +51,15 @@ If source files are edited mid-session, call `clear_cache({ root })` before re-q
 | Complex + undertested + (optionally) churny functions | `find_risk_hotspots({ root, metric, minComplexity, maxCoveragePct, minChurn })` | `mokosh <entry> --find-risk-hotspots` |
 | Duplicated code blocks | `find_duplicates({ root, minLines })` | `mokosh <entry> --find-duplicates` |
 | Docs whose referenced files changed more recently | `check_doc_drift({ root })` | `mokosh <entry> --check-doc-drift` |
-| High-degree hubs / orchestrators | `detect_features({ root })` | `mokosh <entry> --detect-features` |
+| High-degree hubs / orchestrators | `detect_features({ root, limit? })` | `mokosh <entry> --detect-features` |
 | What does each file own? | `get_module_responsibility({ root, paths? })` | — |
-| Group files by owning feature | `get_feature_graph({ root, minOutDegree })` | — |
+| Group files by owning feature | `get_feature_graph({ root, minOutDegree, feature?, view? })` (summary by default) | — |
 
 ### Types and API surface
 
 | Goal | MCP call |
 |------|----------|
-| Inventory of all types | `get_type_graph({ root })` |
+| Inventory of types | `get_type_graph({ root, limit?, kind?, path? })` |
 | Who uses type T? | `get_type_graph({ root, type: "TypeName" })` |
 | Resolved public API of a library | `get_api_surface({ root, entryPoints? })` |
 
@@ -76,7 +76,7 @@ If source files are edited mid-session, call `clear_cache({ root })` before re-q
 |------|----------|-----------------|
 | Tags to run after git diff | `propose_tags({ root })` | `mokosh --propose-tags <entry>` |
 | Test paths after git diff | `propose_tags({ root, format: "paths" })` | — |
-| Write `@tag` annotations into test files | `apply_tags({ root, dryRun? })` | — |
+| Write `@tag` annotations into test files | `apply_tags({ root, dryRun?, verbose? })` | — |
 
 ### Ad-hoc graph queries
 

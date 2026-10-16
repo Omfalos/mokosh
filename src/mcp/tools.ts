@@ -25,7 +25,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "analyze",
     description:
-      "Build the dependency graph from entry points; returns node count, categories, and cycles. Call before get_dependencies/get_dependents/get_affected/propose_tags. Empty entryPoints auto-detects a monorepo (pnpm/npm/yarn/Nx/Turborepo/Gradle/sbt): returns the layout at once, builds per-package graphs lazily on the first workspace-aware call — eager:true builds all up front. Whole-graph tools then run against the flattened workspace; pass package to narrow.",
+      "Build the dependency graph from entry points; returns node count, categories, and cycles. Call before get_dependencies/get_dependents/get_affected/propose_tags. Empty entryPoints auto-detects a monorepo (pnpm/npm/yarn/Nx/Turborepo/Gradle/sbt): returns the layout at once and builds package graphs lazily (eager:true builds all). Whole-graph tools then run on the flattened workspace; pass package to narrow.",
     inputSchema: {
       type: "object",
       properties: {
@@ -100,7 +100,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "get_affected",
     description:
-      "Get all files transitively affected if a given file changes — full incoming traversal upward. Use before a refactor to understand blast radius. On a monorepo root, blast radius is fully transitive across packages. See docs/mcp.md for the testsOnly, cached, changedSymbols, and withMeta options.",
+      "Get all files transitively affected if a given file changes — full incoming traversal upward. Use before a refactor to see blast radius; spans packages on a monorepo root. See docs/mcp.md for the testsOnly, cached, changedSymbols, and withMeta options.",
     inputSchema: {
       type: "object",
       properties: {
@@ -133,7 +133,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "compare_branches",
     description:
-      "Compare the current graph (root) against baseRef, for reviewing a PR/branch: file diff, stale post-rename references, and deltas for duplication, complexity, doc drift, and coverage/risk hotspots. Returns a compact summary by default (verdict + headline + capped delta lists); pass detail:'full' for every entry. Monorepo root: whole flattened workspace, no entryPoints. See docs/mcp.md. Requires a prior analyze() call.",
+      "Compare the current graph (root) against baseRef, for reviewing a PR/branch: file diff, stale post-rename references, and deltas for duplication, complexity, doc drift, and coverage/risk hotspots. Compact summary by default (verdict, headline, capped delta lists); detail:'full' for every entry. Monorepo root: whole flattened workspace, no entryPoints. See docs/mcp.md. Needs a prior analyze().",
     inputSchema: {
       type: "object",
       properties: {
@@ -191,7 +191,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "get_callers",
     description:
-      "Get files whose exported functions call into a given file (call-graph dependents). More precise than get_affected: only files with actual call edges, not mere imports. Only imported symbols are tracked, never same-file calls. Requires prior analyze() call.",
+      "Get files whose exported functions call into a given file (call-graph dependents). More precise than get_affected: only actual call edges, not mere imports. Only imported symbols are tracked, never same-file calls. Needs a prior analyze().",
     inputSchema: {
       type: "object",
       properties: {
@@ -268,7 +268,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "check_doc_drift",
     description:
-      "Find markdown docs whose referenced files changed more recently than the doc itself — a commit-recency heuristic for stale docs, not a content diff. Requires a prior analyze() with gitStats: true in mokosh.config (else no commit-timestamp data, nothing flagged). See docs/adr-009-markdown-parsing.md for limitations.",
+      "Find markdown docs whose referenced files changed more recently than the doc itself — a commit-recency heuristic for stale docs, not a content diff. Needs a prior analyze() with gitStats: true in mokosh.config (else nothing is flagged). See docs/adr-009-markdown-parsing.md.",
     inputSchema: {
       type: "object",
       properties: {
@@ -307,7 +307,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "find_risk_hotspots",
     description:
-      "Find functions that are complex, in a poorly-covered file, and — when gitStats is enabled in mokosh.config — frequently changed. Requires a prior analyze() and coverage configured in mokosh.config; errors if no coverage loaded. Churn filtering is skipped (churnDataAvailable: false) without gitStats, since complexity + low coverage alone is still a meaningful signal.",
+      "Find functions that are complex, in a poorly-covered file, and — when gitStats is enabled in mokosh.config — frequently changed. Needs a prior analyze() and coverage in mokosh.config (errors otherwise). Without gitStats, churn filtering is skipped (churnDataAvailable: false).",
     inputSchema: {
       type: "object",
       properties: {
@@ -464,6 +464,7 @@ export const TOOL_DEFINITIONS = [
           description:
             "Min internal imports a file must have to qualify as a feature hub (default: 5).",
         },
+        limit: { type: "number", description: "Max hubs returned (default 50)." },
         package: FAN_OUT_PACKAGE_PROPERTY,
       },
       required: ["root"],
@@ -492,7 +493,7 @@ export const TOOL_DEFINITIONS = [
         slim: {
           type: "boolean",
           description:
-            "Compact response mode (default: true). Export names, meaningful tags (comment-marker + import kinds only), and a flat importsFiles path list — no edge objects, no mtime/size. Pass slim: false for every tag kind and full edge metadata; use list_tags (bounded; its byKind histogram shows per-kind totals) to discover tag names.",
+            "Compact mode (default true): export names, meaningful tags, flat importsFiles list. slim:false adds every tag kind and full edge metadata; list_tags discovers tag names.",
         },
         package: {
           type: "string",
@@ -505,7 +506,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "get_workspace_packages",
     description:
-      "List workspace packages in a monorepo: name, relativeRoot, dependsOn. Reads repo layout + package.json manifests alone — no analyze(), no graph build, fast on large monorepos. Per-package nodeCount (and exact dependsOn edges for Gradle/sbt) appear only when a prior analyze() built the workspace graph; check the dependsOnResolved / nodeCountsResolved flags.",
+      "List workspace packages in a monorepo: name, relativeRoot, dependsOn. Reads layout + manifests only — no analyze() or graph build. nodeCount (and exact Gradle/sbt dependsOn) appear only after an analyze(); see the dependsOnResolved / nodeCountsResolved flags.",
     inputSchema: {
       type: "object",
       properties: {
@@ -517,7 +518,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "get_workspace_affected",
     description:
-      "Cross-package blast-radius analysis: files affected if a given file changes, grouped by owning package with each package's sample list capped (counts stay exact). For the full uncapped list call get_affected on the same file. Requires a prior analyze() with empty entryPoints on a monorepo root.",
+      "Cross-package blast-radius analysis: files affected if a given file changes, grouped by owning package, each sample list capped (counts stay exact). For the full list call get_affected. Needs a prior analyze() with empty entryPoints on a monorepo root.",
     inputSchema: {
       type: "object",
       properties: {
@@ -538,7 +539,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "get_type_graph",
     description:
-      "Type-level relationships. Without a type name: an inventory of all interfaces, classes, enums and type aliases with their file and kind. With a type name: which files import it (usedByFiles) and which types the defining file imports (uses). Requires a prior analyze(). TypeScript/JavaScript only.",
+      "Type-level relationships. Without a type name: a bounded inventory of interfaces, classes, enums and type aliases (file, kind, first-line doc). With a type name: which files import it (usedByFiles) and which types the defining file imports (uses). Requires a prior analyze(). TypeScript/JavaScript only.",
     inputSchema: {
       type: "object",
       properties: {
@@ -546,8 +547,15 @@ export const TOOL_DEFINITIONS = [
         type: {
           type: "string",
           description:
-            "Exact exported name of the type to look up (e.g. 'FileNode'). Omit to get the full type inventory.",
+            "Exact exported name of the type to look up (e.g. 'FileNode'). Omit for the inventory.",
         },
+        limit: { type: "number", description: "Inventory: max types (default 100)." },
+        kind: {
+          type: "string",
+          enum: ["interface", "class", "enum", "type"],
+          description: "Inventory: one kind only.",
+        },
+        path: { type: "string", description: "Inventory: file path substring." },
         package: SINGLE_PACKAGE_PROPERTY,
       },
       required: ["root"],
@@ -578,7 +586,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "get_feature_graph",
     description:
-      "Group files by domain: which files each feature hub (high-import orchestrator) transitively owns. Each file goes to the most specific hub that can reach it (lowest out-degree wins). Prefer over a full query for 'what files are in feature X?' — returns only paths grouped by hub, so it's smaller than a full graph query for the same question.",
+      "Group files by domain: which files each feature hub (high-import orchestrator) transitively owns. Each file goes to the most specific hub that can reach it (lowest out-degree wins). Summary by default (hub, outDegree, fileCount per feature); use feature for one file list.",
     inputSchema: {
       type: "object",
       properties: {
@@ -588,6 +596,13 @@ export const TOOL_DEFINITIONS = [
           description:
             "Minimum internal imports a file must have to qualify as a feature hub (default: 5).",
         },
+        view: {
+          type: "string",
+          enum: ["summary", "full"],
+          description: "summary (default): counts only. full: every file + unassigned.",
+        },
+        limit: { type: "number", description: "Summary: max features (default 30)." },
+        feature: { type: "string", description: "Return this feature's full file list." },
         package: SINGLE_PACKAGE_PROPERTY,
       },
       required: ["root"],
@@ -632,7 +647,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "get_api_surface",
     description:
-      "API surface report: exported symbols resolved to defining file + kind, plus internalFiles / unreachableFromEntry / testFiles partitions. Needs a prior analyze(). Entry points auto-detect from package.json exports/bin/main (JS/TS) or every non-test source file (Go/Python/JVM). Summary-first: view 'summary' (default) = counts + byKind + a capped sample + the short unreachableFromEntry list; 'exports'/'full' widen it. Monorepo root without `package`: per-package breakdown + `skipped`. See docs/mcp.md.",
+      "API surface report: exported symbols resolved to defining file + kind, plus internalFiles / unreachableFromEntry / testFiles partitions. Needs a prior analyze(). Entry points auto-detect from package.json exports/bin/main (JS/TS) or every non-test file (Go/Python/JVM). Summary-first: view 'summary' (default) = counts, byKind, capped sample, short unreachableFromEntry; 'exports'/'full' widen it. Monorepo root without `package`: per-package breakdown + `skipped`. See docs/mcp.md.",
     inputSchema: {
       type: "object",
       properties: {
@@ -664,7 +679,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "clear_cache",
     description:
-      "Drop the cached dependency graph and mokosh.config.json for a root, forcing the next analyze() to rebuild from disk and re-read config. Call after editing source files or mokosh.config.json mid-session — otherwise get_affected, get_dependencies and other query tools reason from stale data.",
+      "Drop the cached graph and mokosh.config.json for a root, forcing the next analyze() to rebuild and re-read config. Call after editing sources or config mid-session, else query tools use stale data.",
     inputSchema: {
       type: "object",
       properties: {
@@ -676,7 +691,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "apply_tags",
     description:
-      "Write @tag annotations into test file source code based on the dependency graph, as an idempotent block — re-running is safe, the existing block is replaced in place. Use dryRun=true to preview changes without writing to disk. Requires a prior analyze() call. See docs/mcp.md for tag-kind and per-language block syntax details.",
+      "Write @tag annotations into test files from the dependency graph, as an idempotent block (re-running replaces it in place). dryRun=true previews without writing. Returns counts, errors and a sample; verbose=true lists every file. Needs a prior analyze(). See docs/mcp.md.",
     inputSchema: {
       type: "object",
       properties: {
@@ -688,6 +703,10 @@ export const TOOL_DEFINITIONS = [
           type: "boolean",
           description:
             "When true, computes which files would change but does not write to disk (default: false).",
+        },
+        verbose: {
+          type: "boolean",
+          description: "Full per-file list (default: counts, errors, 20-file sample).",
         },
         package: FAN_OUT_PACKAGE_PROPERTY,
       },

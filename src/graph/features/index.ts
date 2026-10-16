@@ -67,6 +67,9 @@ function buildFeatureMap(
     if (outDegree < minOutDegree) continue;
     const node = nodes.get(filePath);
     if (!node || node.category === "test" || node.category === "barrel") continue;
+    // Markdown docs "import" the files they mention, so they would otherwise rank as hubs and
+    // claim real source files (docs/mcp-tool-audit.md F2).
+    if (node.type === "markdown") continue;
     const ext = path.extname(filePath);
     const basename = path.basename(filePath, ext);
     const label = basename === "index" ? path.basename(path.dirname(filePath)) : basename;
@@ -90,4 +93,50 @@ export function detectFeatures(
   const minOutDegree = options?.minOutDegree ?? 5;
 
   return buildFeatureMap(nodes, buildOutDegreeMap(nodes), minOutDegree);
+}
+
+/** Default cap on hubs returned by the MCP `detect_features` tool. */
+export const DEFAULT_FEATURE_LIMIT = 50;
+
+/** Token-bounded `detect_features` response: the top `limit` hubs plus the true total. */
+export interface FeatureSummary<T extends FeatureInfo = FeatureInfo> {
+  /** The highest out-degree hubs, at most `limit` of them. */
+  features: T[];
+  /** Number of hubs returned in `features`. */
+  count: number;
+  /** Total hubs found before the cap. */
+  matched: number;
+  /** Present (true) only when `features` was cut short by `limit`. */
+  truncated?: true;
+  /** Present only when truncated: how to see more. */
+  hint?: string;
+}
+
+/**
+ * @description Caps an already-sorted hub list to `limit`, always reporting the true total so a
+ *   caller can tell a short list from a truncated one.
+ * @param {T[]} features - Hubs sorted by out-degree descending.
+ * @param {{ limit?: number }} [options] - `limit` caps the list (default 50); non-finite or < 1 falls back to the default.
+ * @returns {FeatureSummary<T>} `{ features, count, matched, truncated?, hint? }`.
+ */
+export function summarizeFeatures<T extends FeatureInfo>(
+  features: T[],
+  options?: { limit?: number | undefined },
+): FeatureSummary<T> {
+  const requested = options?.limit;
+  const limit =
+    requested !== undefined && Number.isFinite(requested) && requested >= 1
+      ? Math.trunc(requested)
+      : DEFAULT_FEATURE_LIMIT;
+  const kept = features.slice(0, limit);
+  const truncated = kept.length < features.length;
+  return {
+    features: kept,
+    count: kept.length,
+    matched: features.length,
+    ...(truncated && {
+      truncated: true as const,
+      hint: `Showing top ${kept.length} of ${features.length} hubs by out-degree. Raise limit, or raise featureThreshold to keep only the strongest hubs.`,
+    }),
+  };
 }

@@ -181,3 +181,90 @@ export function queryTypeGraph(typeGraph: TypeGraph, typeName: string): TypeQuer
     uses: Array.from(usesMap.values()),
   };
 }
+
+/** Default cap on types listed by the MCP `get_type_graph` inventory. */
+export const DEFAULT_TYPE_INVENTORY_LIMIT = 100;
+
+/** Longest `doc` kept per type in the inventory; the first line only, ellipsised past this. */
+export const TYPE_DOC_MAX_CHARS = 120;
+
+/** Filters and cap for {@link summarizeTypeInventory}. */
+export interface TypeInventoryOptions {
+  /** Max types listed (default 100); non-finite or < 1 falls back to the default. */
+  limit?: number | undefined;
+  /** Keep only this structural kind. */
+  kind?: TypeKind | undefined;
+  /** Keep only types whose defining file path contains this substring. */
+  path?: string | undefined;
+}
+
+/** Token-bounded type inventory: capped list, first-line docs, and the true totals. */
+export interface TypeInventorySummary {
+  /** Types returned, at most `limit`. */
+  count: number;
+  /** Types matching `kind`/`path` before the cap. */
+  matched: number;
+  /** Histogram of `kind` over all matched types (not just the returned ones). */
+  byKind: Partial<Record<TypeKind, number>>;
+  /** The returned types, with `doc` cut to its first line. */
+  types: TypeNode[];
+  /** Present (true) only when `types` was cut short by `limit`. */
+  truncated?: true;
+  /** Present only when truncated: how to narrow or widen. */
+  hint?: string;
+}
+
+/**
+ * @description Reduces a type graph to a bounded inventory: applies the optional `kind`/`path` filters,
+ *   caps the list, and shortens each `doc` to its first line (full multi-line JSDoc roughly tripled the payload).
+ * @param {TypeGraph} typeGraph - Full type graph from {@link buildTypeGraph}.
+ * @param {TypeInventoryOptions} [options] - `limit`, `kind` and `path` filters.
+ * @returns {TypeInventorySummary} `{ count, matched, byKind, types, truncated?, hint? }`.
+ */
+export function summarizeTypeInventory(
+  typeGraph: TypeGraph,
+  options?: TypeInventoryOptions,
+): TypeInventorySummary {
+  const requested = options?.limit;
+  const limit =
+    requested !== undefined && Number.isFinite(requested) && requested >= 1
+      ? Math.trunc(requested)
+      : DEFAULT_TYPE_INVENTORY_LIMIT;
+  const matchedTypes = Array.from(typeGraph.types.values()).filter(
+    (node) =>
+      (!options?.kind || node.kind === options.kind) &&
+      (!options?.path || node.file.includes(options.path)),
+  );
+  const byKind: Partial<Record<TypeKind, number>> = {};
+  for (const node of matchedTypes) byKind[node.kind] = (byKind[node.kind] ?? 0) + 1;
+  const types = matchedTypes.slice(0, limit).map(shortenDoc);
+  const truncated = types.length < matchedTypes.length;
+  return {
+    count: types.length,
+    matched: matchedTypes.length,
+    byKind,
+    types,
+    ...(truncated && {
+      truncated: true as const,
+      hint: `Showing ${types.length} of ${matchedTypes.length} types. Narrow with kind or path, raise limit, or pass type:"<name>" for one type's usedByFiles/uses.`,
+    }),
+  };
+}
+
+/**
+ * @param {TypeNode} node - Type node whose `doc` may span several lines.
+ * @returns {TypeNode} The same node with `doc` cut to its first line (≤ 120 chars); `doc` is dropped if blank.
+ */
+function shortenDoc(node: TypeNode): TypeNode {
+  if (!node.doc) return node;
+  const { doc, ...rest } = node;
+  const firstLine = (doc.split("\n", 1)[0] ?? "").trim();
+  if (!firstLine) return rest;
+  return {
+    ...rest,
+    doc:
+      firstLine.length > TYPE_DOC_MAX_CHARS
+        ? `${firstLine.slice(0, TYPE_DOC_MAX_CHARS - 1)}…`
+        : firstLine,
+  };
+}
