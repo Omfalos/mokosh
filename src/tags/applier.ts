@@ -113,3 +113,58 @@ export async function applyTags(
 
   return result;
 }
+
+/** Max `updated` entries listed in the default (non-verbose) `apply_tags` response. */
+export const APPLY_TAGS_SAMPLE_LIMIT = 20;
+
+/** Token-bounded `apply_tags` response: counts, every error, and a sample of changed files. */
+export interface ApplyTagsSummary {
+  /** Echo of the mode, so a dry run is never mistaken for a write. */
+  dryRun: boolean;
+  /** Files written (dry run: files that would be written). */
+  updated: number;
+  /** Files whose tags already matched. */
+  unchanged: number;
+  /** Files that could not be read or written. */
+  errors: number;
+  /** Every `error` entry plus up to {@link APPLY_TAGS_SAMPLE_LIMIT} `updated` ones. */
+  files: ApplyTagsFileResult[];
+  /** `updated` entries not listed in `files`; present only when > 0. */
+  moreUpdated?: number;
+  /** How to get the full per-file list; present only when `moreUpdated`. */
+  hint?: string;
+}
+
+/**
+ * @description Collapses an {@link ApplyTagsResult} to what a caller needs by default: the counts,
+ *   all errors, and a capped sample of `updated` files. `unchanged` files are never listed (their
+ *   count says it all) and error text has the absolute `root` stripped.
+ * @param {ApplyTagsResult} result - Full per-file result from {@link applyTags}.
+ * @param {{ dryRun: boolean; root: string }} context - `dryRun` is echoed; `root` is stripped from error strings.
+ * @returns {ApplyTagsSummary} Counts plus a bounded `files` list.
+ */
+export function summarizeApplyTags(
+  result: ApplyTagsResult,
+  context: { dryRun: boolean; root: string },
+): ApplyTagsSummary {
+  const errors = result.files
+    .filter((file) => file.status === "error")
+    .map((file) => ({
+      ...file,
+      ...(file.error && { error: file.error.split(context.root).join(".") }),
+    }));
+  const updated = result.files.filter((file) => file.status === "updated");
+  const sample = updated.slice(0, APPLY_TAGS_SAMPLE_LIMIT);
+  const moreUpdated = updated.length - sample.length;
+  return {
+    dryRun: context.dryRun,
+    updated: result.updated,
+    unchanged: result.unchanged,
+    errors: result.errors,
+    files: [...errors, ...sample],
+    ...(moreUpdated > 0 && {
+      moreUpdated,
+      hint: "Pass verbose:true for the full per-file list (including unchanged files).",
+    }),
+  };
+}

@@ -114,12 +114,17 @@ export {
   detectFeatures,
   type FeatureDetectionOptions,
   type FeatureInfo,
+  type FeatureSummary,
+  summarizeFeatures,
 } from "./graph/features";
 export {
   buildFeatureGraph,
   type FeatureDomain,
+  type FeatureDomainSummary,
   type FeatureGraph,
   type FeatureGraphOptions,
+  type FeatureGraphSummary,
+  summarizeFeatureGraph,
 } from "./graph/features/feature-graph";
 export {
   CALL_EDGE_TYPES,
@@ -197,8 +202,11 @@ export {
 export {
   buildTypeGraph,
   queryTypeGraph,
+  summarizeTypeInventory,
   type TypeEdge,
   type TypeGraph,
+  type TypeInventoryOptions,
+  type TypeInventorySummary,
   type TypeKind,
   type TypeNode,
   type TypeQueryResult,
@@ -255,10 +263,12 @@ export {
 export {
   type ApplyTagsFileResult,
   type ApplyTagsResult,
+  type ApplyTagsSummary,
   applyTags,
   type ProposeTagsOptions,
   proposeAffectedTests,
   proposeTags,
+  summarizeApplyTags,
   type TestNodeIdentifier,
 } from "./tags";
 export type {

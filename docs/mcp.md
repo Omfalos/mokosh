@@ -412,15 +412,17 @@ Backward-traverses from each changed file to find affected test files. Feature h
 
 ### `detect_features`
 
-Identifies feature hub files — source files that import many other internal modules (orchestrators/aggregators). Returns them sorted by import count descending.
+Identifies feature hub files — source files that import many other internal modules (orchestrators/aggregators). Returns them sorted by out-degree descending, capped at `limit`. Markdown/doc files are never hubs (they only "import" the files they mention).
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `root` | `string` | yes | |
 | `entryPoints` | `string[]` | no | Build a fresh graph from these entry points. Omit to reuse the cached graph |
 | `featureThreshold` | `number` | no | Min internal imports a file must have to qualify (default: `5`) |
+| `limit` | `number` | no | Max hubs returned (default: `50`). The true total is always reported as `matched` |
+| `package` | `string` | no | Monorepo root only — scope to one workspace package |
 
-**Returns:** `{ features: Array<{ path, inDegree, tag }>, count: number }`
+**Returns:** `{ features: Array<{ path, outDegree, tag }>, count, matched, truncated?, hint? }` — `truncated`/`hint` appear only when `limit` cut the list.
 
 ---
 
@@ -485,13 +487,18 @@ Cross-package blast-radius analysis. Returns every file that could be affected i
 
 ### `get_type_graph`
 
-Type-level relationships for the project. Without a type name, returns an inventory of all interfaces, classes, enums, and type aliases with their file and kind. With a type name, returns which files import that type (`usedByFiles`) and which types the defining file imports (`uses`). TypeScript/JavaScript only.
+Type-level relationships for the project. Without a type name, returns a bounded inventory of interfaces, classes, enums, and type aliases (file, kind, and the first line of the doc). With a type name, returns which files import that type (`usedByFiles`) and which types the defining file imports (`uses`). TypeScript/JavaScript only.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `root` | `string` | yes | |
-| `type` | `string` | no | Exact exported name of the type to look up (e.g. `FileNode`). Omit for the full type inventory |
+| `type` | `string` | no | Exact exported name of the type to look up (e.g. `FileNode`). Omit for the inventory |
+| `limit` | `number` | no | Inventory only — max types listed (default: `100`) |
+| `kind` | `"interface" \| "class" \| "enum" \| "type"` | no | Inventory only — keep one structural kind |
+| `path` | `string` | no | Inventory only — keep types whose file path contains this substring |
 | `package` | `string` | no | Monorepo root only — scope to one workspace package. Omit to span the whole flattened workspace. |
+
+**Returns (inventory):** `{ count, matched, byKind, types, truncated?, hint? }` — `matched`/`byKind` cover every type that passed the filters, not just the listed page.
 
 **Requires:** a prior `analyze` call for the same `root`. On a monorepo root this runs against the flattened whole-workspace graph, so cross-package type relationships are included.
 
@@ -513,13 +520,18 @@ What each file is responsible for: its semantic role, JSDoc description (when pr
 
 ### `get_feature_graph`
 
-Groups files by domain: returns which files each feature hub (high-import orchestrator) transitively owns. Each file is assigned to the most specific hub that can reach it (lowest out-degree wins). Use this instead of a full `query` when answering "what files are in the X feature/module?" — it returns only paths grouped by hub, so it's substantially cheaper in tokens than a full graph query for the same question. The exact reduction depends on your repo's shape; compare `get_feature_graph` output size against `query` yourself if you need a number for your codebase.
+Groups files by domain: returns which files each feature hub (high-import orchestrator) transitively owns. Each file is assigned to the most specific hub that can reach it (lowest out-degree wins). Summary-first: by default it returns per-feature counts only (hub, out-degree, owned-file count); pass `feature` for one feature's file list, or `view: "full"` for every file. On a 4,400-file repo the full form was ~250K characters, the default summary is a few hundred.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `root` | `string` | yes | |
 | `minOutDegree` | `number` | no | Minimum internal imports a file must have to qualify as a feature hub (default: `5`) |
+| `view` | `"summary" \| "full"` | no | `summary` (default): counts only. `full`: every owned file plus `unassigned` |
+| `limit` | `number` | no | Summary only — max features listed, largest first (default: `30`) |
+| `feature` | `string` | no | Return this one feature's full file list instead (name as shown in the summary) |
 | `package` | `string` | no | Monorepo root only — scope to one workspace package. Omit to span the whole flattened workspace. |
+
+**Returns (summary):** `{ features: { <name>: { hub, outDegree, fileCount } }, totalFeatures, unassignedCount, truncated?, hint }`. **With `feature`:** `{ feature, hub, outDegree, files, fileCount }` (or `{ feature, found: false, hint }`). **`view: "full"`:** `{ features: { <name>: { hub, outDegree, files } }, unassigned }`.
 
 **Requires:** a prior `analyze` call for the same `root`. On a monorepo root this runs against the flattened whole-workspace graph, so features can span packages.
 
@@ -633,6 +645,10 @@ Writes `@tag` annotations into test file source code based on the dependency gra
 |---|---|---|---|
 | `root` | `string` | yes | |
 | `dryRun` | `boolean` | no | When `true`, computes which files would change but does not write to disk (default: `false`) |
+| `verbose` | `boolean` | no | Return every per-file entry, including unchanged files (default: `false`) |
+| `package` | `string` | no | Monorepo root only — scope to one workspace package |
+
+**Returns:** by default `{ dryRun, updated, unchanged, errors, files, moreUpdated?, hint? }` — `files` holds every error plus at most 20 `updated` entries (`moreUpdated` counts the rest; unchanged files are only counted). With `verbose: true`, the full `{ updated, unchanged, errors, files }` with one entry per test file. On a dry run, `updated` means "would be updated".
 
 **Requires:** a prior `analyze` call for the same `root`.
 
