@@ -41,7 +41,7 @@ The predicate trusts *any* tag literally named `test`, regardless of tag kind. `
 
 ### F2 — Markdown doc-reference edges pollute `detect_features` and `get_feature_graph`
 
-**Severity:** medium · **Confirmed** · **Status (2026-10-01): still open** — `src/graph/features/index.ts:69` only excludes `category === "test" | "barrel"`; markdown nodes (`category: "other"`) still pass the hub-candidacy filter unchanged.
+**Severity:** medium · **Confirmed** · **Status: fixed** — `buildFeatureMap` in `src/graph/features/index.ts` now skips `type === "markdown"` nodes, so docs are neither hubs nor owners.
 
 `detect_features` ranks documentation files as top "feature hubs / orchestrators":
 
@@ -135,16 +135,16 @@ Shipped: `handleListTags` (`src/mcp/handlers.ts`) now takes `kind` / `prefix` / 
 `find_duplicates`, `get_api_surface`, and `compare_branches` all ship capped summary defaults with a `view` / `detail` escalation. These do not, and should:
 
 - `list_tags` — see T1. **Fixed.**
-- `get_feature_graph` — default to `{ hub, outDegree, fileCount }` per domain + `unassignedCount`; opt-in `view:"full"` for the path lists. (Also fixes T3.) **Still open** — `handleGetFeatureGraph` returns the full `features`/`unassigned` payload unconditionally, no `view` param exists.
-- `get_type_graph` inventory — add `slim` / drop-doc mode, or truncate each `doc` to its first line; add `limit`. **Still open** — `GetTypeGraphArgs` has no `limit`; `doc` is still embedded in full.
+- `get_feature_graph` — default to `{ hub, outDegree, fileCount }` per domain + `unassignedCount`; opt-in `view:"full"` for the path lists. (Also fixes T3.) **Done** — summary by default; `view:"full"` and `feature:"<name>"` for paths.
+- `get_type_graph` inventory — add `slim` / drop-doc mode, or truncate each `doc` to its first line; add `limit`. **Done** — `limit` (default 100), `kind`/`path` filters, `doc` cut to its first line.
 - `get_module_responsibility` with no `paths` — cap to feature-hub files by default, or require `paths`, or paginate. **Still open** — `handleGetModuleResponsibility` returns every module when `paths` is omitted.
-- `apply_tags` — add a counts-only response (`{ updated, unchanged, errors }`) with the file list behind `verbose:true`. **Still open** — `handleApplyTags` always concatenates every package's `files` array into the response, dry-run or not.
+- `apply_tags` — add a counts-only response (`{ updated, unchanged, errors }`) with the file list behind `verbose:true`. **Done** — default is counts + errors + a 20-file sample with a `dryRun` echo; `verbose:true` for the full list.
 
-### T3 — `get_feature_graph` is pitched as the cheap option but isn't here · **Status (2026-10-01): still open**
+### T3 — `get_feature_graph` is pitched as the cheap option but isn't here · **Status (2026-10-01): done**
 
-Skill text: "substantially smaller than a full graph query." On this repo the no-arg call is ~2,800 tokens — larger than `query` slim for most subsystem questions — because it enumerates every owned path plus a ~130-entry `unassigned` list. Compounded by F2 (also still open). A summary mode (hub names + counts) fixes both.
+Skill text: "substantially smaller than a full graph query." On this repo the no-arg call is ~2,800 tokens — larger than `query` slim for most subsystem questions — because it enumerates every owned path plus a ~130-entry `unassigned` list. Compounded by F2 (since fixed). A summary mode (hub names + counts) fixes both.
 
-### T4 — `get_type_graph` inventory inflates on JSDoc · **Status (2026-10-01): still open**
+### T4 — `get_type_graph` inventory inflates on JSDoc · **Status (2026-10-01): done**
 
 141 types is fine; embedding each type's full multi-line `doc` (5–10 lines for some) roughly triples the payload. Truncate to first line in inventory mode; keep full `doc` only in the focused single-type response.
 
@@ -190,12 +190,12 @@ The 26 structural questions in this audit cost **~24,000 tokens total via mokosh
 | # | Fix | Type | Effort | Payoff | Status (2026-10-01) |
 |---|---|---|---|---|---|
 | 1 | `list_tags`: `minCount` default ≥ 2 + `kind` filter; drop declaration names by default | token | S | ~7k → ~1k per session; biggest single win | ✅ Fixed |
-| 2 | Exclude markdown nodes from `detectFeatures` / `buildFeatureGraph` / `collectUnassigned` (F2) | correctness | S | feature-graph ownership becomes correct | ❌ Open |
+| 2 | Exclude markdown nodes from `detectFeatures` / `buildFeatureGraph` / `collectUnassigned` (F2) | correctness | S | feature-graph ownership becomes correct | ✅ Done |
 | 3 | `get_affected` `testsOnly`: stop matching bare `tag.name === "test"` (F1) | correctness | S | tests-only blast radius no longer leaks logic files | ❌ Open |
-| 4 | `get_feature_graph`: summary-first (`hub` + counts), path lists behind `view:"full"` (T2/T3) | token | M | ~2.8k → ~500; matches its "cheap option" billing | ❌ Open |
-| 5 | `get_type_graph` inventory: truncate `doc` to first line, add `limit` (T4) | token | S | ~2.4k → ~800 | ❌ Open |
+| 4 | `get_feature_graph`: summary-first (`hub` + counts), path lists behind `view:"full"` (T2/T3) | token | M | ~2.8k → ~500; matches its "cheap option" billing | ✅ Done |
+| 5 | `get_type_graph` inventory: truncate `doc` to first line, add `limit` (T4) | token | S | ~2.4k → ~800 | ✅ Done |
 | 6 | `get_workspace_affected`: throw the not-a-monorepo error like `get_workspace_packages` (F3) | correctness | S | no misleading empty success | ❌ Open |
-| 7 | `apply_tags`: counts-only default response, file list behind `verbose` (T2) | token | S | ~1.9k → ~150 | ❌ Open |
+| 7 | `apply_tags`: counts-only default response, file list behind `verbose` (T2) | token | S | ~1.9k → ~150 | ✅ Done |
 | 8 | `get_module_responsibility`: bound the no-`paths` response (T2) | token | M | caps an unbounded path | ❌ Open |
 | 9 | `query` slim + `withMeta`: cap `exports` / `importsFiles` previews (T5) | token | S | trims hub-node responses | ❌ Open |
 | 10 | `get_api_surface`: partition non-source files out of `unreachableFromEntry` (minor) | quality | S | actionable list stays actionable | ✅ Fixed |

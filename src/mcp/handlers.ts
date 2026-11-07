@@ -60,9 +60,13 @@ import {
   slimSerialize,
   sortLimitDupGroups,
   summarizeApiSurface,
+  summarizeApplyTags,
   summarizeBranchComparison,
   summarizeDuplicates,
+  summarizeFeatureGraph,
+  summarizeFeatures,
   summarizeTagInventory,
+  summarizeTypeInventory,
   summarizeWorkspaceLayout,
   type TagKind,
 } from "../index";
@@ -216,6 +220,8 @@ export type DetectFeaturesArgs = {
   entryPoints?: string[];
   featureThreshold?: number;
   package?: string;
+  /** Max hubs returned (default 50); the true total is always reported as `matched`. */
+  limit?: number;
 };
 export type QueryArgs = {
   root: string;
@@ -227,14 +233,34 @@ export type QueryArgs = {
 };
 
 export type ClearCacheArgs = { root: string };
-export type GetTypeGraphArgs = { root: string; type?: string; package?: string };
+export type GetTypeGraphArgs = {
+  root: string;
+  type?: string;
+  package?: string;
+  /** Inventory only: max types listed (default 100). */
+  limit?: number;
+  /** Inventory only: keep one structural kind. */
+  kind?: "interface" | "class" | "enum" | "type";
+  /** Inventory only: keep types whose file path contains this substring. */
+  path?: string;
+};
 export type GetModuleResponsibilityArgs = {
   root: string;
   paths?: string[];
   minOutDegree?: number;
   package?: string;
 };
-export type GetFeatureGraphArgs = { root: string; minOutDegree?: number; package?: string };
+export type GetFeatureGraphArgs = {
+  root: string;
+  minOutDegree?: number;
+  package?: string;
+  /** `"summary"` (default): per-feature counts, no file lists. `"full"`: every owned file + `unassigned`. */
+  view?: "summary" | "full";
+  /** `view:"summary"` only: max features listed (default 30). */
+  limit?: number;
+  /** Return the full file list for this one feature (name as shown in the summary). */
+  feature?: string;
+};
 export type GetCallGraphArgs = {
   root: string;
   function: string;
@@ -261,7 +287,13 @@ export type GetApiSurfaceArgs = {
   /** `view:"summary"` only: cap the `publicExports` sample (default 30). */
   maxExports?: number;
 };
-export type ApplyTagsArgs = { root: string; dryRun?: boolean; package?: string };
+export type ApplyTagsArgs = {
+  root: string;
+  dryRun?: boolean;
+  package?: string;
+  /** Return the full per-file list, including unchanged files (default false: counts + errors + a sample). */
+  verbose?: boolean;
+};
 
 export type ToolArgs =
   | AnalyzeArgs
@@ -1157,13 +1189,13 @@ async function groupFilesByPackage(
  *   sorted by out-degree descending. Builds from `entryPoints` when provided, else reuses the cached graph.
  * @param cache - Session state used to build or retrieve the graph.
  * @param args - `root` is the project directory; `entryPoints` optionally seeds a fresh build; `featureThreshold` sets the minimum out-degree to qualify.
- * @returns TextResponse with `{ features, count }` sorted by out-degree descending.
+ * @returns TextResponse with `{ features, count, matched, truncated?, hint? }`, `features` capped at `limit` (default 50) and sorted by out-degree descending.
  */
 export async function handleDetectFeatures(
   cache: SessionState,
   args: DetectFeaturesArgs,
 ): Promise<TextResponse> {
-  const { root, entryPoints, featureThreshold, package: pkg } = args;
+  const { root, entryPoints, featureThreshold, package: pkg, limit } = args;
   const opts = featureThreshold !== undefined ? { minOutDegree: featureThreshold } : undefined;
 
   if (entryPoints) {
@@ -1173,7 +1205,7 @@ export async function handleDetectFeatures(
     );
     const featureMap = detectFeatures(graph.nodes, opts);
     const features = Array.from(featureMap.values()).sort((a, b) => b.outDegree - a.outDegree);
-    return text({ features, count: features.length });
+    return text(summarizeFeatures(features, { limit }));
   }
 
   const graphs = await cache.resolveGraphs(root, pkg);
@@ -1183,7 +1215,7 @@ export async function handleDetectFeatures(
       tagPackage(Array.from(detectFeatures(graph.nodes, opts).values()), pkgName, multi),
     )
     .sort((a, b) => b.outDegree - a.outDegree);
-  return text({ features, count: features.length });
+  return text(summarizeFeatures(features, { limit }));
 }
 
 /**
@@ -1310,14 +1342,14 @@ export function handleClearCache(cache: SessionState, args: ClearCacheArgs): Tex
  *   inventory and the named-lookup form attach a `note` explaining this when the graph has no
  *   supported language present, rather than returning an indistinguishable "not found" result.
  * @param cache - Session state holding the cached graph for `root`.
- * @param args - `root` selects the graph; `type` is the exact exported name to look up (omit for full inventory); `package` scopes to one workspace package.
- * @returns TextResponse with either a full type inventory or a focused `TypeQueryResult`, each with an optional `note`.
+ * @param args - `root` selects the graph; `type` is the exact exported name to look up (omit for the inventory); `limit`/`kind`/`path` bound and filter the inventory; `package` scopes to one workspace package.
+ * @returns TextResponse with either a bounded type inventory (`{ count, matched, byKind, types, truncated?, hint? }`, docs cut to their first line) or a focused `TypeQueryResult`, each with an optional `note`.
  */
 export async function handleGetTypeGraph(
   cache: SessionState,
   args: GetTypeGraphArgs,
 ): Promise<TextResponse> {
-  const { root, type, package: pkg } = args;
+  const { root, type, package: pkg, limit, kind, path: pathFilter } = args;
   const { graph } = await cache.resolveFlatGraph(root, pkg);
   const typeGraph = buildTypeGraph(graph);
   if (type) {
@@ -1331,9 +1363,9 @@ export async function handleGetTypeGraph(
     const note = result.type === null ? languageSupportNote(graph, "typeGraph") : undefined;
     return text({ ...result, ...(note && { note }) });
   }
-  const types = Array.from(typeGraph.types.values());
-  const note = types.length === 0 ? languageSupportNote(graph, "typeGraph") : undefined;
-  return text({ count: types.length, types, ...(note && { note }) });
+  const inventory = summarizeTypeInventory(typeGraph, { limit, kind, path: pathFilter });
+  const note = typeGraph.types.size === 0 ? languageSupportNote(graph, "typeGraph") : undefined;
+  return text({ ...inventory, ...(note && { note }) });
 }
 
 /**
@@ -1371,21 +1403,37 @@ export async function handleGetModuleResponsibility(
  *   domain-based question, though the exact reduction depends on the repo's shape.
  *   Requires a prior `analyze` call.
  * @param cache - Session state holding the cached graph for `root`.
- * @param args - `root` selects the graph; `minOutDegree` sets the minimum internal imports to qualify as a hub.
- * @returns TextResponse with `{ features, unassigned }` where `features` is a plain object keyed by feature name.
+ * @param args - `root` selects the graph; `minOutDegree` sets the minimum internal imports to qualify as a hub; `view` (`summary` default | `full`) picks counts-only vs every file; `limit` caps the summary; `feature` returns one feature's full file list.
+ * @returns TextResponse: by default `{ features: {name: {hub, outDegree, fileCount}}, totalFeatures, unassignedCount, truncated?, hint }`; with `view:"full"`, `{ features, unassigned }` keyed by feature name; with `feature`, that domain's `{ hub, outDegree, files, fileCount }`.
  */
 export async function handleGetFeatureGraph(
   cache: SessionState,
   args: GetFeatureGraphArgs,
 ): Promise<TextResponse> {
-  const { root, minOutDegree, package: pkg } = args;
+  const { root, minOutDegree, package: pkg, view = "summary", limit, feature } = args;
   const { graph } = await cache.resolveFlatGraph(root, pkg);
   const featureGraph = buildFeatureGraph(
     graph,
     minOutDegree !== undefined ? { minOutDegree } : undefined,
   );
-  const features = Object.fromEntries(featureGraph.features);
-  return text({ features, unassigned: featureGraph.unassigned });
+  if (feature !== undefined) {
+    const domain = featureGraph.features.get(feature);
+    if (!domain) {
+      return text({
+        feature,
+        found: false,
+        hint: "No such feature. Call without `feature` to list names.",
+      });
+    }
+    return text({ feature, ...domain, fileCount: domain.files.length });
+  }
+  if (view === "full") {
+    return text({
+      features: Object.fromEntries(featureGraph.features),
+      unassigned: featureGraph.unassigned,
+    });
+  }
+  return text(summarizeFeatureGraph(featureGraph, { limit }));
 }
 
 /**
@@ -1621,16 +1669,17 @@ export async function handleGetApiSurface(
  *   re-running replaces the existing block in place. Supports both TypeScript/JavaScript and
  *   Gherkin `.feature` files with format-appropriate block syntax. Requires a prior `analyze` call.
  * @param {SessionState} cache - Session state holding the cached graph for `root`.
- * @param {ApplyTagsArgs} args - `root` selects the graph; `dryRun` previews changes without disk writes.
- * @returns {Promise<TextResponse>} TextResponse with `ApplyTagsResult`: aggregate counts and per-file status.
+ * @param {ApplyTagsArgs} args - `root` selects the graph; `dryRun` previews changes without disk writes; `verbose` returns every per-file entry.
+ * @returns {Promise<TextResponse>} TextResponse with an `ApplyTagsSummary` (counts, all errors, a sample of updated files), or the full `ApplyTagsResult` when `verbose`.
  */
 export async function handleApplyTags(
   cache: SessionState,
   args: ApplyTagsArgs,
 ): Promise<TextResponse> {
+  const dryRun = args.dryRun ?? false;
   const graphs = await cache.resolveGraphs(args.root, args.package);
   const perPackage = await Promise.all(
-    graphs.map(({ graph }) => applyTags(graph, args.root, { dryRun: args.dryRun ?? false })),
+    graphs.map(({ graph }) => applyTags(graph, args.root, { dryRun })),
   );
   const result = perPackage.reduce((acc, r) => ({
     updated: acc.updated + r.updated,
@@ -1638,5 +1687,5 @@ export async function handleApplyTags(
     errors: acc.errors + r.errors,
     files: [...acc.files, ...r.files],
   }));
-  return text(result);
+  return text(args.verbose ? result : summarizeApplyTags(result, { dryRun, root: args.root }));
 }

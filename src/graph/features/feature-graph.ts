@@ -144,6 +144,71 @@ function collectUnassigned(
   return unassigned;
 }
 
+/** Default cap on features listed by the MCP `get_feature_graph` summary view. */
+export const DEFAULT_FEATURE_GRAPH_LIMIT = 30;
+
+/** One feature in the summary view — the domain without its file list. */
+export interface FeatureDomainSummary {
+  /** Project-relative path of the feature hub file. */
+  hub: string;
+  /** Number of internal imports the hub has. */
+  outDegree: number;
+  /** Number of files the hub owns. */
+  fileCount: number;
+}
+
+/** Token-bounded view of a {@link FeatureGraph}: counts per feature, no file lists. */
+export interface FeatureGraphSummary {
+  /** The largest features (by owned files), at most `limit` of them. */
+  features: Record<string, FeatureDomainSummary>;
+  /** Total features before the cap. */
+  totalFeatures: number;
+  /** Files not owned by any hub. */
+  unassignedCount: number;
+  /** Present (true) only when `features` was cut short by `limit`. */
+  truncated?: true;
+  /** How to get more detail. */
+  hint: string;
+}
+
+/**
+ * @description Reduces a {@link FeatureGraph} to per-feature counts, keeping the `limit` features that
+ *   own the most files. Always reports the true feature total and unassigned count.
+ * @param {FeatureGraph} featureGraph - Full feature graph from {@link buildFeatureGraph}.
+ * @param {{ limit?: number }} [options] - `limit` caps the features listed (default 30); non-finite or < 1 falls back to the default.
+ * @returns {FeatureGraphSummary} Counts-only summary with a `hint` pointing at `feature` / `view:"full"`.
+ */
+export function summarizeFeatureGraph(
+  featureGraph: FeatureGraph,
+  options?: { limit?: number | undefined },
+): FeatureGraphSummary {
+  const requested = options?.limit;
+  const limit =
+    requested !== undefined && Number.isFinite(requested) && requested >= 1
+      ? Math.trunc(requested)
+      : DEFAULT_FEATURE_GRAPH_LIMIT;
+  const ranked = Array.from(featureGraph.features.entries()).sort(
+    (a, b) => b[1].files.length - a[1].files.length,
+  );
+  const kept = ranked.slice(0, limit);
+  const truncated = kept.length < ranked.length;
+  const features: Record<string, FeatureDomainSummary> = {};
+  for (const [name, domain] of kept) {
+    features[name] = {
+      hub: domain.hub,
+      outDegree: domain.outDegree,
+      fileCount: domain.files.length,
+    };
+  }
+  return {
+    features,
+    totalFeatures: ranked.length,
+    unassignedCount: featureGraph.unassigned.length,
+    ...(truncated && { truncated: true as const }),
+    hint: 'Pass feature:"<name>" for one feature\'s file list, raise limit for more features, or view:"full" for every file.',
+  };
+}
+
 /**
  * Builds a domain-clustered view of the import graph by grouping files under
  * the most specific feature hub that can reach them.
