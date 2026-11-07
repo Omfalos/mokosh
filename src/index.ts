@@ -293,6 +293,7 @@ import {
   WorkspaceGraph,
   type WorkspacePackage,
 } from "./graph";
+import { shouldDescend } from "./graph/discovery-filter";
 import { defaultLangResolvers, JvmLangResolver } from "./graph/lang-resolvers/index";
 import { buildJvmPackage } from "./graph/workspace/detectors/jvm-shared";
 
@@ -302,7 +303,7 @@ import { buildJvmPackage } from "./graph/workspace/detectors/jvm-shared";
  * @param rootDir - Absolute or relative path to the project root; resolved internally.
  * @param entryPoints - File paths (relative to `rootDir`) that seed the graph walk.
  * @param previousGraph - An earlier graph to diff against for incremental builds; pass `null` for a full build.
- * @param options - `silent` suppresses progress output; `gitStats` attaches git churn data; `coverageMap` maps file paths to line-coverage percentages; `parallelParsing` controls worker-pool offloading of file parsing (see {@link ParallelParsingOption}); `pathAliases` overrides/extends tsconfig path-alias resolution (see `MokoshConfig.pathAliases`); `additionalIgnoreDirs` skips extra directory names during test/doc discovery (see `MokoshConfig.ignoreDirs`).
+ * @param options - `silent` suppresses progress output; `gitStats` attaches git churn data; `coverageMap` maps file paths to line-coverage percentages; `parallelParsing` controls worker-pool offloading of file parsing (see {@link ParallelParsingOption}); `pathAliases` overrides/extends tsconfig path-alias resolution (see `MokoshConfig.pathAliases`); `additionalIgnoreDirs` skips extra directory names during test/doc discovery (see `MokoshConfig.ignoreDirs`); `includeNestedRepos` walks nested git repos/worktrees instead of skipping them (see `MokoshConfig.includeNestedRepos`).
  * @returns The fully-built Graph with all reachable nodes and import edges populated.
  */
 export async function createImportMap(
@@ -317,6 +318,7 @@ export async function createImportMap(
     pathAliases?: Record<string, string[]> | undefined;
     additionalIgnoreDirs?: string[] | undefined;
     docFiles?: string[] | null | undefined;
+    includeNestedRepos?: boolean | undefined;
   } = {},
 ): Promise<Graph> {
   const progressCallback = options.silent
@@ -337,6 +339,7 @@ export async function createImportMap(
     options.parallelParsing ?? true,
     options.additionalIgnoreDirs ?? [],
     options.docFiles ?? null,
+    options.includeNestedRepos ?? false,
   );
   return await builder.build(entryPoints);
 }
@@ -388,14 +391,20 @@ function assignDocsToPackages(
  *   used to decide whether a disk-persisted workspace graph is still valid. Changing, adding, or
  *   removing any file changes the digest.
  * @param rootDir - Absolute monorepo root.
+ * @param options - `includeNestedRepos` must match the flag the graph is built with, so the digest's file list and the build agree.
  * @returns A hex sha-256 digest, and the relative file list it was computed from (reused by the
  *   caller so the directory tree is walked only once).
  */
-export function computeWorkspaceSourceDigest(rootDir: string): {
+export function computeWorkspaceSourceDigest(
+  rootDir: string,
+  options: { includeNestedRepos?: boolean | undefined } = {},
+): {
   digest: string;
   files: string[];
 } {
-  const files = getAllProjectFiles(rootDir);
+  const files = getAllProjectFiles(rootDir, {
+    includeNestedRepos: options.includeNestedRepos ?? false,
+  });
   const hash = crypto.createHash("sha256");
   for (const rel of [...files].sort()) {
     hash.update(`${sourceDigestLine(rootDir, rel)}\n`);
@@ -469,6 +478,7 @@ export async function createWorkspaceGraph(
     parallelParsing?: ParallelParsingOption | undefined;
     pathAliases?: Record<string, string[]> | undefined;
     additionalIgnoreDirs?: string[] | undefined;
+    includeNestedRepos?: boolean | undefined;
     layout?: MonorepoLayout | undefined;
     /** Pre-computed `getAllProjectFiles(rootDir)` result, so the caller's digest walk isn't repeated. */
     projectFiles?: string[] | undefined;
@@ -484,7 +494,9 @@ export async function createWorkspaceGraph(
 ): Promise<WorkspaceGraph> {
   const abs = path.resolve(rootDir);
   const layout = options.layout ?? detectMonorepo(abs);
-  const projectFiles = options.projectFiles ?? getAllProjectFiles(abs);
+  const projectFiles =
+    options.projectFiles ??
+    getAllProjectFiles(abs, { includeNestedRepos: options.includeNestedRepos ?? false });
   const additionalIgnoreDirs = options.additionalIgnoreDirs ?? [];
 
   // Each extra root becomes an ordinary WorkspacePackage, built relative to `abs` exactly like
@@ -559,6 +571,7 @@ export async function createWorkspaceGraph(
         perPackageParallelParsing,
         additionalIgnoreDirs,
         docsByPackage.get(pkg.name) ?? [],
+        options.includeNestedRepos ?? false,
       );
       // A package with no entry points should build an empty graph, not scan the whole
       // monorepo root — GraphBuilder.build() treats an empty entryPoints array as "no entry
@@ -601,6 +614,7 @@ export function getAllProjectFiles(rootDir: string, options: ScanOptions = {}): 
     ...(options.extensions ?? DEFAULT_EXTENSIONS),
     ...(options.additionalExtensions ?? []),
   ]);
+  const includeNestedRepos = options.includeNestedRepos ?? false;
 
   /**
    * @description Recursively visits `dir`, pushing matching file paths into the outer `files` array.
@@ -612,7 +626,7 @@ export function getAllProjectFiles(rootDir: string, options: ScanOptions = {}): 
       for (const entry of entries) {
         const fullPath = path.join(dir, entry.name);
         if (entry.isDirectory()) {
-          if (!ignoreDirs.has(entry.name)) {
+          if (shouldDescend(entry.name, fullPath, rootDir, ignoreDirs, includeNestedRepos)) {
             walk(fullPath);
           }
         } else if (entry.isFile()) {

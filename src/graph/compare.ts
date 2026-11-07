@@ -24,6 +24,8 @@ export interface BuildGraphAtRefOptions {
   pathAliases?: Record<string, string[]> | undefined;
   /** Extra directory names to skip during test/doc discovery, on top of the built-in list. Sourced from `MokoshConfig.ignoreDirs`. */
   additionalIgnoreDirs?: string[] | undefined;
+  /** Walk nested git repos/worktrees instead of skipping them. Sourced from `MokoshConfig.includeNestedRepos`. */
+  includeNestedRepos?: boolean | undefined;
   /** Monorepo roots only. When set, the base-ref graph is built by calling this with the
    *  worktree directory — the caller builds a whole `WorkspaceGraph` there and returns its
    *  flattened `Graph`, so cross-package edges survive. Bypasses the entry-point-seeded
@@ -69,6 +71,8 @@ export async function buildGraphAtRef(
       new Map(),
       options.parallelParsing ?? true,
       options.additionalIgnoreDirs ?? [],
+      null,
+      options.includeNestedRepos ?? false,
     );
     return builder.build(entryPoints);
   });

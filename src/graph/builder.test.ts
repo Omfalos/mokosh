@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, test, vi } from "vitest";
-import { createImportMap, createWorkspaceGraph } from "../index";
+import { createImportMap, createWorkspaceGraph, getAllProjectFiles } from "../index";
 import type { MonorepoLayout } from "./workspace/types";
 
 describe("GraphBuilder empty entryPoints auto-discovery", () => {
@@ -233,6 +233,141 @@ describe("GraphBuilder ignore-dir handling", () => {
         additionalIgnoreDirs: ["docs"],
       });
       expect(withoutDocs.serialize().nodes.map((n) => n.path)).not.toContain("docs/guide.md");
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("GraphBuilder nested-repo handling", () => {
+  /**
+   * @description Builds a project with a real `src/index.js` plus a nested repo copy at `wt/`.
+   * @param {string} name - Fixture directory name, created under the current working directory.
+   * @param {"file" | "dir"} gitKind - Whether the nested repo's `.git` is a file (worktree/submodule) or a directory (full clone).
+   * @returns {string} Absolute path of the fixture root.
+   */
+  function makeNestedRepoProject(name: string, gitKind: "file" | "dir"): string {
+    const root = path.join(process.cwd(), name);
+    fs.mkdirSync(path.join(root, "src"), { recursive: true });
+    fs.mkdirSync(path.join(root, "wt", "src"), { recursive: true });
+    fs.writeFileSync(path.join(root, "src", "index.js"), "export const a = 1;");
+    fs.writeFileSync(path.join(root, "wt", "src", "copy.js"), "export const b = 2;");
+    fs.writeFileSync(path.join(root, "wt", "NOTES.md"), "# Notes");
+    if (gitKind === "file") {
+      fs.writeFileSync(path.join(root, "wt", ".git"), "gitdir: ../.git/worktrees/wt");
+    } else {
+      fs.mkdirSync(path.join(root, "wt", ".git"), { recursive: true });
+    }
+    return root;
+  }
+
+  test.each(["file", "dir"] as const)(
+    "a nested directory with a .git %s is skipped by discovery",
+    async (gitKind) => {
+      const root = makeNestedRepoProject(`test-builder-nested-repo-${gitKind}`, gitKind);
+      try {
+        const graph = await createImportMap(root, []);
+        const paths = graph.serialize().nodes.map((n) => n.path);
+        expect(paths).toContain("src/index.js");
+        expect(paths.some((p) => p.startsWith("wt/"))).toBe(false);
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    },
+  );
+
+  test("the project root is never treated as a nested repo, even with its own .git", async () => {
+    const root = makeNestedRepoProject("test-builder-root-git", "file");
+    fs.mkdirSync(path.join(root, ".git"), { recursive: true });
+    try {
+      const graph = await createImportMap(root, []);
+      expect(graph.serialize().nodes.map((n) => n.path)).toContain("src/index.js");
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("includeNestedRepos: true brings nested repo files back", async () => {
+    const root = makeNestedRepoProject("test-builder-nested-repo-optin", "file");
+    try {
+      const graph = await createImportMap(root, [], null, { includeNestedRepos: true });
+      const paths = graph.serialize().nodes.map((n) => n.path);
+      expect(paths).toContain("wt/src/copy.js");
+      expect(paths).toContain("wt/NOTES.md");
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a markdown doc referencing a file inside a nested repo does not add it (or its imports)", async () => {
+    const root = makeNestedRepoProject("test-builder-nested-repo-docref", "file");
+    fs.writeFileSync(
+      path.join(root, "wt", "src", "copy.js"),
+      "import './helper.js';\nexport const b = 2;",
+    );
+    fs.writeFileSync(path.join(root, "wt", "src", "helper.js"), "export const c = 3;");
+    fs.writeFileSync(path.join(root, "README.md"), "See `wt/src/copy.js` for the copy.");
+    try {
+      const graph = await createImportMap(root, ["src/index.js"]);
+      const paths = graph.serialize().nodes.map((n) => n.path);
+      expect(paths).toContain("README.md");
+      expect(paths.some((p) => p.startsWith("wt/"))).toBe(false);
+
+      const optIn = await createImportMap(root, ["src/index.js"], null, {
+        includeNestedRepos: true,
+      });
+      const optInPaths = optIn.serialize().nodes.map((n) => n.path);
+      expect(optInPaths).toContain("wt/src/copy.js");
+      expect(optInPaths).toContain("wt/src/helper.js");
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("an entry point inside a nested repo still follows its own repo's imports", async () => {
+    const root = makeNestedRepoProject("test-builder-nested-repo-entry", "file");
+    fs.writeFileSync(
+      path.join(root, "wt", "src", "copy.js"),
+      "import './helper.js';\nexport const b = 2;",
+    );
+    fs.writeFileSync(path.join(root, "wt", "src", "helper.js"), "export const c = 3;");
+    try {
+      const graph = await createImportMap(root, ["wt/src/copy.js"]);
+      const paths = graph.serialize().nodes.map((n) => n.path);
+      expect(paths).toContain("wt/src/copy.js");
+      expect(paths).toContain("wt/src/helper.js");
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("getAllProjectFiles skips nested repos unless includeNestedRepos is set", () => {
+    const root = makeNestedRepoProject("test-builder-nested-repo-allfiles", "dir");
+    try {
+      const skipped = getAllProjectFiles(root);
+      expect(skipped).toContain(path.join("src", "index.js"));
+      expect(skipped.some((p) => p.startsWith("wt"))).toBe(false);
+
+      const included = getAllProjectFiles(root, { includeNestedRepos: true });
+      expect(included).toContain(path.join("wt", "src", "copy.js"));
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("doc discovery skips target/ and .gradle/ like the shared default ignore list", async () => {
+    const root = path.join(process.cwd(), "test-builder-shared-ignore-list");
+    fs.mkdirSync(path.join(root, "src"), { recursive: true });
+    fs.mkdirSync(path.join(root, "target"), { recursive: true });
+    fs.mkdirSync(path.join(root, ".gradle"), { recursive: true });
+    fs.writeFileSync(path.join(root, "src", "index.js"), "export const a = 1;");
+    fs.writeFileSync(path.join(root, "target", "report.md"), "# Report");
+    fs.writeFileSync(path.join(root, ".gradle", "cache.md"), "# Cache");
+    try {
+      const graph = await createImportMap(root, ["src/index.js"]);
+      const paths = graph.serialize().nodes.map((n) => n.path);
+      expect(paths).not.toContain("target/report.md");
+      expect(paths).not.toContain(".gradle/cache.md");
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
