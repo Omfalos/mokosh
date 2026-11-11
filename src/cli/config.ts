@@ -61,6 +61,9 @@ export function resolveConfig(parsed: ConfigInput): ResolvedConfig {
 
   const scanOptions: ScanOptions = {
     ...(config.ignoreDirs !== undefined && { additionalIgnoreDirs: config.ignoreDirs }),
+    ...(config.includeNestedRepos !== undefined && {
+      includeNestedRepos: config.includeNestedRepos,
+    }),
     ...(config.extensions !== undefined && { additionalExtensions: config.extensions }),
   };
 

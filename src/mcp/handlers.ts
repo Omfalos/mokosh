@@ -635,6 +635,7 @@ export async function handleFindUnused(cache: SessionState, args: FindUnusedArgs
   const allFiles = getAllProjectFiles(root, {
     additionalIgnoreDirs: config?.ignoreDirs ?? [],
     additionalExtensions: config?.extensions ?? [],
+    includeNestedRepos: config?.includeNestedRepos ?? false,
   });
 
   if (!entryPoints && cache.isWorkspaceRoot(root)) {

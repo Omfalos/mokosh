@@ -21,6 +21,13 @@ export interface MokoshConfig {
   /** Additional directories to skip when scanning (merged with built-in defaults). */
   ignoreDirs?: string[];
   /**
+   * When true, directories that contain their own `.git` (git worktrees such as
+   * `.claude/worktrees/*`, submodules, vendored clones) are scanned like any other directory.
+   * Default false: they are skipped, and references from the project into them (markdown code
+   * spans, relative imports) are dropped, so copies of the repo do not multiply every result.
+   */
+  includeNestedRepos?: boolean;
+  /**
    * Additional absolute (or project-root-relative) directories to fold into the workspace graph
    * as their own packages, outside `rootDir` — currently the only way to represent a Gradle
    * composite build (`includeBuild("../other-repo")`) that lives outside the analyzed checkout:
@@ -262,6 +269,7 @@ export function configToGraphOptions(config: MokoshConfig | undefined): {
   parallelParsing: ParallelParsingOption | undefined;
   pathAliases: Record<string, string[]> | undefined;
   additionalIgnoreDirs: string[] | undefined;
+  includeNestedRepos: boolean | undefined;
   extraRoots: string[] | undefined;
 } {
   return {
@@ -269,6 +277,7 @@ export function configToGraphOptions(config: MokoshConfig | undefined): {
     parallelParsing: config?.parallelParsing,
     pathAliases: config?.pathAliases,
     additionalIgnoreDirs: config?.ignoreDirs,
+    includeNestedRepos: config?.includeNestedRepos,
     extraRoots: config?.extraRoots,
   };
 }

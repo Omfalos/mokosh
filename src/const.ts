@@ -115,4 +115,6 @@ export interface ScanOptions {
   additionalIgnoreDirs?: string[];
   /** Merged with `DEFAULT_EXTENSIONS` (additive). */
   additionalExtensions?: string[];
+  /** When true, directories containing their own `.git` (worktrees, submodules, vendored clones) are scanned instead of skipped. Default false. */
+  includeNestedRepos?: boolean;
 }

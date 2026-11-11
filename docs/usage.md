@@ -166,6 +166,7 @@ const graph = await createImportMap(process.cwd(), config.entryPoints ?? ['src/i
 | `cachePath` | `string` | Override default `mokosh-cache/graph.json` |
 | `entryPoints` | `string[]` | Default entry points when none passed on CLI |
 | `ignoreDirs` | `string[]` | Extra dirs to skip (merged with built-in defaults) |
+| `includeNestedRepos` | `boolean` | Scan directories that contain their own `.git` (worktrees such as `.claude/worktrees/*`, submodules, vendored clones). Default `false`: they are skipped, and references into them are dropped |
 | `extensions` | `string[]` | Extra file extensions to scan (merged with built-in defaults) |
 | `configMatchers` | `string[]` | Extra basename substrings that classify a file as `"config"` |
 | `testPatterns` | `string[]` | Extra basename substrings that classify a file as `"test"` |

@@ -223,4 +223,9 @@ describe("configToGraphOptions", () => {
     expect(configToGraphOptions({}).additionalIgnoreDirs).toBeUndefined();
     expect(configToGraphOptions(undefined).additionalIgnoreDirs).toBeUndefined();
   });
+
+  test("maps config.includeNestedRepos through, undefined when omitted", () => {
+    expect(configToGraphOptions({ includeNestedRepos: true }).includeNestedRepos).toBe(true);
+    expect(configToGraphOptions({}).includeNestedRepos).toBeUndefined();
+  });
 });

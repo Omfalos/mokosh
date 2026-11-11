@@ -2,7 +2,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import Piscina from "piscina";
-import { DEFAULT_EXTENSIONS } from "../const.js";
+import { DEFAULT_EXTENSIONS, DEFAULT_IGNORE_DIRS } from "../const.js";
 import { type GitFileStats, getRepoGitStats } from "../git.js";
 import { getTestPatterns } from "../parser/classify.js";
 import { parseJvmSamePackageCallSpecifier } from "../parser/lang/jvm-scan.js";
@@ -10,6 +10,7 @@ import { type LockFileData, loadLockFile } from "../parser/lockfile/index.js";
 import { getFileType, parseFile } from "../parser.js";
 import type { DependencyGraph } from "../types/graph";
 import type { CallEdge, FileNode, ImportEdge } from "../types/node";
+import { createNestedRepoLocator, shouldDescend } from "./discovery-filter.js";
 import { enrichGraph, enrichLibraryTags } from "./enrichment.js";
 import { jvmPathPartition } from "./lang-resolvers/jvm.js";
 import { JVM_TYPES } from "./language-support.js";
@@ -18,20 +19,6 @@ import { DefaultResolver, type PathResolver } from "./resolver.js";
 
 /** Conventional top-level test-directory names probed as siblings between the entry-derived scan root and `rootDir`. */
 const CONVENTIONAL_TEST_DIR_NAMES = ["tests", "test", "__tests__", "specs", "spec"];
-
-/** Directory names skipped by `walkProject`'s discovery passes (test files, docs), independent of `DEFAULT_IGNORE_DIRS` scanning. Extended per-build by `GraphBuilder`'s `additionalIgnoreDirs` (from `MokoshConfig.ignoreDirs`). */
-const WALK_IGNORE_DIRS = [
-  "node_modules",
-  ".git",
-  "dist",
-  "build",
-  ".next",
-  ".cache",
-  "mokosh-cache",
-  "coverage",
-  ".pytest_cache",
-  "__pycache__",
-];
 
 /** Below this many files, the worker-pool spin-up cost outweighs the parallelism benefit — parse in-process instead. */
 const DEFAULT_MIN_FILES_FOR_POOL = 600;
@@ -113,6 +100,7 @@ export class GraphBuilder {
   private pool: Piscina | null = null;
   private gitStatsMap: Map<string, GitFileStats> | null = null;
   private readonly walkIgnoreDirs: Set<string>;
+  private readonly locateNestedRepo: (filePath: string) => string | null;
   /** Pending same-package call-edge markers (docs/known_issues/12), keyed by the calling file's
    *  project-relative path, accumulated as files are parsed and resolved in one post-drain pass
    *  once the whole graph — and therefore every file in each caller's own package partition —
@@ -132,6 +120,7 @@ export class GraphBuilder {
    * @param parallelParsing - Controls worker-pool offloading of `parseFile`. `true`/omitted enables it once a cheap pre-scan finds at least `minFiles` (default 600 — see docs/adr-010-parallel-parsing.md) files under `rootDir`; `false` always parses in-process; an object overrides `minFiles`/`maxThreads`.
    * @param additionalIgnoreDirs - Directory names to skip during the test-file and doc-file discovery walks, on top of the built-in list (`node_modules`, `dist`, `coverage`, …) and anything in the `MOKOSH_IGNORE_DIRS` env var. Sourced from `MokoshConfig.ignoreDirs`.
    * @param docFiles - Explicit list of absolute `.md`/`.mdx` paths to fold into the graph, replacing the built-in whole-`rootDir` doc-discovery walk. `null` (default) keeps the walk; `[]` skips docs entirely. The workspace builder passes each package its pre-assigned slice so the monorepo tree is walked once, not once per package (see docs/known_issues/01, fix 1D).
+   * @param includeNestedRepos - When true, directories containing their own `.git` (worktrees, submodules, vendored clones) are walked, and references into them resolve. Default false: they are skipped. Sourced from `MokoshConfig.includeNestedRepos`.
    */
   constructor(
     private rootDir: string,
@@ -143,13 +132,15 @@ export class GraphBuilder {
     private readonly parallelParsing: ParallelParsingOption = true,
     additionalIgnoreDirs: string[] = [],
     private readonly docFiles: string[] | null = null,
+    private readonly includeNestedRepos = false,
   ) {
     this.previousGraph = previousGraph;
     this.walkIgnoreDirs = new Set([
-      ...WALK_IGNORE_DIRS,
+      ...DEFAULT_IGNORE_DIRS,
       ...additionalIgnoreDirs,
       ...envIgnoreDirs(),
     ]);
+    this.locateNestedRepo = createNestedRepoLocator(rootDir);
     this.resolver = resolver || new DefaultResolver(rootDir);
     this.lockFile = loadLockFile(rootDir);
     if (progressCallback) {
@@ -261,7 +252,7 @@ export class GraphBuilder {
   /**
    * @description Cheaply checks whether `dir` contains at least `threshold` files, stopping the
    *   walk as soon as the threshold is met rather than counting exhaustively.
-   * @param dir - Directory to scan (recursively, skipping `WALK_IGNORE_DIRS`).
+   * @param dir - Directory to scan (recursively, skipping ignored directories and, by default, nested repos).
    * @param threshold - Minimum file count to confirm.
    * @returns Whether at least `threshold` files were found.
    */
@@ -279,7 +270,8 @@ export class GraphBuilder {
       }
       for (const entry of entries) {
         if (entry.isDirectory()) {
-          if (!this.walkIgnoreDirs.has(entry.name)) stack.push(path.join(current, entry.name));
+          const fullPath = path.join(current, entry.name);
+          if (this.shouldDescend(entry.name, fullPath)) stack.push(fullPath);
         } else if (entry.isFile()) {
           count++;
           if (count >= threshold) return true;
@@ -379,6 +371,37 @@ export class GraphBuilder {
   }
 
   /**
+   * @description Whether a discovery walk should recurse into a directory entry (not ignored,
+   *   and not a nested repo unless opted in). Shared by every walk in this builder.
+   * @param {string} name - The directory entry's own name.
+   * @param {string} fullPath - Absolute path of the directory entry.
+   * @returns {boolean} True when the walk should descend.
+   */
+  private shouldDescend(name: string, fullPath: string): boolean {
+    return shouldDescend(
+      name,
+      fullPath,
+      this.rootDir,
+      this.walkIgnoreDirs,
+      this.includeNestedRepos,
+    );
+  }
+
+  /**
+   * @description Whether resolving `from` -> `to` jumps into a nested repo that `from` is not
+   *   itself part of. Imports within one nested repo (e.g. an entry point inside a worktree) are
+   *   unaffected.
+   * @param {string} from - Absolute path of the importing file.
+   * @param {string} to - Absolute path of the resolved target file.
+   * @returns {boolean} True when the edge should be dropped.
+   */
+  private crossesIntoNestedRepo(from: string, to: string): boolean {
+    if (this.includeNestedRepos) return false;
+    const targetRepo = this.locateNestedRepo(to);
+    return targetRepo !== null && targetRepo !== this.locateNestedRepo(from);
+  }
+
+  /**
    * @description Recursively walks a directory, enqueueing every file that satisfies `matches`
    *   for processing. Shared by `processTestFiles` and `processDocFiles`, whose discovery passes
    *   only differ in which files they're looking for and where they start. Purely synchronous
@@ -396,7 +419,7 @@ export class GraphBuilder {
     for (const entry of entries) {
       const fullPath = path.join(scanRoot, entry.name);
       if (entry.isDirectory()) {
-        if (!this.walkIgnoreDirs.has(entry.name)) this.walkProject(fullPath, matches);
+        if (this.shouldDescend(entry.name, fullPath)) this.walkProject(fullPath, matches);
       } else if (entry.isFile() && matches(entry)) {
         this.enqueue(fullPath);
       }
@@ -739,6 +762,11 @@ export class GraphBuilder {
         // A file never depends on itself — skip self-edges (e.g. the synthetic same-package
         // edge, or a Scala brace import that names a sibling type declared in the same file).
         if (!resolved.isExternal && resolved.path === filePath) continue;
+
+        // A reference (a markdown code span, a relative import) that crosses from the project
+        // into a nested repo is dropped like a walk would skip the directory — otherwise the
+        // target and its whole import subtree would join the graph.
+        if (!resolved.isExternal && this.crossesIntoNestedRepo(filePath, resolved.path)) continue;
 
         const edge: ImportEdge = {
           ...imp,

@@ -273,6 +273,7 @@ export class SessionState {
       parallelParsing?: ParallelParsingOption | undefined;
       pathAliases?: Record<string, string[]> | undefined;
       additionalIgnoreDirs?: string[] | undefined;
+      includeNestedRepos?: boolean | undefined;
       forceFresh?: boolean;
       previousWorkspace?: WorkspaceGraph | undefined;
     } = {},
@@ -285,7 +286,9 @@ export class SessionState {
 
     const { forceFresh, ...buildOptions } = options;
     const cacheDir = workspaceCacheDir(root, this.configs.get(root));
-    const { digest, files } = computeWorkspaceSourceDigest(root);
+    const { digest, files } = computeWorkspaceSourceDigest(root, {
+      includeNestedRepos: buildOptions.includeNestedRepos,
+    });
 
     const hydrated = forceFresh ? null : loadWorkspaceCache(cacheDir, files);
     if (hydrated) {
@@ -634,7 +637,9 @@ export class SessionState {
     // exhaust the heap, so only rebuild when the whole-tree source digest actually moved.
     const cached = this.workspaceGraphs.get(root);
     if (cached) {
-      const { digest } = computeWorkspaceSourceDigest(root);
+      const { digest } = computeWorkspaceSourceDigest(root, {
+        includeNestedRepos: this.configs.get(root)?.includeNestedRepos,
+      });
       if (digest === this.workspaceDigests.get(root)) return cached;
     }
 
