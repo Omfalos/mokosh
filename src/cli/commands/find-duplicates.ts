@@ -11,6 +11,7 @@ import {
   loadDuplicationResult,
   loadTokenCacheFromDisk,
   parseDupQuery,
+  resolveDuplicationFlags,
   saveDuplicationResult,
   saveTokenCacheToDisk,
   slimDupCluster,
@@ -85,17 +86,18 @@ export async function run(ctx: CommandContext): Promise<void> {
   // this command can re-sort or summarize) and cap here; without one, let the scan cap.
   const scanLimit = parsedQuery ? Number.MAX_SAFE_INTEGER : limit;
 
-  const scanArgs = {
-    minLines,
-    limit: scanLimit,
-    ignoreDirs,
-    includeGenerated: includeGenerated || ctx.rawConfig.duplication?.includeGenerated || false,
-    includeSameFile: includeSameFile || ctx.rawConfig.duplication?.includeSameFile || false,
-    includeSvgMarkup: includeSvgMarkup || ctx.rawConfig.duplication?.includeSvgMarkup || false,
-    includeDocs: includeDocs || ctx.rawConfig.duplication?.includeDocs || false,
-    scope: duplicateScope ?? ctx.rawConfig.duplication?.scope,
-    ignoreGlobs: ctx.rawConfig.duplication?.ignoreGlobs ?? [],
-  };
+  // CLI flags are plain booleans (false = not passed), so `|| undefined` lets config fill the gap.
+  const flags = resolveDuplicationFlags(
+    {
+      includeGenerated: includeGenerated || undefined,
+      includeSameFile: includeSameFile || undefined,
+      includeSvgMarkup: includeSvgMarkup || undefined,
+      includeDocs: includeDocs || undefined,
+      scope: duplicateScope,
+    },
+    ctx.rawConfig,
+  );
+  const scanArgs = { minLines, limit: scanLimit, ignoreDirs, ...flags };
   // Result cache: an unfiltered run's full `{ groups, clusters }` is persisted to disk keyed by
   // a digest of the graph nodes' mtime/size + the scan params, so a repeat run with nothing
   // changed skips the whole scan. Shared with the MCP server via `mokosh-cache/`. A --dup-query

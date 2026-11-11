@@ -43,6 +43,83 @@ function goSamePackageEdge(filePath: string): ImportEdge {
   };
 }
 
+/** Mutable accumulator filled while walking a Go syntax tree. */
+interface GoScan {
+  imports: ImportEdge[];
+  exportMap: Map<string, ExportedSymbol>;
+  tags: Set<string>;
+  buildTags: Set<string>;
+  /** Identifier code uses for a package (alias or last path segment) → raw import specifier. */
+  packageIdents: Map<string, string>;
+}
+
+/**
+ * @description Records `// @tag x` markers and `//go:build` / `// +build` constraint tokens.
+ * @param {string} text - The comment's source text.
+ * @param {GoScan} acc - Accumulator; `tags` and `buildTags` are mutated.
+ */
+function scanLineComment(text: string, acc: GoScan): void {
+  const tagM = text.match(TAG_RE);
+  if (tagM?.[1]) acc.tags.add(tagM[1]);
+
+  const newBuild = text.match(BUILD_NEW_RE);
+  if (newBuild) extractBuildTokens(newBuild[1] as string, acc.buildTags);
+
+  const oldBuild = text.match(BUILD_OLD_RE);
+  if (oldBuild) extractBuildTokens(oldBuild[1] as string, acc.buildTags);
+}
+
+/**
+ * @description Records one import (`ImportSpec: DefName? String`) and the identifier code uses to
+ *   reference the package: an explicit alias, or — absent one — the last path segment.
+ * @param {SyntaxNode} node - The `ImportSpec` node.
+ * @param {string} filePath - Path of the importing file.
+ * @param {string} content - Full source text.
+ * @param {GoScan} acc - Accumulator; `imports` and `packageIdents` are mutated.
+ */
+function scanImportSpec(node: SyntaxNode, filePath: string, content: string, acc: GoScan): void {
+  const stringNode = node.getChild("String");
+  if (!stringNode) return;
+  // Strip the surrounding double-quotes.
+  const specifier = content.slice(stringNode.from, stringNode.to).slice(1, -1);
+  acc.imports.push({
+    fromPath: filePath,
+    toPath: "",
+    rawSpecifier: specifier,
+    isExternal: true,
+    isStyle: false,
+    type: "static",
+  });
+  const aliasNode = node.getChild("DefName");
+  const ident = aliasNode
+    ? content.slice(aliasNode.from, aliasNode.to)
+    : specifier.split("/").pop();
+  if (ident && ident !== "_" && ident !== ".") acc.packageIdents.set(ident, specifier);
+}
+
+/**
+ * @description Records a top-level declaration's name as an export when it starts uppercase (the
+ *   Go export rule). For FunctionDecl the DefName is a direct child; for MethodDecl the receiver
+ *   name is a direct child too, so FieldName is matched instead; for TypeDecl the DefName lives
+ *   inside TypeSpec, and for VarDecl/ConstDecl inside VarSpec/ConstSpec.
+ * @param {SyntaxNode} node - The declaration node.
+ * @param {string} content - Full source text.
+ * @param {GoScan} acc - Accumulator; `exportMap` is mutated.
+ */
+function scanDeclaration(node: SyntaxNode, content: string, acc: GoScan): void {
+  const nameNode =
+    node.getChild("DefName") ??
+    node.getChild("FieldName") ??
+    node.getChild("TypeSpec")?.getChild("DefName") ??
+    node.getChild("VarSpec")?.getChild("DefName") ??
+    node.getChild("ConstSpec")?.getChild("DefName");
+  if (!nameNode) return;
+  const name = content.slice(nameNode.from, nameNode.to);
+  if (name !== "_" && /^[A-Z]/.test(name) && !acc.exportMap.has(name)) {
+    acc.exportMap.set(name, { name });
+  }
+}
+
 /**
  * @description Parses a Go source file using the Lezer Go grammar to extract import edges,
  *   exported symbols, `// @tag` comment markers, and file category. All imports are marked
@@ -52,83 +129,33 @@ function goSamePackageEdge(filePath: string): ImportEdge {
  * @returns {ParseResult} Parsed imports, top-level exports, comment-marker tags, and resolved category.
  */
 export function parseGo(filePath: string, content: string): ParseResult {
-  const imports: ImportEdge[] = [];
-  const exportMap = new Map<string, ExportedSymbol>();
-  const tags = new Set<string>();
-  const buildTags = new Set<string>();
-  const packageIdents = new Map<string, string>();
+  const acc: GoScan = {
+    imports: [],
+    exportMap: new Map(),
+    tags: new Set(),
+    buildTags: new Set(),
+    packageIdents: new Map(),
+  };
+  const { imports, exportMap, tags, buildTags, packageIdents } = acc;
 
   const tree = parser.parse(content);
   const cursor = tree.cursor();
 
   do {
     switch (cursor.name) {
-      case "LineComment": {
-        const text = content.slice(cursor.from, cursor.to);
-        const tagM = text.match(TAG_RE);
-        if (tagM?.[1]) tags.add(tagM[1]);
-
-        const newBuild = text.match(BUILD_NEW_RE);
-        if (newBuild) extractBuildTokens(newBuild[1] as string, buildTags);
-
-        const oldBuild = text.match(BUILD_OLD_RE);
-        if (oldBuild) extractBuildTokens(oldBuild[1] as string, buildTags);
+      case "LineComment":
+        scanLineComment(content.slice(cursor.from, cursor.to), acc);
         break;
-      }
-
-      case "ImportSpec": {
-        // ImportSpec: DefName? String
-        // The String child always holds the quoted import path.
-        const stringNode = cursor.node.getChild("String");
-        if (stringNode) {
-          const raw = content.slice(stringNode.from, stringNode.to);
-          // Strip surrounding double-quotes
-          const specifier = raw.slice(1, -1);
-          imports.push({
-            fromPath: filePath,
-            toPath: "",
-            rawSpecifier: specifier,
-            isExternal: true,
-            isStyle: false,
-            type: "static",
-          });
-
-          // Track the identifier code uses to reference this package: an explicit alias
-          // (DefName), or — absent one — the conventional last path segment.
-          const aliasNode = cursor.node.getChild("DefName");
-          const ident = aliasNode
-            ? content.slice(aliasNode.from, aliasNode.to)
-            : specifier.split("/").pop();
-          if (ident && ident !== "_" && ident !== ".") packageIdents.set(ident, specifier);
-        }
+      case "ImportSpec":
+        scanImportSpec(cursor.node, filePath, content, acc);
         break;
-      }
-
       case "FunctionDecl":
       case "MethodDecl":
       case "TypeDecl":
       case "VarDecl":
-      case "ConstDecl": {
-        // For FunctionDecl the DefName is a direct child.
-        // For MethodDecl the receiver name is a direct child too, so match FieldName instead.
-        // For TypeDecl the DefName lives inside TypeSpec.
-        // For VarDecl/ConstDecl the DefName lives inside VarSpec/ConstSpec.
-        const nameNode =
-          cursor.node.getChild("DefName") ??
-          cursor.node.getChild("FieldName") ??
-          cursor.node.getChild("TypeSpec")?.getChild("DefName") ??
-          cursor.node.getChild("VarSpec")?.getChild("DefName") ??
-          cursor.node.getChild("ConstSpec")?.getChild("DefName");
-
-        if (nameNode) {
-          const name = content.slice(nameNode.from, nameNode.to);
-          // Go export rule: identifier starts with an uppercase letter
-          if (name !== "_" && /^[A-Z]/.test(name) && !exportMap.has(name)) {
-            exportMap.set(name, { name });
-          }
-        }
+      case "ConstDecl":
+        scanDeclaration(cursor.node, content, acc);
         break;
-      }
     }
   } while (cursor.next());
 

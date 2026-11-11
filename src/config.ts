@@ -281,3 +281,39 @@ export function configToGraphOptions(config: MokoshConfig | undefined): {
     extraRoots: config?.extraRoots,
   };
 }
+
+/** Duplicate-scan visibility flags and scope, resolved from per-call overrides plus config. */
+export interface DuplicationFlags {
+  includeGenerated: boolean;
+  includeSameFile: boolean;
+  includeSvgMarkup: boolean;
+  includeDocs: boolean;
+  scope: "src" | "tests" | "all" | undefined;
+  ignoreGlobs: string[];
+}
+
+/**
+ * @description Resolves the `find_duplicates` visibility flags: an explicit per-call override wins,
+ *   then `MokoshConfig.duplication`, then the built-in default (`false` / no scope). Single source
+ *   of truth shared by the CLI command and the MCP handler so the two cannot drift — which also
+ *   keeps their result-cache keys identical.
+ * @param overrides - Per-call values (CLI flags / MCP args); `undefined` means "not specified".
+ * @param config - The loaded config, or `undefined` when none has been loaded.
+ * @returns The fully-resolved flags.
+ */
+export function resolveDuplicationFlags(
+  overrides: {
+    [K in keyof Omit<DuplicationFlags, "ignoreGlobs">]?: DuplicationFlags[K] | undefined;
+  },
+  config: MokoshConfig | undefined,
+): DuplicationFlags {
+  const dup = config?.duplication;
+  return {
+    includeGenerated: overrides.includeGenerated ?? dup?.includeGenerated ?? false,
+    includeSameFile: overrides.includeSameFile ?? dup?.includeSameFile ?? false,
+    includeSvgMarkup: overrides.includeSvgMarkup ?? dup?.includeSvgMarkup ?? false,
+    includeDocs: overrides.includeDocs ?? dup?.includeDocs ?? false,
+    scope: overrides.scope ?? dup?.scope,
+    ignoreGlobs: [...(dup?.ignoreGlobs ?? [])],
+  };
+}

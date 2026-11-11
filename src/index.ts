@@ -1,7 +1,13 @@
 /** Public library API: createImportMap, createWorkspaceGraph, and getAllProjectFiles. */
 
 // Config
-export { applyConfig, configToGraphOptions, loadMokoshConfig, type MokoshConfig } from "./config";
+export {
+  applyConfig,
+  configToGraphOptions,
+  loadMokoshConfig,
+  type MokoshConfig,
+  resolveDuplicationFlags,
+} from "./config";
 
 // Constants
 export {
@@ -308,6 +314,23 @@ import { defaultLangResolvers, JvmLangResolver } from "./graph/lang-resolvers/in
 import { buildJvmPackage } from "./graph/workspace/detectors/jvm-shared";
 
 /**
+ * @description Builds the stderr progress callback handed to `GraphBuilder`.
+ * @param silent - When true, no progress is reported.
+ * @param label - Optional prefix (a workspace package name) for per-package builds.
+ * @returns A callback taking the processed-file count, or `undefined` when silent.
+ */
+function progressReporter(
+  silent: boolean | undefined,
+  label?: string,
+): ((count: number) => void) | undefined {
+  if (silent) return undefined;
+  const prefix = label ? `[${label}] ` : "";
+  return (count) => {
+    process.stderr.write(`${prefix}Processed ${count} files...\r`);
+  };
+}
+
+/**
  * @description Builds a dependency graph from the given entry points, optionally reusing a
  *   previously built graph for incremental updates.
  * @param rootDir - Absolute or relative path to the project root; resolved internally.
@@ -331,26 +354,21 @@ export async function createImportMap(
     includeNestedRepos?: boolean | undefined;
   } = {},
 ): Promise<Graph> {
-  const progressCallback = options.silent
-    ? undefined
-    : (count: number) => {
-        process.stderr.write(`Processed ${count} files...\r`);
-      };
+  const progressCallback = progressReporter(options.silent);
   const abs = path.resolve(rootDir);
-  const builder = new GraphBuilder(
-    abs,
+  const builder = new GraphBuilder(abs, {
     previousGraph,
-    options.pathAliases
+    resolver: options.pathAliases
       ? new DefaultResolver(abs, { pathAliases: options.pathAliases })
       : undefined,
     progressCallback,
-    options.gitStats ?? false,
-    options.coverageMap ?? new Map(),
-    options.parallelParsing ?? true,
-    options.additionalIgnoreDirs ?? [],
-    options.docFiles ?? null,
-    options.includeNestedRepos ?? false,
-  );
+    gitStats: options.gitStats,
+    coverageMap: options.coverageMap,
+    parallelParsing: options.parallelParsing,
+    additionalIgnoreDirs: options.additionalIgnoreDirs,
+    docFiles: options.docFiles,
+    includeNestedRepos: options.includeNestedRepos,
+  });
   return await builder.build(entryPoints);
 }
 
@@ -561,28 +579,22 @@ export async function createWorkspaceGraph(
   const runOne = async (): Promise<void> => {
     for (let index = nextIndex++; index < pkgs.length; index = nextIndex++) {
       const pkg = pkgs[index] as WorkspacePackage;
-      const progressCallback = options.silent
-        ? undefined
-        : (count: number) => {
-            process.stderr.write(`[${pkg.name}] Processed ${count} files...\r`);
-          };
-      const builder = new GraphBuilder(
-        abs,
-        options.previousWorkspace?.packages.get(pkg.name)?.graph ?? null,
-        new DefaultResolver(abs, {
+      const progressCallback = progressReporter(options.silent, pkg.name);
+      const builder = new GraphBuilder(abs, {
+        previousGraph: options.previousWorkspace?.packages.get(pkg.name)?.graph ?? null,
+        resolver: new DefaultResolver(abs, {
           workspaceMap,
           tsconfigSearchPaths: [pkg.root, abs],
           pathAliases: options.pathAliases,
           langResolvers: defaultLangResolvers({ jvm: sharedJvmResolver }),
         }),
         progressCallback,
-        options.gitStats ?? false,
-        new Map(),
-        perPackageParallelParsing,
+        gitStats: options.gitStats,
+        parallelParsing: perPackageParallelParsing,
         additionalIgnoreDirs,
-        docsByPackage.get(pkg.name) ?? [],
-        options.includeNestedRepos ?? false,
-      );
+        docFiles: docsByPackage.get(pkg.name) ?? [],
+        includeNestedRepos: options.includeNestedRepos,
+      });
       // A package with no entry points should build an empty graph, not scan the whole
       // monorepo root — GraphBuilder.build() treats an empty entryPoints array as "no entry
       // points were given at all" and discovers every source file under its rootDir (the

@@ -12,6 +12,18 @@ export interface FilterGraphOptions {
   packageOf?: Map<string, string> | undefined;
 }
 
+type SortableNode = SerializedGraph["nodes"][number];
+
+/** Numeric sort key per `NodeQuery.sort` field; a new sortable field is a new entry here. */
+const SORT_METRICS: Record<NonNullable<NodeQuery["sort"]>, (node: SortableNode) => number> = {
+  size: (node) => node.size,
+  imports: (node) => node.imports.length,
+  commitCount90d: (node) => node.commitCount90d ?? 0,
+  exportUsage: (node) => node.avgExportUsage ?? 0,
+  complexity: (node) => node.complexity ?? 0,
+  cognitiveComplexity: (node) => node.cognitiveComplexity ?? 0,
+};
+
 /**
  * @description Filters a serialized graph to only nodes matching all criteria in `query`,
  *   then trims each node's import list to edges whose target is also in the result set.
@@ -56,30 +68,8 @@ export function filterGraph(
 
   if (query.sort) {
     const direction = query.sortDir === "asc" ? -1 : 1;
-    resultNodes.sort((nodeA, nodeB) => {
-      let diff = 0;
-      switch (query.sort) {
-        case "size":
-          diff = nodeB.size - nodeA.size;
-          break;
-        case "imports":
-          diff = nodeB.imports.length - nodeA.imports.length;
-          break;
-        case "commitCount90d":
-          diff = (nodeB.commitCount90d ?? 0) - (nodeA.commitCount90d ?? 0);
-          break;
-        case "exportUsage":
-          diff = (nodeB.avgExportUsage ?? 0) - (nodeA.avgExportUsage ?? 0);
-          break;
-        case "complexity":
-          diff = (nodeB.complexity ?? 0) - (nodeA.complexity ?? 0);
-          break;
-        case "cognitiveComplexity":
-          diff = (nodeB.cognitiveComplexity ?? 0) - (nodeA.cognitiveComplexity ?? 0);
-          break;
-      }
-      return diff * direction;
-    });
+    const metric = SORT_METRICS[query.sort];
+    resultNodes.sort((nodeA, nodeB) => (metric(nodeB) - metric(nodeA)) * direction);
   }
   if (query.limit !== undefined) resultNodes.splice(query.limit);
 

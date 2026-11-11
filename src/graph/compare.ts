@@ -62,18 +62,13 @@ export async function buildGraphAtRef(
     const resolver = options.pathAliases
       ? new DefaultResolver(worktreeDir, { pathAliases: options.pathAliases })
       : undefined;
-    const builder = new GraphBuilder(
-      worktreeDir,
-      null,
+    const builder = new GraphBuilder(worktreeDir, {
       resolver,
-      undefined,
-      options.gitStats ?? false,
-      new Map(),
-      options.parallelParsing ?? true,
-      options.additionalIgnoreDirs ?? [],
-      null,
-      options.includeNestedRepos ?? false,
-    );
+      gitStats: options.gitStats,
+      parallelParsing: options.parallelParsing,
+      additionalIgnoreDirs: options.additionalIgnoreDirs,
+      includeNestedRepos: options.includeNestedRepos,
+    });
     return builder.build(entryPoints);
   });
 

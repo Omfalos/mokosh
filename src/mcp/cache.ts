@@ -1,137 +1,30 @@
 /** Session-scoped graph cache keyed by root directory, shared across MCP tool calls in one session. */
-import crypto from "node:crypto";
-import fs, { type FSWatcher } from "node:fs";
-import path from "node:path";
 import type { MokoshConfig } from "../config";
-import { getOrRunCoverage } from "../graph/coverage/get-or-run";
-import { applyStaticCoverage } from "../graph/coverage/static-estimate";
-import { enrichCoverage } from "../graph/enrichment";
 import {
   clearWorkspaceCache,
   loadWorkspaceCache,
   saveWorkspaceCache,
 } from "../graph/workspace/disk-cache";
 import {
-  buildChangeImpactCache,
   type ChangeImpactCache,
   computeWorkspaceSourceDigest,
   configToGraphOptions,
   createImportMap,
   createWorkspaceGraph,
-  DEFAULT_CACHE_DIR,
-  DEFAULT_DUPLICATION_RESULT_CACHE_FILE,
-  DEFAULT_DUPLICATION_TOKEN_CACHE_FILE,
-  DEFAULT_GRAPH_CACHE_FILE,
   type DuplicationTokenCache,
   detectMonorepo,
   type FlatWorkspaceGraph,
-  Graph,
-  loadTokenCacheFromDisk,
+  type Graph,
   type MonorepoLayout,
   type ParallelParsingOption,
-  packageOwnsFile,
-  saveTokenCacheToDisk,
   type WorkspaceGraph,
-  type WorkspacePackage,
 } from "../index";
-import { IGNORE_WATCH } from "../watch-ignore";
-
-/** Where the disk-persisted `find_duplicates` token cache for `root` lives — shared with the
- *  CLI's `mokosh-cache/` directory (`src/cli/graph-loader.ts`) so a CLI run and an MCP session
- *  against the same root warm each other's cache. */
-function duplicationTokenCachePath(root: string): string {
-  return path.join(root, DEFAULT_CACHE_DIR, DEFAULT_DUPLICATION_TOKEN_CACHE_FILE);
-}
-
-/** Where the disk-persisted `find_duplicates` *result* cache for `root` lives — the full
- *  `{ groups, clusters }` from the last scan, digest-gated (see
- *  `src/graph/duplication/result-cache-store.ts`). Honors the same `mokosh.config.*` `cachePath`
- *  override as the graph cache. On a monorepo, pass `pkgName` for a per-package file so one
- *  package's edits don't invalidate every other package's cached result. */
-function resolveDuplicationResultCachePath(
-  root: string,
-  config: MokoshConfig | undefined,
-  pkgName?: string,
-): string {
-  const dir = config?.cachePath
-    ? path.dirname(path.resolve(root, config.cachePath))
-    : path.join(root, DEFAULT_CACHE_DIR);
-  if (!pkgName) return path.join(dir, DEFAULT_DUPLICATION_RESULT_CACHE_FILE);
-  const slug = crypto.createHash("sha1").update(pkgName).digest("hex").slice(0, 8);
-  return path.join(dir, `duplication-result-${slug}.json`);
-}
-
-/** Where the CLI's disk-persisted graph cache for `root` lives, honoring the same
- *  `mokosh.config.*` `cachePath` override the CLI itself resolves against
- *  (`src/cli/config.ts`'s `resolveCachePath`) — falls back to `<root>/mokosh-cache/graph.json`. */
-function graphCachePath(root: string, config: MokoshConfig | undefined): string {
-  return config?.cachePath
-    ? path.resolve(root, config.cachePath)
-    : path.join(root, DEFAULT_CACHE_DIR, DEFAULT_GRAPH_CACHE_FILE);
-}
-
-/** The resolved `mokosh-cache` directory for `root` (honoring a `mokosh.config.*` `cachePath`
- *  override) — the workspace graph cache lives in its `workspace/` subdir as a manifest plus one
- *  file per package (`src/graph/workspace/disk-cache.ts`). */
-function workspaceCacheDir(root: string, config: MokoshConfig | undefined): string {
-  return config?.cachePath
-    ? path.dirname(path.resolve(root, config.cachePath))
-    : path.join(root, DEFAULT_CACHE_DIR);
-}
-
-/**
- * @description Reads and deserializes a CLI-written graph cache from disk, for seeding a
- *   session's first `analyze` call. Never throws: a missing file, malformed JSON, or a value
- *   that fails to deserialize all degrade to `null` (today's cold-start behavior) rather than
- *   failing the tool call that triggered the read — this is pure acceleration, and
- *   `createImportMap` re-validates every seeded node against the live filesystem (mtime+size)
- *   before trusting it, so a stale or foreign cache file can only cost a re-parse, never produce
- *   wrong data.
- * @param cachePath - Path to the JSON file written by `saveGraphToCache` (`src/cli/graph-loader.ts`).
- * @returns The deserialized `Graph`, or `null` if nothing usable was found.
- */
-function loadDiskGraphSeed(cachePath: string): Graph | null {
-  try {
-    if (!fs.existsSync(cachePath)) return null;
-    const raw = fs.readFileSync(cachePath, "utf-8");
-    return Graph.deserialize(JSON.parse(raw));
-  } catch {
-    return null;
-  }
-}
-
-/**
- * @description Builds a `Graph` containing only the nodes that fall under `pkg`'s own
- *   `relativeRoot`. Each package's `Graph` (built independently by `createWorkspaceGraph`) also
- *   contains a node for every cross-package file it imports — needed so traversal from within
- *   that package reaches them — but a whole-graph tool fanning out across every package must not
- *   list those borrowed nodes as if they belonged here too, or a file imported by two packages
- *   would be double-reported. Used by `resolveGraphs`; not by `resolveGraphForFile`, whose
- *   traversal-based tools (get_dependencies et al.) need those borrowed nodes reachable.
- * @param graph - A workspace package's own `Graph`.
- * @param pkg - That package's metadata, for its `relativeRoot` prefix.
- * @returns A new `Graph` restricted to nodes under `pkg.relativeRoot`.
- */
-function restrictToOwnFiles(graph: Graph, pkg: WorkspacePackage): Graph {
-  const owned = new Map([...graph.nodes].filter(([nodePath]) => packageOwnsFile(nodePath, pkg)));
-  return new Graph(owned);
-}
-
-/**
- * @description Narrows a {@link FlatWorkspaceGraph} to just the nodes owned by `pkgName`,
- *   keeping the `packageOf` entries in sync. Used when a whole-workspace tool is scoped to one
- *   package via a `package` arg.
- * @param flat - The flattened workspace graph.
- * @param pkgName - The package to keep.
- * @returns A new `FlatWorkspaceGraph` containing only that package's nodes.
- */
-function restrictFlatToPackage(flat: FlatWorkspaceGraph, pkgName: string): FlatWorkspaceGraph {
-  const nodes = new Map(
-    [...flat.graph.nodes].filter(([nodePath]) => flat.packageOf.get(nodePath) === pkgName),
-  );
-  const packageOf = new Map([...flat.packageOf].filter(([nodePath]) => nodes.has(nodePath)));
-  return { graph: new Graph(nodes), packageOf };
-}
+import { applyOnDemandCoverage } from "./auto-coverage";
+import { graphCachePath, loadDiskGraphSeed, workspaceCacheDir } from "./cache-paths";
+import { ChangeImpactCaches } from "./change-impact-caches";
+import { DuplicationCaches } from "./duplication-caches";
+import { restrictFlatToPackage, restrictToOwnFiles } from "./graph-scope";
+import { RootWatcher } from "./root-watcher";
 
 type LastAnalyzeArgs =
   | { kind: "single"; entryPoints: string[]; coverageMap: Map<string, number> }
@@ -157,11 +50,10 @@ export class SessionState {
   private readonly workspaceDigests = new Map<string, string>();
   private readonly layouts = new Map<string, MonorepoLayout>();
   private readonly workspaceBuilds = new Map<string, Promise<WorkspaceGraph>>();
-  private readonly changeImpactCaches = new Map<string, ChangeImpactCache>();
-  private readonly dirtyRoots = new Set<string>();
-  private readonly watchers = new Map<string, FSWatcher>();
+  private readonly changeImpactCaches = new ChangeImpactCaches();
+  private readonly watcher = new RootWatcher();
   private readonly lastAnalyze = new Map<string, LastAnalyzeArgs>();
-  private readonly duplicationTokenCaches = new Map<string, DuplicationTokenCache>();
+  private readonly duplicationCaches = new DuplicationCaches((root) => this.configs.get(root));
 
   /**
    * @description Returns `true` if config has already been loaded and applied for `root` this session.
@@ -215,14 +107,8 @@ export class SessionState {
     // On-demand coverage only kicks in when no explicit `coverageReportPath` map was already
     // loaded (an empty `coverageMap` here means `handleAnalyze` didn't load one) — it never
     // overrides an explicit report. See `computeStaticCoverage`/`getOrRunCoverage`.
-    if (coverageMap.size === 0 && config?.coverage?.mode === "static") {
-      applyStaticCoverage(graph);
-    } else if (coverageMap.size === 0 && config?.coverage?.mode === "exec") {
-      const autoMap = await getOrRunCoverage(root, graph.nodes.values(), this.getLayout(root), {
-        timeoutMs: config.coverage.timeoutMs,
-        packages: config.coverage.packages,
-      });
-      if (autoMap.size > 0) enrichCoverage(graph.nodes, autoMap);
+    if (coverageMap.size === 0) {
+      await applyOnDemandCoverage(root, graph, this.getLayout(root), config?.coverage);
     }
     this.graphs.set(root, graph);
     return graph;
@@ -338,16 +224,7 @@ export class SessionState {
     const config = this.configs.get(root);
     if (config?.coverageReportPath || !config?.coverage) return;
     const { graph } = workspaceGraph.flatten();
-    if (config.coverage.mode === "static") {
-      applyStaticCoverage(graph);
-      return;
-    }
-    if (config.coverage.mode !== "exec") return;
-    const autoMap = await getOrRunCoverage(root, graph.nodes.values(), this.getLayout(root), {
-      timeoutMs: config.coverage.timeoutMs,
-      packages: config.coverage.packages,
-    });
-    if (autoMap.size > 0) enrichCoverage(graph.nodes, autoMap);
+    await applyOnDemandCoverage(root, graph, this.getLayout(root), config.coverage);
   }
 
   /**
@@ -391,11 +268,7 @@ export class SessionState {
    * @returns The `ChangeImpactCache` for this key.
    */
   private getOrBuildChangeImpactFor(cacheKey: string, buildGraph: () => Graph): ChangeImpactCache {
-    const existing = this.changeImpactCaches.get(cacheKey);
-    if (existing) return existing;
-    const cache = buildChangeImpactCache(buildGraph());
-    this.changeImpactCaches.set(cacheKey, cache);
-    return cache;
+    return this.changeImpactCaches.getOrBuild(cacheKey, buildGraph);
   }
 
   /**
@@ -430,11 +303,7 @@ export class SessionState {
    * @param root - Absolute project root path.
    */
   private clearChangeImpactCachesFor(root: string): void {
-    this.changeImpactCaches.delete(root);
-    const prefix = `${root}::`;
-    for (const key of this.changeImpactCaches.keys()) {
-      if (key.startsWith(prefix)) this.changeImpactCaches.delete(key);
-    }
+    this.changeImpactCaches.clearFor(root);
   }
 
   /**
@@ -581,19 +450,7 @@ export class SessionState {
    * @param root - Absolute path of the directory to watch.
    */
   startWatching(root: string): void {
-    if (this.watchers.has(root)) return;
-    try {
-      const watcher = fs.watch(root, { recursive: true }, (_event, filename) => {
-        if (!filename || IGNORE_WATCH.test(filename)) return;
-        this.dirtyRoots.add(root);
-      });
-      watcher.on("error", () => {
-        this.watchers.delete(root);
-      });
-      this.watchers.set(root, watcher);
-    } catch {
-      // Degrade gracefully on unsupported filesystems or permission errors.
-    }
+    this.watcher.start(root);
   }
 
   /**
@@ -604,8 +461,8 @@ export class SessionState {
    * @throws {Error} if `analyze` has never been called for this root.
    */
   async ensureFresh(root: string): Promise<Graph> {
-    if (!this.dirtyRoots.has(root)) return this.require(root);
-    this.dirtyRoots.delete(root);
+    if (!this.watcher.isDirty(root)) return this.require(root);
+    this.watcher.clearDirty(root);
     this.clearChangeImpactCachesFor(root);
     const args = this.lastAnalyze.get(root);
     if (args?.kind === "single") {
@@ -622,14 +479,14 @@ export class SessionState {
    * @throws {Error} if `analyze` has never been called for this root.
    */
   async ensureFreshWorkspace(root: string): Promise<WorkspaceGraph> {
-    if (!this.dirtyRoots.has(root)) {
+    if (!this.watcher.isDirty(root)) {
       const cached = this.workspaceGraphs.get(root);
       if (cached) return cached;
       // Progressive `analyze` returns before building; the first workspace query that needs
       // edges triggers the build here.
       return this.getOrBuildWorkspace(root, configToGraphOptions(this.configs.get(root)));
     }
-    this.dirtyRoots.delete(root);
+    this.watcher.clearDirty(root);
 
     // The file watcher fires on any fs event under `root` — editor swap files, a git index
     // write, `.DS_Store` — most of which change no source file. A full non-incremental
@@ -672,12 +529,7 @@ export class SessionState {
    * @returns The mutable token cache for this root.
    */
   async getDuplicationTokenCache(root: string): Promise<DuplicationTokenCache> {
-    let cache = this.duplicationTokenCaches.get(root);
-    if (!cache) {
-      cache = loadTokenCacheFromDisk(duplicationTokenCachePath(root));
-      this.duplicationTokenCaches.set(root, cache);
-    }
-    return cache;
+    return this.duplicationCaches.getTokenCache(root);
   }
 
   /**
@@ -690,13 +542,7 @@ export class SessionState {
    * @param root - Absolute project root path.
    */
   flushDuplicationTokenCache(root: string): void {
-    const cache = this.duplicationTokenCaches.get(root);
-    if (!cache) return;
-    try {
-      saveTokenCacheToDisk(cache, duplicationTokenCachePath(root));
-    } catch (err) {
-      process.stderr.write(`Warning: failed to persist duplication token cache: ${err}\n`);
-    }
+    this.duplicationCaches.flush(root);
   }
 
   /**
@@ -710,7 +556,7 @@ export class SessionState {
    * @returns The path the result cache for this `(root, package)` should be read from / written to.
    */
   duplicationResultCachePath(root: string, pkgName?: string): string {
-    return resolveDuplicationResultCachePath(root, this.configs.get(root), pkgName);
+    return this.duplicationCaches.resultCachePath(root, pkgName);
   }
 
   /**
@@ -739,8 +585,8 @@ export class SessionState {
     this.workspaceBuilds.delete(root);
     this.layouts.delete(root);
     this.clearChangeImpactCachesFor(root);
-    this.dirtyRoots.delete(root);
-    this.duplicationTokenCaches.delete(root);
+    this.watcher.clearDirty(root);
+    this.duplicationCaches.drop(root);
     this.configs.delete(root);
     clearWorkspaceCache(workspaceCacheDir(root, config));
     return had;

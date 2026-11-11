@@ -1,10 +1,14 @@
 /** Parser registry: maps FileType values to parser functions and provides lookup by file type. */
 import type { FileType } from "../types/parse";
+import type { ClassifyConfig } from "./classify";
 import type { ParseResult } from "./types";
 
+/** A language parser. `classifyConfig` carries the user's classification settings explicitly; only
+ *  parsers that classify by name/imports (TS/JS) read it, the rest ignore the extra argument. */
 export type ParserFunction = (
   filePath: string,
   content: string,
+  classifyConfig?: ClassifyConfig,
 ) => ParseResult | Promise<ParseResult>;
 
 const parserRegistry = new Map<FileType, ParserFunction>();
