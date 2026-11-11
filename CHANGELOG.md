@@ -1,3 +1,14 @@
+## [0.5.7](https://github.com/Omfalos/mokosh/compare/v0.5.6...v0.5.7) (2026-11-11)
+
+### Features
+
+* **mcp:** return structured CONFIG_REQUIRED when coverage/gitStats config is missing ([#32](https://github.com/Omfalos/mokosh/issues/32)) ([53269dd](https://github.com/Omfalos/mokosh/commit/53269ddfc5172afc29071fc8c562ecf7c2011223))
+* **mcp:** summary-first output for get_feature_graph, apply_tags, get_type_graph, detect_features ([#33](https://github.com/Omfalos/mokosh/issues/33)) ([1068d1a](https://github.com/Omfalos/mokosh/commit/1068d1a9a3c5c78e312045086881f378ded2aa33))
+
+### Bug Fixes
+
+* **graph:** skip nested git repos and worktrees during discovery ([#34](https://github.com/Omfalos/mokosh/issues/34)) ([a0548de](https://github.com/Omfalos/mokosh/commit/a0548de76830513546ecce83c3c2abc939cb6b64))
+
 ## [0.5.6](https://github.com/Omfalos/mokosh/compare/v0.5.5...v0.5.6) (2026-10-03)
 
 ### Features
