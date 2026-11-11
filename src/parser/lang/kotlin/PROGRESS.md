@@ -64,14 +64,14 @@ Not committed to git — `git status` still shows `src/parser/lang/kotlin/` and
   tracked file living inside it). Not yet used by anything else (Phase 1 not started).
 - **`scripts/kotlin-grammar-smoke-test.mjs`** — throwaway sanity script (see Status above).
 - Deliberate scope cuts made and documented inline in the grammar (each has a comment explaining
-  why, citing the LR conflict — or, in two cases, a *silent mis-parse* — it caused):
+  why, citing the LR conflict — or, in two cases, a _silent mis-parse_ — it caused):
   - No annotation-argument support (`@Foo(bar=1)` — just `@Foo`).
   - No bare parenthesized type `(Foo)`.
   - No receiver-qualified function type (`Foo.() -> Unit`).
   - **No extension functions or extension properties at all**
     (`fun String.shout()`, `val String.foo get() = ...`) — the receiver-type prefix hits an
     Identifier-vs-Definition LALR state-merge ambiguity. For `PropertyDeclaration` this is a hard
-    build-time reduce/reduce (caught immediately); for `FunctionDeclaration` the *exact same*
+    build-time reduce/reduce (caught immediately); for `FunctionDeclaration` the _exact same_
     root cause does **not** error at build time — it silently mis-parses instead (`fun
     Foo.bar()` swallows `Foo.bar` whole as a `ScopedTypeName`, leaving nothing for the function
     name, then cascades into garbage error-recovery for everything after). This was only caught
@@ -86,7 +86,7 @@ Not committed to git — `git status` still shows `src/parser/lang/kotlin/` and
     generator's own internal `statement+ -> statement+ statement+` grouping (its binary
     splitting of `statement*` for incremental reparsing) with no precedence hook reachable from
     grammar-level markers; `LocalFunctionDeclaration` sidesteps it for functions by requiring
-    `functionBody` (never actually optional for a *local* function in real Kotlin anyway), but
+    `functionBody` (never actually optional for a _local_ function in real Kotlin anyway), but
     no equivalent trick was found for local classes, so they're simply unsupported.
     `LocalPropertyDeclaration` additionally drops `PropertyAccessor`/`TypeParameters`/
     `TypeConstraints` (none of which apply to local variables in real Kotlin anyway) — dropping
@@ -98,7 +98,7 @@ Not committed to git — `git status` still shows `src/parser/lang/kotlin/` and
     `statement+` wall as above.
 - **Established conflict-resolution patterns**:
   - `!greedy` precedence (declared in `@precedence`) on an optional/repeated piece whose first
-    token overlaps the *next* sibling's start-token set, to always prefer attaching. Used
+    token overlaps the _next_ sibling's start-token set, to always prefer attaching. Used
     ~10 times. Placement matters and isn't always predictable: sometimes the outer
     `(!greedy X)?` wrapper suffices, sometimes the marker also needs to sit on `X`'s own entry
     token(s) directly (`PropertyAccessor`'s `ckw<"get">`/`ckw<"set">`), and sometimes it needs to
@@ -109,13 +109,13 @@ Not committed to git — `git status` still shows `src/parser/lang/kotlin/` and
   - `!postfix` for expression postfix-chain ambiguities (call/navigation/indexing vs. reducing
     `baseExpression` early).
   - Deleting a redundant dual-representation rule instead of trying to force disambiguation, when
-    two different node types would otherwise compete for the *identical* production shape (e.g.
+    two different node types would otherwise compete for the _identical_ production shape (e.g.
     `IfStatement` vs `IfExpression`; later, `Block` vs a bare `LambdaLiteral` in `controlBody` —
     fixed by excluding `LambdaLiteral` from being reachable as a standalone `ExpressionStatement`,
     since real Kotlin never treats a bare `{ ... }` as its own statement anyway).
   - **`dynamicPrecedence` does not resolve shift/reduce conflicts** — only `!greedy`/named
     `@precedence` tokens do. `dynamicPrecedence` is for ranking otherwise-valid alternative
-    *reductions* (reduce/reduce-shaped ambiguity), not for telling the automaton whether to shift
+    _reductions_ (reduce/reduce-shaped ambiguity), not for telling the automaton whether to shift
     or reduce. Wasted a round discovering this the hard way (marked both `Block` and
     `LambdaLiteral` with opposite `dynamicPrecedence` for a conflict that was actually
     shift/reduce underneath — had no effect).
@@ -137,8 +137,8 @@ Not committed to git — `git status` still shows `src/parser/lang/kotlin/` and
   - Lowercase rule names (`stringStart`, `whitespace`, ...) don't get exported term constants by
     Lezer by convention — only capitalized names do. This bit us for real: `tokens.js`'s
     `ContextTracker` compared against `stringStart`/`stringStartTriple` (lowercase in the
-    grammar), which imported as `undefined` from `parser.terms.js`, so the context was *never
-    actually pushed* — the external string tokenizer silently never engaged, and `"x"` parsed as
+    grammar), which imported as `undefined` from `parser.terms.js`, so the context was _never
+    actually pushed_ — the external string tokenizer silently never engaged, and `"x"` parsed as
     two empty string literals sandwiching a bare identifier. No build error, no exception —
     just wrong output. Renamed both to `StringStart`/`StringStartTriple`. **If an external
     tokenizer or context tracker ever needs to reference a token by name from JS, that token's
@@ -152,12 +152,12 @@ Not committed to git — `git status` still shows `src/parser/lang/kotlin/` and
     `tokens.js` (hand-written, not generated) needed the same treatment: converted from
     `import`/`export` to `require`/`module.exports`.
   - **`@external tokens .../ @context ... from "path"` resolves at two different times against
-    two different base directories, and they don't agree.** At *build* time, `buildParserFile`
+    two different base directories, and they don't agree.** At _build_ time, `buildParserFile`
     needs to actually read the external file relative to the `.grammar` file's own location
     (`tokens.js` is a sibling of `kotlin.grammar`, so `"./tokens.js"` is correct there). But the
     generator copies that literal string into the generated output's own `require(...)`/`import`
-    line unchanged — and that output lives in `generated/`, one directory *deeper* than
-    `tokens.js`, so the same `"./tokens.js"` string is wrong at *runtime*. There's no single path
+    line unchanged — and that output lives in `generated/`, one directory _deeper_ than
+    `tokens.js`, so the same `"./tokens.js"` string is wrong at _runtime_. There's no single path
     string that's correct in both places while `generated/` is a subdirectory. Resolved by having
     the build script copy `tokens.js` into `generated/` after every build, so `generated/`
     becomes self-contained; the canonical `src/parser/lang/kotlin/tokens.js` is therefore only
@@ -173,11 +173,11 @@ Not committed to git — `git status` still shows `src/parser/lang/kotlin/` and
 `kotlin-spec` is an **ANTLR4** grammar — adaptive LL(*) parsing with semantic predicates and
 runtime backtracking. Lezer builds a **static LR(1)-style automaton** at build time and refuses
 outright if the grammar is ambiguous (every `GenError` in this file). The two have incompatible
-disambiguation models; there's no mechanical port. A straight port of the *full* spec (contracts,
+disambiguation models; there's no mechanical port. A straight port of the _full_ spec (contracts,
 destructuring, context receivers, DSL receiver types, the works) would hit far more of these
 conflicts than this deliberately narrow grammar, for coverage mokosh doesn't need — the actual
 requirement is declaration/function boundaries and call-expression shapes for complexity/call-edge
-extraction, not full Kotlin fidelity. kotlin-spec was used as the *reference* for correct Kotlin
+extraction, not full Kotlin fidelity. kotlin-spec was used as the _reference_ for correct Kotlin
 structure while authoring this grammar fresh, directly in Lezer's DSL, scoped down from the start
 — the same relationship the already-installed `@lezer/python` and `@lezer/java` have to their own
 "official" grammars.
@@ -224,7 +224,7 @@ verdict: PASS** — this is what justified starting Phase 1's hybrid integration
   call-edge resolution — `ImportEdge.symbols` itself is intentionally unchanged (still drops the
   alias, per the JVM-wide convention in `jvm-scan.ts`).
 
-### What's deliberately *not* done yet
+### What's deliberately _not_ done yet
 
 `src/graph/language-support.ts` (`CALL_EDGE_TYPES`, `LANGUAGE_FIDELITY.kotlin.callEdges`,
 `FIDELITY_CAVEAT.kotlin.callEdges`), `docs/language-support.md`, `src/parser/lang/
@@ -235,7 +235,7 @@ withheld** — shipping the fidelity flip now would overstate real coverage give
 
 This grammar has **no ASI and no newline-sensitivity** (`;` is pure `@skip` whitespace, newlines
 are never distinguished from spaces — see the "no ASI" notes already in `kotlin.grammar`).
-`InfixExpression { expression !infixFn Identifier expression }` is the *only* `expression`
+`InfixExpression { expression !infixFn Identifier expression }` is the _only_ `expression`
 alternative whose own operator is a bare `Identifier` rather than punctuation/a keyword — every
 other alternative (`BinaryExpression`, `RangeExpression`, `IsExpression`, etc.) uses a distinct
 token that can't be confused with the start of a new statement. With no separator and no
@@ -245,6 +245,7 @@ picks the former, every time, with no build-time conflict ever reported (there's
 it otherwise, so there's nothing to flag).
 
 Confirmed empirically:
+
 ```kotlin
 Foo.stat(1)
 Bar.other(2)
@@ -259,8 +260,8 @@ never a false positive (fabricated edge)** — `collectCallEdges`'s existing fil
 resolve via `localNames`, bare calls must be capitalized-and-resolve) happen to suppress the
 corrupted output either way. But the error-node-span ratio for the 3-statement case is only
 **2.9%**, comfortably under the corpus gate's 5% threshold — this specific failure mode hides
-inside a low overall char-ratio because it's a *systemic undercount*, not a *localized parse
-failure*, and it's a very common Kotlin shape (any function with 2+ non-`val`/`return`/keyword-
+inside a low overall char-ratio because it's a _systemic undercount_, not a _localized parse
+failure_, and it's a very common Kotlin shape (any function with 2+ non-`val`/`return`/keyword-
 prefixed statements in a row — sequential calls, builder-style code).
 
 ### Two fix attempts today, both reverted — grammar is back to the exact pre-session baseline
@@ -270,8 +271,8 @@ prefixed statements in a row — sequential calls, builder-style code).
 `InfixExpression`). Failed at build time: `GenError: reduce/reduce conflict between
 statementExpression -> baseExpression and expression -> baseExpression`. Root cause: several of
 `expression`'s alternatives (`AsExpression`, `IsExpression`, `PrefixExpression`, ...) reference
-`expression` *recursively* inside their own bodies, and `baseExpression` (and friends) are
-low-level *inlined* rules — Lezer doesn't duplicate the node types they produce per calling
+`expression` _recursively_ inside their own bodies, and `baseExpression` (and friends) are
+low-level _inlined_ rules — Lezer doesn't duplicate the node types they produce per calling
 context, so a token sequence reachable through `statementExpression`'s copy and reachable through
 plain `expression` collapse onto the exact same node type with no way to tell which "path"
 produced it. Any fix along these lines needs the duplicated alternatives to produce genuinely
@@ -282,13 +283,13 @@ distinct node types too, not just a distinct top rule name — a much bigger, mo
 before an identifier for a crossed line break — the exact technique `@lezer/python`'s own
 `newlines` tokenizer uses for indentation (confirmed by reading
 `node_modules/@lezer/python/src/tokens.js` directly). Wired a new external term
-`InfixFunctionName` into `InfixExpression` in place of plain `Identifier`, so only a *same-line*
+`InfixFunctionName` into `InfixExpression` in place of plain `Identifier`, so only a _same-line_
 identifier could satisfy it. **Built clean, zero conflicts reported.** But empirically: the
 tokenizer was **never invoked at all** — confirmed by adding `console.error` logging inside it
 and parsing files with hundreds of identifiers, including a same-line, non-statement-repetition
 position (`assertThat(x shouldBe y)`, a call argument) — zero invocations anywhere, not just in
 `statement*` positions. Net effect: `InfixExpression` became entirely unreachable (dead
-production), which "fixed" the reported bug only as an accidental side effect of disabling *all*
+production), which "fixed" the reported bug only as an accidental side effect of disabling _all_
 infix-expression parsing — including legitimate same-line usage (`x shouldBe y`, a common Kotest
 assertion idiom) which now silently mis-parses into three separate garbage statements instead.
 **This is a worse regression than the original bug** (was: false negatives only; now: also
@@ -300,7 +301,7 @@ theory (that this is the same "generator's own internal `statement+ -> statement
 grouping, no precedence hook available" wall already documented above for local
 classes/`PropertyAccessor`, since the call-argument test case isn't anywhere near a `statement*`
 repetition and still failed identically). Plausible remaining theories, untested: (a) Lezer's
-default shift/reduce conflict resolution treats a production reachable *only* via an external
+default shift/reduce conflict resolution treats a production reachable _only_ via an external
 tokenizer differently from one reachable via the built-in DFA in an ambiguous state — i.e. "prefer
 shift" isn't the default when the shift target's only source is external; (b) something about
 `identifier`'s role as the base for `@specialize`/`@extend` keyword tokens gives it automaton
@@ -313,7 +314,7 @@ experimentation.
 
 Re-tried the newline-sensitivity fix with a fresh external token (`SameLineIdentifier`, same
 backward-trivia-peek technique as attempt 2, swapped into `InfixExpression` in place of plain
-`Identifier`). Build was clean, and the token *did* show up correctly in the generated automaton
+`Identifier`). Build was clean, and the token _did_ show up correctly in the generated automaton
 this time (`parser.terms.js` assigned it a real term id, and it appeared in the generated
 `tokenizers` array) — ruling out attempt 2's leading theory (a naming/casing mismatch silently
 breaking the JS import).
@@ -322,10 +323,10 @@ It still never fired, and `LOG=parse` (built into `@lezer/lr`) made the actual c
 right after the left operand reduces up to `expression`, the parser runs a chain of
 **`always-reduce`** transitions (`@lezer/lr`'s `defaultReduce` optimization, `advanceStack` in
 `dist/index.js`) straight through to completing the enclosing declaration/statement — a
-single-action state reduces unconditionally *before even tokenizing*, so `SameLineIdentifier`'s
+single-action state reduces unconditionally _before even tokenizing_, so `SameLineIdentifier`'s
 tokenizer never gets a chance to run, in any context, not just at a statement boundary. The old
 shared `identifier` token kept that state multi-action (hence non-default-reduce) purely because
-it was reachable from many other rules at that position; giving `InfixExpression` an *exclusive*
+it was reachable from many other rules at that position; giving `InfixExpression` an _exclusive_
 token changed which LALR states merge, and this specific state collapsed to single-action instead.
 This is upstream of anything a grammar-level precedence marker (`!name`) can influence — confirmed
 with `parser.stateSlot`/`hasAction`, not just theorized. Reverted grammar and `tokens.js` in full
@@ -350,7 +351,7 @@ level up — the superclass-constructor-edge test in
 `src/parser/lang/kotlin.call-edges.test.ts` would have failed silently (empty result, no error)
 without that fix.
 
-Remaining known gap (documented, not silently guessed at): a *with-arguments* constructor call
+Remaining known gap (documented, not silently guessed at): a _with-arguments_ constructor call
 (`Bar(1)`) immediately following another statement with no separator still loses its edge — `(1)`
 parses as a valid, error-free `ParenthesizedExpression` with no signal distinguishing it from a
 real parenthesized expression, unlike the empty-parens case.
@@ -381,7 +382,7 @@ to `collectFunctionComplexity` specifically — motivated by a real OkHttp case
 alone was severely corrupted, inflating cyclomatic complexity from ~4 to 46. **This gate does not
 apply to `collectCallEdges`** — an early draft added the same gate there too, which broke Phase 1's
 `collectInfixMisparseEdges` recovery path (that function exists specifically to recover edges from
-bodies *containing* error nodes, so a zero-tolerance gate silently zeroed out the two dedicated
+bodies _containing_ error nodes, so a zero-tolerance gate silently zeroed out the two dedicated
 regression tests for it). Caught by running the full suite after the gate helper was wired up; fixed
 by scoping the gate to `collectFunctionComplexity` only. Lesson for any future per-node-type gate
 in this file: check whether a recovery function downstream expects to see error nodes before
@@ -397,9 +398,10 @@ Also fixed in the same pass: the gate helper was originally written against a fu
 Closed out: `FUNCTION_COMPLEXITY_TYPES` gained `"kotlin"`, `LANGUAGE_FIDELITY.kotlin.complexity`
 flipped `"none"`→`"partial"`, `FIDELITY_CAVEAT.kotlin.complexity` rewritten to describe the
 error-density gate, `docs/language-support.md` + `docs/known_issues/08-cross-language-reliability.md`
-+ `docs/plans/jvm-support-followups.md` updated, dedicated `kotlin.complexity.test.ts` (12 tests),
-`example/full-house` conformance baseline regenerated. Full suite (`npm test`, 1810 tests) and
-`npm run typecheck` both pass clean.
+
+- `docs/plans/jvm-support-followups.md` updated, dedicated `kotlin.complexity.test.ts` (12 tests),
+  `example/full-house` conformance baseline regenerated. Full suite (`npm test`, 1810 tests) and
+  `npm run typecheck` both pass clean.
 
 ## Choice-count warnings fixed (2026-09-16)
 
@@ -436,6 +438,7 @@ per-file error-node dumps: not 25 unrelated gaps, overwhelmingly one class of ga
 how @lezer's error recovery works.
 
 **The two real gaps**, both already flagged in `annotationUse`'s old comment as deliberately cut:
+
 1. `annotationUse` had zero support for annotation arguments (`@Foo(bar = 1)`) — matched only the
    name.
 2. `annotationUse` only recognized `ckw<"file">` as a use-site target — `@get:`/`@set:`/`@param:`
@@ -445,14 +448,15 @@ how @lezer's error recovery works.
 **Why the damage was so disproportionate:** hitting either gap didn't just leave one small
 unparsed span — @lezer's error recovery cascaded from that point until it could resynchronize,
 corrupting everything after it. One file had a single `@file:OptIn(Foo::class)` line at the top
-produce error nodes spanning its *entire* import block below. A third, previously-unknown gap
+produce error nodes spanning its _entire_ import block below. A third, previously-unknown gap
 compounded this for every `@file:` case specifically: `@top Program` never had a leading
 `annotationUse*` slot at all — `annotationUse` was only ever reachable via a declaration's
-`modifier*`, never at `Program` level — so a leading `@file:X` failed to parse *even with no
-arguments*, and its cascade corrupted the whole file, package line and all.
+`modifier*`, never at `Program` level — so a leading `@file:X` failed to parse _even with no
+arguments_, and its cascade corrupted the whole file, package line and all.
 
 **Fix, in three isolated, individually-reverted-on-failure steps** (each rebuilt + full-suite +
 `example/full-house` smoke-tested before the next):
+
 1. `useSiteTarget { ckw<"file"> | ckw<"property"> | ckw<"field"> | ckw<"get"> | ckw<"set"> |
    ckw<"receiver"> | ckw<"param"> | ckw<"setparam"> | ckw<"delegate"> }` — the real Kotlin
    use-site-target list. `get`/`set` reuse the same `ckw<>` terminals `PropertyAccessor` already
@@ -493,11 +497,12 @@ as hotspots).
 deliberately had no leading `modifier*`, see `docs/adr-021-kotlin-parsing.md`'s scope-cuts table).
 That doc undersold the actual damage, confirmed by diffing tree shape before/after with a minimal
 repro:
+
 - **Pre-annotation-fix baseline:** the ambiguity already mis-scoped every subsequent class member —
   `equals`/`matches`/etc. ended up as `FunctionDeclaration` nodes with `parent: Program` (top
   level) instead of nested in the class's `ClassBody`. Wrong owner attribution, but still
   individually discoverable.
-- **Post-annotation-fix:** the *same* input resolved the ambiguity differently — it collapsed into
+- **Post-annotation-fix:** the _same_ input resolved the ambiguity differently — it collapsed into
   one bogus top-level `FunctionDeclaration` named `"constructor"` whose `Block` body swallowed the
   entire rest of the class as statement content. Every subsequent method became a
   `LocalFunctionDeclaration` (not `FunctionDeclaration`) buried inside that block —
@@ -506,7 +511,7 @@ repro:
   list and call-edge extraction, while `computeComplexity`'s type-agnostic whole-tree walk still
   (correctly) counted their cost in the file-level aggregate. Neither shape produces error nodes, so
   `ERROR_RATIO_THRESHOLD` never caught it — a silent structural mis-parse, always wrong, just wrong
-  in a *worse* way after the annotation fix widened how much content the mis-parse swallowed.
+  in a _worse_ way after the annotation fix widened how much content the mis-parse swallowed.
 
 **Fix:** `PrimaryConstructor { modifier* (!greedy ckw<"constructor">)? "(" commaSep<ClassParameter>
 ")" }` — added the missing leading `modifier*`. Built clean on the **first attempt**, no `!greedy`
@@ -572,9 +577,9 @@ remaining 7 are genuine true-positive cases — a decision point sits near an er
 ## Newline-separated statements (2026-09-21) — the no-ASI gap, closed at the grammar
 
 **Attempt 4 succeeded** where 1–3 failed, by inverting the approach. Attempts 2–3 put a special
-same-line-identifier token on the *shift* side of `InfixExpression`; the parser had already
+same-line-identifier token on the _shift_ side of `InfixExpression`; the parser had already
 reduced (default-reduce) before any tokenizer ran. `@lezer/python`'s way — an explicit separator
-token on the *follow* side — does not have that problem: the state after a complete expression has
+token on the _follow_ side — does not have that problem: the state after a complete expression has
 `Nl` as a valid lookahead, so it is multi-action and the tokenizer is consulted.
 
 - `tokens.js` `nlTokens` (external tokenizer, declared **before** `@tokens` so it claims a line
@@ -589,7 +594,7 @@ token on the *follow* side — does not have that problem: the state after a com
   conflicts, no new `!greedy` markers.
 - **`when` entries were the first miss.** The initial port covered only `Block`/`LambdaLiteral`;
   brace-less branches (`A -> readA(1)` newline `B -> readB(2)`) still collapsed, and the leftover
-  workaround then *fabricated* edges from them. Found via the recovery-path counter below, not by a
+  workaround then _fabricated_ edges from them. Found via the recovery-path counter below, not by a
   test.
 - **`else ->` was the second miss.** Treating every `else` as a continuation suppressed `Nl`
   before a `when` branch's `else ->` (a comment between the branches made it visible). Fixed by
@@ -597,14 +602,14 @@ token on the *follow* side — does not have that problem: the state after a com
 - Same pass: trailing commas (`commaSep`/`commaSep1`), and `jumpStatement` (`return`/`break`/
   `continue`/`throw`) as an `Elvis` right operand.
 
-**Measure error *nodes*, not just the error-span ratio.** A first pass compared error-span ratios
+**Measure error _nodes_, not just the error-span ratio.** A first pass compared error-span ratios
 and reported "previously clean files now erroring"; those were files whose errors are zero-width
 recovery nodes (span 0). `corpus2`-style counting of `type.isError` nodes is the honest metric.
 
-| Corpus | Error nodes: before → after | Files with none: before → after |
-|---|---|---|
-| OkHttp (573) | 19,526 → 3,991 | 60 → 270 |
-| kotlinx.coroutines (1,039) | 18,055 → 8,809 | 173 → 414 |
+| Corpus                     | Error nodes: before → after | Files with none: before → after |
+| -------------------------- | --------------------------- | ------------------------------- |
+| OkHttp (573)               | 19,526 → 3,991              | 60 → 270                        |
+| kotlinx.coroutines (1,039) | 18,055 → 8,809              | 173 → 414                       |
 
 Parse time unchanged (~0.6 s/corpus). Residual error mass in the worst files is the documented cut
 list: extension functions/properties and receiver function types (`CoroutineScope.() -> Unit`,
@@ -652,14 +657,14 @@ properties; coroutines: 757 + 51). Planned as a two-spike effort; the first spik
   except tests.
 - `SafeNav` is a separator because `Foo?.f` tokenizes as `Foo` `?.` `f`.
 
-| Corpus | Error span: before → after | Error nodes | Files with none |
-|---|---|---|---|
-| OkHttp | 0.238% → 0.113% | 3,991 → 3,615 | 270 → 297 |
-| kotlinx.coroutines | 0.600% → 0.229% | 8,809 → 8,072 | 414 → 474 |
+| Corpus             | Error span: before → after | Error nodes   | Files with none |
+| ------------------ | -------------------------- | ------------- | --------------- |
+| OkHttp             | 0.238% → 0.113%            | 3,991 → 3,615 | 270 → 297       |
+| kotlinx.coroutines | 0.600% → 0.229%            | 8,809 → 8,072 | 414 → 474       |
 
-Error *span* fell by more than half; error *node* count fell less because many remaining nodes are
+Error _span_ fell by more than half; error _node_ count fell less because many remaining nodes are
 tiny (zero-width) recovery nodes from other gaps. A few files got more nodes (`Combine.kt` 38 → 64,
-`-MainCommon.kt` 35 → 41): the extension header now parses and recovery reaches the *next*
+`-MainCommon.kt` 35 → 41): the extension header now parses and recovery reaches the _next_
 unsupported construct (a receiver function type in a parameter, `return@let`) instead of being
 derailed earlier.
 
@@ -691,10 +696,10 @@ three worked with the tokenizer-marker fallback unused. See ADR-021 "Function ty
 - A stale comment claiming a nullable function type "gets its own rule" was removed: no such rule
   existed and `(() -> Unit)?` errored.
 
-| Corpus | Error span | Error nodes | Files with none |
-|---|---|---|---|
-| OkHttp | 0.113% → 0.113% | 3,615 → 3,600 | 297 → 298 |
-| kotlinx.coroutines | 0.229% → 0.183% | 8,072 → 6,035 | 474 → 536 |
+| Corpus             | Error span      | Error nodes   | Files with none |
+| ------------------ | --------------- | ------------- | --------------- |
+| OkHttp             | 0.113% → 0.113% | 3,615 → 3,600 | 297 → 298       |
+| kotlinx.coroutines | 0.229% → 0.183% | 8,072 → 6,035 | 474 → 536       |
 
 13 files show more nodes (`SafeCollector.common.kt`, `ThreadContext.kt`, `RouteSelector.kt`); each
 is a later gap being reached, not a regression: star projections, explicit call type arguments,
@@ -717,35 +722,35 @@ silent mis-parse notes above).
 
 ### Errors on valid Kotlin
 
-| Spec construct | Snippet | Error nodes | In ADR? |
-|---|---|---|---|
-| Declaration-site `out` variance | `class Box<out T>` | 1 | No |
-| Variance in type arguments | `Comparable<in Int>` | 1 | No |
-| Star projection | `List<*>` | 2 | Yes |
-| Functional interface | `fun interface Cb` | 1 | No |
-| Explicit type args on constructor call | `HashMap<String, Int>()` | 2 | Yes |
-| Labels (`return@`/`break@`/`label@`) | `return@forEach`, `outer@ for` | 2, 4 | Yes |
-| `this@Label` | `this@A` | 1 | No |
-| Typed super call | `super<I>.f()` | 1 | No |
-| Destructuring (decl, `for`) | `val (a, b) = p` | 10 | Yes |
-| Destructuring lambda parameter | `{ (a, b): Pair<Int, Int> -> a }` | 4 | Yes |
-| Anonymous function | `fun(x: Int): Int { ... }` | 9 | No |
-| Local class | `fun f() { class L {} }` | 2 | Yes |
-| `when` subject binding | `when (val x = g())` | 11 | No |
-| `when` guard conditions | `is String if x.isEmpty() ->` | 3 | No |
-| Annotation on enum entry | `@Deprecated("x") A` | 3 | No |
-| Annotation with type arguments | `@Foo<Bar> class A` | 1 | No |
-| Collection literal in annotation | `@Foo(values = [1, 2])` | 1 | No |
-| Annotation on a type | `x: @Foo String` | 2 | No |
-| Annotation on a supertype | `class A : @Foo I` | 2 | No |
-| Annotation on lambda parameter | `{ @Foo x: Int -> x }` | 3 | No |
-| Definitely non-null type | `T & Any` | 2 | No |
-| Unicode escape in char literal | `'A'` (tokenizer allows one char after `\`) | 1 | No |
-| Nested block comments | `/* a /* b */ c */` | 2 | No |
-| Shebang line | `#!/usr/bin/env kotlin` | 5 | No |
-| Script top-level statements (`.kts`) | `println("hi")` | 3 | No |
-| Context receivers | `context(Foo) fun f()` | 2 | Yes |
-| Qualified/generic callable references | `a.b::c`, `List<Int>::size` | 4 | Yes |
+| Spec construct                         | Snippet                                     | Error nodes | In ADR? |
+| -------------------------------------- | ------------------------------------------- | ----------- | ------- |
+| Declaration-site `out` variance        | `class Box<out T>`                          | 1           | No      |
+| Variance in type arguments             | `Comparable<in Int>`                        | 1           | No      |
+| Star projection                        | `List<*>`                                   | 2           | Yes     |
+| Functional interface                   | `fun interface Cb`                          | 1           | No      |
+| Explicit type args on constructor call | `HashMap<String, Int>()`                    | 2           | Yes     |
+| Labels (`return@`/`break@`/`label@`)   | `return@forEach`, `outer@ for`              | 2, 4        | Yes     |
+| `this@Label`                           | `this@A`                                    | 1           | No      |
+| Typed super call                       | `super<I>.f()`                              | 1           | No      |
+| Destructuring (decl, `for`)            | `val (a, b) = p`                            | 10          | Yes     |
+| Destructuring lambda parameter         | `{ (a, b): Pair<Int, Int> -> a }`           | 4           | Yes     |
+| Anonymous function                     | `fun(x: Int): Int { ... }`                  | 9           | No      |
+| Local class                            | `fun f() { class L {} }`                    | 2           | Yes     |
+| `when` subject binding                 | `when (val x = g())`                        | 11          | No      |
+| `when` guard conditions                | `is String if x.isEmpty() ->`               | 3           | No      |
+| Annotation on enum entry               | `@Deprecated("x") A`                        | 3           | No      |
+| Annotation with type arguments         | `@Foo<Bar> class A`                         | 1           | No      |
+| Collection literal in annotation       | `@Foo(values = [1, 2])`                     | 1           | No      |
+| Annotation on a type                   | `x: @Foo String`                            | 2           | No      |
+| Annotation on a supertype              | `class A : @Foo I`                          | 2           | No      |
+| Annotation on lambda parameter         | `{ @Foo x: Int -> x }`                      | 3           | No      |
+| Definitely non-null type               | `T & Any`                                   | 2           | No      |
+| Unicode escape in char literal         | `'A'` (tokenizer allows one char after `\`) | 1           | No      |
+| Nested block comments                  | `/* a /* b */ c */`                         | 2           | No      |
+| Shebang line                           | `#!/usr/bin/env kotlin`                     | 5           | No      |
+| Script top-level statements (`.kts`)   | `println("hi")`                             | 3           | No      |
+| Context receivers                      | `context(Foo) fun f()`                      | 2           | Yes     |
+| Qualified/generic callable references  | `a.b::c`, `List<Int>::size`                 | 4           | Yes     |
 
 ### Parses without errors but not necessarily correctly
 
@@ -800,6 +805,7 @@ Phases 0–2, newline separation, extension receivers and function types are don
 adds items missing from the list below — declaration-site `out` variance, `fun interface`,
 `when (val x = ...)`, anonymous functions and `this@Label` — that likely belong ahead of #3–#4.
 Next, by size:
+
 1. **Explicit call type arguments** (`f<T>(x)`) — the biggest gap by far, and it can silently
    produce wrong trees (`a < b > (c)` reads the same). Needs disambiguation from comparison; the
    `Nl`-style lookahead-marker tokenizer (scan a balanced `<…>` followed by `(`) is the likely tool.
@@ -807,5 +813,5 @@ Next, by size:
 3. **`@label`** (`return@x`, `callback@{`, `fold@{`) — was blocked on newline-sensitivity, which now
    exists.
 4. `private set`/`get` modifiers.
-Add rules when a real construct trips the error-density gate or a corpus file; measure with error
-*nodes* and error *span* on at least two corpora before and after.
+   Add rules when a real construct trips the error-density gate or a corpus file; measure with error
+   _nodes_ and error _span_ on at least two corpora before and after.
