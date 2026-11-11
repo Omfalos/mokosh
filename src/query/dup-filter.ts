@@ -26,6 +26,67 @@ function scoreOf(group: DuplicateGroup): number {
   return group.score ?? group.lines;
 }
 
+/** One predicate per `DuplicateQuery` key — mirrors `NODE_MATCHERS` in `matchers.ts`. Each returns
+ *  `true` when its key is absent from the query or the group satisfies it, so a new filter key is a
+ *  new entry here, not another branch in {@link matchDupGroup} (Open/Closed). */
+type DupMatcher = (group: DuplicateGroup, query: DuplicateQuery) => boolean;
+
+/** Splits an optional leading `"!"` off a clause value. */
+function splitNegation(value: string): { bare: string; negated: boolean } {
+  return value.startsWith("!")
+    ? { bare: value.slice(1), negated: true }
+    : { bare: value, negated: false };
+}
+
+const occurrenceFiles = (group: DuplicateGroup): string[] =>
+  group.occurrences.map((occ) => occ.file);
+
+const DUP_MATCHERS: readonly DupMatcher[] = [
+  // path: at least one occurrence path contains the needle; "!" → none do.
+  (group, { path }) => {
+    if (path === undefined) return true;
+    const { bare, negated } = splitNegation(path);
+    const some = occurrenceFiles(group).some((p) => p.includes(bare));
+    return negated ? !some : some;
+  },
+  // allPaths: every occurrence path contains the needle; "!" → negation of that.
+  (group, { allPaths }) => {
+    if (allPaths === undefined) return true;
+    const { bare, negated } = splitNegation(allPaths);
+    const files = occurrenceFiles(group);
+    const all = files.length > 0 && files.every((p) => p.includes(bare));
+    return negated ? !all : all;
+  },
+  (group, { family }) => family === undefined || matchExact(family, group.family),
+  // type: every occurrence is of the FileType; "!" → negation of that.
+  (group, { type }) => {
+    if (type === undefined) return true;
+    const { bare, negated } = splitNegation(type);
+    const files = occurrenceFiles(group);
+    const everyIsType = files.length > 0 && files.every((p) => getFileType(p) === bare);
+    return negated ? !everyIsType : everyIsType;
+  },
+  (group, { kind }) => kind === undefined || matchExact(kind, group.kind ?? "block"),
+  (group, { defKind }) => defKind === undefined || matchExact(defKind, group.defKind),
+  (group, { minLines }) => minLines === undefined || group.lines >= minLines,
+  (group, { maxLines }) => maxLines === undefined || group.lines <= maxLines,
+  (group, { minScore }) => minScore === undefined || scoreOf(group) >= minScore,
+  (group, { maxScore }) => maxScore === undefined || scoreOf(group) <= maxScore,
+  (group, { minOccurrences }) =>
+    minOccurrences === undefined || group.occurrences.length >= minOccurrences,
+  (group, { crossFile }) =>
+    crossFile === undefined || new Set(occurrenceFiles(group)).size >= 2 === crossFile,
+  // signals: OR across positives, "!name" entries are mandatory exclusions.
+  (group, { signals }) => {
+    if (signals === undefined || signals.length === 0) return true;
+    const present = new Set<string>(group.signals ?? []);
+    const positives = signals.filter((s) => !s.startsWith("!"));
+    const negatives = signals.filter((s) => s.startsWith("!")).map((s) => s.slice(1));
+    if (negatives.some((s) => present.has(s))) return false;
+    return positives.length === 0 || positives.some((s) => present.has(s));
+  },
+];
+
 /**
  * @description Whether a single {@link DuplicateGroup} satisfies every clause in `query` (AND
  *   across keys). An empty query matches every group.
@@ -34,57 +95,7 @@ function scoreOf(group: DuplicateGroup): number {
  * @returns {boolean} `true` when the group passes all set criteria.
  */
 export function matchDupGroup(group: DuplicateGroup, query: DuplicateQuery): boolean {
-  const paths = group.occurrences.map((occ) => occ.file);
-
-  if (query.path !== undefined) {
-    const needle = query.path;
-    const has = (p: string) => p.includes(needle.startsWith("!") ? needle.slice(1) : needle);
-    if (needle.startsWith("!") ? paths.some(has) : !paths.some(has)) return false;
-  }
-
-  if (query.allPaths !== undefined) {
-    const needle = query.allPaths;
-    const bare = needle.startsWith("!") ? needle.slice(1) : needle;
-    const all = paths.length > 0 && paths.every((p) => p.includes(bare));
-    if (needle.startsWith("!") ? all : !all) return false;
-  }
-
-  if (query.family !== undefined && !matchExact(query.family, group.family)) return false;
-
-  if (query.type !== undefined) {
-    const bare = query.type.startsWith("!") ? query.type.slice(1) : query.type;
-    const everyIsType = paths.length > 0 && paths.every((p) => getFileType(p) === bare);
-    if (query.type.startsWith("!") ? everyIsType : !everyIsType) return false;
-  }
-
-  if (query.kind !== undefined && !matchExact(query.kind, group.kind ?? "block")) return false;
-  if (query.defKind !== undefined && !matchExact(query.defKind, group.defKind)) return false;
-
-  if (query.minLines !== undefined && group.lines < query.minLines) return false;
-  if (query.maxLines !== undefined && group.lines > query.maxLines) return false;
-
-  const score = scoreOf(group);
-  if (query.minScore !== undefined && score < query.minScore) return false;
-  if (query.maxScore !== undefined && score > query.maxScore) return false;
-
-  if (query.minOccurrences !== undefined && group.occurrences.length < query.minOccurrences) {
-    return false;
-  }
-
-  if (query.crossFile !== undefined) {
-    const spansMultiple = new Set(paths).size >= 2;
-    if (spansMultiple !== query.crossFile) return false;
-  }
-
-  if (query.signals !== undefined && query.signals.length > 0) {
-    const present = new Set<string>(group.signals ?? []);
-    const positives = query.signals.filter((s) => !s.startsWith("!"));
-    const negatives = query.signals.filter((s) => s.startsWith("!")).map((s) => s.slice(1));
-    if (negatives.some((s) => present.has(s))) return false;
-    if (positives.length > 0 && !positives.some((s) => present.has(s))) return false;
-  }
-
-  return true;
+  return DUP_MATCHERS.every((matcher) => matcher(group, query));
 }
 
 /**

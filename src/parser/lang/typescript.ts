@@ -8,7 +8,7 @@ import type {
   StructuredTag,
 } from "../../types/node";
 import type { FileType, ImportType, NodeCategory } from "../../types/parse";
-import { getBarrelThreshold, getTestLibraries, getTestPatterns, isConfigFile } from "../classify";
+import { type ClassifyConfig, getClassifyConfig, resolveClassifier } from "../classify";
 import { computeComplexity } from "../complexity";
 import { isStyleFile } from "../file-type";
 import { handleTagging } from "../tagging";
@@ -22,9 +22,15 @@ import type { ParseContext, ParseResult, RawCallEdge } from "../types";
  * @param filePath - Absolute path of the file; used as the node identifier in the graph.
  * @param content - Raw source content of the file.
  * @param fileType - Determines the TS script kind (`TSX` for TypeScript, `JSX` for JavaScript).
+ * @param classifyConfig - Explicit classification settings; defaults to a snapshot of the process-wide registries.
  * @returns Parsed result containing imports, exports, tags, and category.
  */
-export function parseCodeFile(filePath: string, content: string, fileType: FileType): ParseResult {
+export function parseCodeFile(
+  filePath: string,
+  content: string,
+  fileType: FileType,
+  classifyConfig: ClassifyConfig = getClassifyConfig(),
+): ParseResult {
   const imports: ImportEdge[] = [];
   const exports: Map<string, ExportedSymbol> = new Map();
   const tags: Set<StructuredTag> = new Set();
@@ -57,7 +63,7 @@ export function parseCodeFile(filePath: string, content: string, fileType: FileT
 
   visit(sourceFile);
 
-  const category = determineCategory(filePath, context);
+  const category = determineCategory(filePath, context, resolveClassifier(classifyConfig));
   if (category === "test" || category === "barrel") {
     tags.add({ name: category, kind: "comment-marker" });
   }
@@ -519,26 +525,29 @@ function handleCalls(node: ts.Node, ctx: ParseContext) {
  * the default `"logic"` bucket.
  * @param filePath - The file path, checked against test and config name patterns.
  * @param ctx - The parse context with accumulated category hints from the AST walk.
+ * @param classifier - Resolved test/config/barrel predicates from the explicit classify config.
  * @returns The most specific matching `NodeCategory`.
  */
-function determineCategory(filePath: string, ctx: ParseContext): NodeCategory {
+function determineCategory(
+  filePath: string,
+  ctx: ParseContext,
+  classifier: ReturnType<typeof resolveClassifier>,
+): NodeCategory {
   const baseName = path.basename(filePath).toLowerCase();
   const ext = path.extname(filePath).toLowerCase();
 
   // 1. Explicit test files
-  if (getTestPatterns().some((pattern) => baseName.includes(pattern))) {
+  if (classifier.isTestFile(baseName)) {
     return "test";
   }
 
   // 2. Configuration files (built-in list + user-registered matchers)
-  if (isConfigFile(baseName)) {
+  if (classifier.isConfig(baseName)) {
     return "config";
   }
 
   // 3. UI detection (JSX/TSX or explicit UI elements or testing library imports)
-  const importsTestingLib = ctx.imports.some((imp) =>
-    getTestLibraries().some((lib) => imp.rawSpecifier.includes(lib)),
-  );
+  const importsTestingLib = ctx.imports.some((imp) => classifier.isTestLibrary(imp.rawSpecifier));
 
   if (importsTestingLib) return "test";
 
@@ -548,7 +557,10 @@ function determineCategory(filePath: string, ctx: ParseContext): NodeCategory {
   if (ctx.hasTypesOnly && ctx.totalStatements > 0) return "type-only";
 
   // 5. Barrel files (mostly value exports/re-exports)
-  if (ctx.totalStatements > 0 && ctx.exportStatements / ctx.totalStatements > getBarrelThreshold())
+  if (
+    ctx.totalStatements > 0 &&
+    ctx.exportStatements / ctx.totalStatements > classifier.barrelThreshold
+  )
     return "barrel";
 
   return "logic";

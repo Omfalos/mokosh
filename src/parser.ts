@@ -1,4 +1,6 @@
 /** Aggregates all language parsers and exposes parseFile and parseImports as the unified entry points. */
+
+import type { ClassifyConfig } from "./parser/classify";
 import { getFileType } from "./parser/file-type";
 import { parseCoffeeScript } from "./parser/lang/coffee";
 import { parseGherkin } from "./parser/lang/gherkin";
@@ -20,8 +22,8 @@ import type { ImportEdge } from "./types/node";
 import type { FileType } from "./types/parse";
 
 for (const [type, parser] of [
-  ["javascript", (path, content) => parseCodeFile(path, content, "javascript")],
-  ["typescript", (path, content) => parseCodeFile(path, content, "typescript")],
+  ["javascript", (path, content, config) => parseCodeFile(path, content, "javascript", config)],
+  ["typescript", (path, content, config) => parseCodeFile(path, content, "typescript", config)],
   ["css", parseStyleFile],
   ["scss", parseStyleFile],
   ["less", parseStyleFile],
@@ -60,14 +62,19 @@ export { registerParser } from "./parser/registry.js";
  *   empty result for unknown types.
  * @param {string} filePath - Absolute or relative path to the file; determines which parser is used.
  * @param {string} content - Raw source content of the file.
+ * @param {ClassifyConfig} [classifyConfig] - Explicit classification settings; omitted → the process-wide registries.
  * @returns {Promise<ParseResult>} Parsed imports, exports, tags, and category for the file.
  */
-export async function parseFile(filePath: string, content: string): Promise<ParseResult> {
+export async function parseFile(
+  filePath: string,
+  content: string,
+  classifyConfig?: ClassifyConfig,
+): Promise<ParseResult> {
   const fileType = getFileType(filePath);
   const parser = getParserForType(fileType);
 
   if (parser) {
-    return parser(filePath, content);
+    return parser(filePath, content, classifyConfig);
   }
 
   return { imports: [], exports: [], tags: [], category: "other" };

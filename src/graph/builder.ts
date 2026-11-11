@@ -4,17 +4,22 @@ import path from "node:path";
 import Piscina from "piscina";
 import { DEFAULT_EXTENSIONS, DEFAULT_IGNORE_DIRS } from "../const.js";
 import { type GitFileStats, getRepoGitStats } from "../git.js";
-import { getTestPatterns } from "../parser/classify.js";
+import {
+  type ClassifyConfig,
+  getClassifyConfig,
+  getTestPatterns,
+  toTransferableClassifyConfig,
+} from "../parser/classify.js";
 import { parseJvmSamePackageCallSpecifier } from "../parser/lang/jvm-scan.js";
 import { type LockFileData, loadLockFile } from "../parser/lockfile/index.js";
 import { getFileType, parseFile } from "../parser.js";
 import type { DependencyGraph } from "../types/graph";
 import type { CallEdge, FileNode, ImportEdge } from "../types/node";
-import { createNestedRepoLocator, shouldDescend } from "./discovery-filter.js";
 import { enrichGraph, enrichLibraryTags } from "./enrichment.js";
 import { jvmPathPartition } from "./lang-resolvers/jvm.js";
 import { JVM_TYPES } from "./language-support.js";
 import { Graph } from "./model.js";
+import { ProjectWalker } from "./project-walker.js";
 import { DefaultResolver, type PathResolver } from "./resolver.js";
 
 /** Conventional top-level test-directory names probed as siblings between the entry-derived scan root and `rootDir`. */
@@ -66,6 +71,30 @@ function commonAncestorDir(absPaths: string[], rootDir: string): string {
   return candidate;
 }
 
+/** Configuration for {@link GraphBuilder}. Every field is optional. */
+export interface GraphBuilderOptions {
+  /** Graph from a prior run. Nodes whose `mtime` and `size` match are reused as-is, making incremental builds significantly faster. */
+  previousGraph?: Graph | null | undefined;
+  /** Strategy for turning raw import specifiers into absolute file paths. Defaults to {@link DefaultResolver}. */
+  resolver?: PathResolver | undefined;
+  /** Called every 100 files processed; useful for rendering a progress indicator in long-running CLI builds. */
+  progressCallback?: ((count: number) => void) | undefined;
+  /** When true, fetches `commitCount90d` and `lastAuthor` for each cache-missed file via git log. */
+  gitStats?: boolean | undefined;
+  /** Pre-loaded coverage map (relative path → line %). When non-empty, populates `coveragePct` on each node after the build. */
+  coverageMap?: Map<string, number> | undefined;
+  /** Controls worker-pool offloading of `parseFile`. `true`/omitted enables it once a cheap pre-scan finds at least `minFiles` (default 600 — see docs/adr-010-parallel-parsing.md) files under `rootDir`; `false` always parses in-process; an object overrides `minFiles`/`maxThreads`. */
+  parallelParsing?: ParallelParsingOption | undefined;
+  /** Directory names to skip during the test-file and doc-file discovery walks, on top of the built-in list and `MOKOSH_IGNORE_DIRS`. Sourced from `MokoshConfig.ignoreDirs`. */
+  additionalIgnoreDirs?: string[] | undefined;
+  /** Explicit list of absolute `.md`/`.mdx` paths to fold into the graph, replacing the whole-`rootDir` doc walk. `null` (default) keeps the walk; `[]` skips docs. The workspace builder passes each package its pre-assigned slice (see docs/known_issues/01, fix 1D). */
+  docFiles?: string[] | null | undefined;
+  /** When true, directories containing their own `.git` (worktrees, submodules, vendored clones) are walked. Default false. Sourced from `MokoshConfig.includeNestedRepos`. */
+  includeNestedRepos?: boolean | undefined;
+  /** Git-activity source for `gitStats`; defaults to `getRepoGitStats`. An injection seam so builds can run without a real repository. */
+  loadGitStats?: ((rootDir: string) => Map<string, GitFileStats>) | undefined;
+}
+
 /**
  * @description Builds a dependency graph by walking the file system from a set of entry points.
  *
@@ -85,22 +114,30 @@ function commonAncestorDir(absPaths: string[], rootDir: string): string {
  * before a file is queued (see {@link GraphBuilder.discover}), which keeps dedup race-free even
  * though many files are mid-parse at once.
  *
- * **DIP note:** Only `PathResolver` is abstracted. `fs`, parsers, and enrichment
- * functions are concrete imports — sufficient for a build-time tool where the call
- * sites are stable and swapping them out has no real use case.
+ * **DIP note:** `PathResolver` and the git-stats source (`GraphBuilderOptions.loadGitStats`) are
+ * injectable. `fs`, parsers, and enrichment functions are concrete imports — sufficient for a
+ * build-time tool where swapping them out has no real use case.
  */
 export class GraphBuilder {
   private graph: DependencyGraph = { nodes: new Map() };
   private visited = new Set<string>();
   private queue: string[] = [];
-  private readonly previousGraph: Graph | null = null;
+  private readonly previousGraph: Graph | null;
+  private readonly enableGitStats: boolean;
+  private readonly coverageMap: Map<string, number>;
+  private readonly parallelParsing: ParallelParsingOption;
+  private readonly docFiles: string[] | null;
+  private readonly includeNestedRepos: boolean;
+  private readonly loadGitStats: (rootDir: string) => Map<string, GitFileStats>;
   private readonly resolver: PathResolver;
   private lockFile: LockFileData | null = null;
   private progressCallback?: (count: number) => void;
   private pool: Piscina | null = null;
+  /** Classification settings sent with every pooled parse task (workers can't see the main
+   *  thread's registries); `undefined` until `initPool` succeeds. */
+  private poolClassifyConfig: ClassifyConfig | undefined;
   private gitStatsMap: Map<string, GitFileStats> | null = null;
-  private readonly walkIgnoreDirs: Set<string>;
-  private readonly locateNestedRepo: (filePath: string) => string | null;
+  private readonly walker: ProjectWalker;
   /** Pending same-package call-edge markers (docs/known_issues/12), keyed by the calling file's
    *  project-relative path, accumulated as files are parsed and resolved in one post-drain pass
    *  once the whole graph — and therefore every file in each caller's own package partition —
@@ -112,39 +149,32 @@ export class GraphBuilder {
 
   /**
    * @param rootDir - Absolute path to the project root; all node paths in the graph are relative to this.
-   * @param previousGraph - Optional graph from a prior run. Nodes whose `mtime` and `size` match are reused as-is, making incremental builds significantly faster.
-   * @param resolver - Strategy for turning raw import specifiers into absolute file paths. Defaults to {@link DefaultResolver}, which handles relative paths, tsconfig aliases, and node_modules.
-   * @param progressCallback - Called every 100 files processed; useful for rendering a progress indicator in long-running CLI builds.
-   * @param gitStats - When true, fetches `commitCount90d` and `lastAuthor` for each cache-missed file via git log.
-   * @param coverageMap - Pre-loaded coverage map (relative path → line %). When non-empty, populates `coveragePct` on each node after the graph is built.
-   * @param parallelParsing - Controls worker-pool offloading of `parseFile`. `true`/omitted enables it once a cheap pre-scan finds at least `minFiles` (default 600 — see docs/adr-010-parallel-parsing.md) files under `rootDir`; `false` always parses in-process; an object overrides `minFiles`/`maxThreads`.
-   * @param additionalIgnoreDirs - Directory names to skip during the test-file and doc-file discovery walks, on top of the built-in list (`node_modules`, `dist`, `coverage`, …) and anything in the `MOKOSH_IGNORE_DIRS` env var. Sourced from `MokoshConfig.ignoreDirs`.
-   * @param docFiles - Explicit list of absolute `.md`/`.mdx` paths to fold into the graph, replacing the built-in whole-`rootDir` doc-discovery walk. `null` (default) keeps the walk; `[]` skips docs entirely. The workspace builder passes each package its pre-assigned slice so the monorepo tree is walked once, not once per package (see docs/known_issues/01, fix 1D).
-   * @param includeNestedRepos - When true, directories containing their own `.git` (worktrees, submodules, vendored clones) are walked, and references into them resolve. Default false: they are skipped. Sourced from `MokoshConfig.includeNestedRepos`.
+   * @param options - Build configuration; see {@link GraphBuilderOptions}. Every field is optional.
    */
   constructor(
     private rootDir: string,
-    previousGraph: Graph | null = null,
-    resolver?: PathResolver,
-    progressCallback?: (count: number) => void,
-    private readonly enableGitStats = false,
-    private readonly coverageMap: Map<string, number> = new Map(),
-    private readonly parallelParsing: ParallelParsingOption = true,
-    additionalIgnoreDirs: string[] = [],
-    private readonly docFiles: string[] | null = null,
-    private readonly includeNestedRepos = false,
+    options: GraphBuilderOptions = {},
   ) {
-    this.previousGraph = previousGraph;
-    this.walkIgnoreDirs = new Set([
-      ...DEFAULT_IGNORE_DIRS,
-      ...additionalIgnoreDirs,
-      ...envIgnoreDirs(),
-    ]);
-    this.locateNestedRepo = createNestedRepoLocator(rootDir);
-    this.resolver = resolver || new DefaultResolver(rootDir);
+    this.previousGraph = options.previousGraph ?? null;
+    this.enableGitStats = options.gitStats ?? false;
+    this.coverageMap = options.coverageMap ?? new Map();
+    this.parallelParsing = options.parallelParsing ?? true;
+    this.docFiles = options.docFiles ?? null;
+    this.includeNestedRepos = options.includeNestedRepos ?? false;
+    this.loadGitStats = options.loadGitStats ?? ((dir) => getRepoGitStats(dir));
+    this.walker = new ProjectWalker(
+      rootDir,
+      new Set([
+        ...DEFAULT_IGNORE_DIRS,
+        ...(options.additionalIgnoreDirs ?? []),
+        ...envIgnoreDirs(),
+      ]),
+      this.includeNestedRepos,
+    );
+    this.resolver = options.resolver ?? new DefaultResolver(rootDir);
     this.lockFile = loadLockFile(rootDir);
-    if (progressCallback) {
-      this.progressCallback = progressCallback;
+    if (options.progressCallback) {
+      this.progressCallback = options.progressCallback;
     }
   }
 
@@ -166,7 +196,7 @@ export class GraphBuilder {
 
     await this.initPool();
     if (this.enableGitStats) {
-      this.gitStatsMap = getRepoGitStats(this.rootDir);
+      this.gitStatsMap = this.loadGitStats(this.rootDir);
     }
     try {
       if (entryPaths.length > 0) {
@@ -227,7 +257,7 @@ export class GraphBuilder {
 
     const opts = typeof this.parallelParsing === "object" ? this.parallelParsing : {};
     const minFiles = opts.minFiles ?? DEFAULT_MIN_FILES_FOR_POOL;
-    if (minFiles > 0 && !this.hasAtLeastFiles(this.rootDir, minFiles)) return;
+    if (minFiles > 0 && !this.walker.hasAtLeastFiles(this.rootDir, minFiles)) return;
 
     if (opts.maxThreads !== undefined && opts.maxThreads < 1) {
       process.stderr.write(
@@ -241,44 +271,19 @@ export class GraphBuilder {
         filename: workerFilename,
         ...(opts.maxThreads !== undefined ? { maxThreads: Math.max(1, opts.maxThreads) } : {}),
       });
+      const { config, droppedMatchers } = toTransferableClassifyConfig(getClassifyConfig());
+      this.poolClassifyConfig = config;
+      if (droppedMatchers > 0) {
+        process.stderr.write(
+          `\nWarning: ${droppedMatchers} predicate-function configMatchers can't be sent to parse workers and are ignored while parsing in parallel; use a string or RegExp matcher, or set parallelParsing: false.\n`,
+        );
+      }
     } catch (err) {
       process.stderr.write(
         `\nWarning: failed to start parse worker pool, falling back to synchronous parsing: ${err}\n`,
       );
       this.pool = null;
     }
-  }
-
-  /**
-   * @description Cheaply checks whether `dir` contains at least `threshold` files, stopping the
-   *   walk as soon as the threshold is met rather than counting exhaustively.
-   * @param dir - Directory to scan (recursively, skipping ignored directories and, by default, nested repos).
-   * @param threshold - Minimum file count to confirm.
-   * @returns Whether at least `threshold` files were found.
-   */
-  private hasAtLeastFiles(dir: string, threshold: number): boolean {
-    let count = 0;
-    const stack = [dir];
-    while (stack.length > 0) {
-      const current = stack.pop();
-      if (current === undefined) continue;
-      let entries: fs.Dirent[];
-      try {
-        entries = fs.readdirSync(current, { withFileTypes: true });
-      } catch {
-        continue;
-      }
-      for (const entry of entries) {
-        if (entry.isDirectory()) {
-          const fullPath = path.join(current, entry.name);
-          if (this.shouldDescend(entry.name, fullPath)) stack.push(fullPath);
-        } else if (entry.isFile()) {
-          count++;
-          if (count >= threshold) return true;
-        }
-      }
-    }
-    return count >= threshold;
   }
 
   /**
@@ -371,59 +376,13 @@ export class GraphBuilder {
   }
 
   /**
-   * @description Whether a discovery walk should recurse into a directory entry (not ignored,
-   *   and not a nested repo unless opted in). Shared by every walk in this builder.
-   * @param {string} name - The directory entry's own name.
-   * @param {string} fullPath - Absolute path of the directory entry.
-   * @returns {boolean} True when the walk should descend.
-   */
-  private shouldDescend(name: string, fullPath: string): boolean {
-    return shouldDescend(
-      name,
-      fullPath,
-      this.rootDir,
-      this.walkIgnoreDirs,
-      this.includeNestedRepos,
-    );
-  }
-
-  /**
-   * @description Whether resolving `from` -> `to` jumps into a nested repo that `from` is not
-   *   itself part of. Imports within one nested repo (e.g. an entry point inside a worktree) are
-   *   unaffected.
-   * @param {string} from - Absolute path of the importing file.
-   * @param {string} to - Absolute path of the resolved target file.
-   * @returns {boolean} True when the edge should be dropped.
-   */
-  private crossesIntoNestedRepo(from: string, to: string): boolean {
-    if (this.includeNestedRepos) return false;
-    const targetRepo = this.locateNestedRepo(to);
-    return targetRepo !== null && targetRepo !== this.locateNestedRepo(from);
-  }
-
-  /**
-   * @description Recursively walks a directory, enqueueing every file that satisfies `matches`
-   *   for processing. Shared by `processTestFiles` and `processDocFiles`, whose discovery passes
-   *   only differ in which files they're looking for and where they start. Purely synchronous
-   *   directory traversal — the actual parse/resolve work happens later, in `drain`.
+   * @description Walks `scanRoot` and enqueues every file satisfying `matches`. The traversal
+   *   itself lives in {@link ProjectWalker}; this only feeds its results into the build queue.
    * @param scanRoot - Directory to walk.
-   * @param matches - Predicate tested against each file entry; matching files are enqueued.
+   * @param matches - Predicate tested against each file entry.
    */
   private walkProject(scanRoot: string, matches: (entry: fs.Dirent) => boolean): void {
-    let entries: fs.Dirent[];
-    try {
-      entries = fs.readdirSync(scanRoot, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const entry of entries) {
-      const fullPath = path.join(scanRoot, entry.name);
-      if (entry.isDirectory()) {
-        if (this.shouldDescend(entry.name, fullPath)) this.walkProject(fullPath, matches);
-      } else if (entry.isFile() && matches(entry)) {
-        this.enqueue(fullPath);
-      }
-    }
+    for (const filePath of this.walker.collectFiles(scanRoot, matches)) this.enqueue(filePath);
   }
 
   /**
@@ -531,7 +490,7 @@ export class GraphBuilder {
    */
   private parseContent(filePath: string, content: string): ReturnType<typeof parseFile> {
     if (this.pool) {
-      return this.pool.run({ filePath, content });
+      return this.pool.run({ filePath, content, classifyConfig: this.poolClassifyConfig });
     }
     return parseFile(filePath, content);
   }
@@ -766,7 +725,8 @@ export class GraphBuilder {
         // A reference (a markdown code span, a relative import) that crosses from the project
         // into a nested repo is dropped like a walk would skip the directory — otherwise the
         // target and its whole import subtree would join the graph.
-        if (!resolved.isExternal && this.crossesIntoNestedRepo(filePath, resolved.path)) continue;
+        if (!resolved.isExternal && this.walker.crossesIntoNestedRepo(filePath, resolved.path))
+          continue;
 
         const edge: ImportEdge = {
           ...imp,

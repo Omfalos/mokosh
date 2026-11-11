@@ -20,10 +20,10 @@ vi.mock("../index", async (importOriginal) => {
   };
 });
 
-/** Reaches into `SessionState`'s private `dirtyRoots` set to simulate a file-watcher-detected
+/** Reaches into `SessionState`'s private `RootWatcher` dirty set to simulate a file-watcher-detected
  *  change deterministically — real `fs.watch` timing isn't reliable in tests. */
 function markDirty(state: SessionState, root: string): void {
-  (state as unknown as { dirtyRoots: Set<string> }).dirtyRoots.add(root);
+  (state as unknown as { watcher: { dirtyRoots: Set<string> } }).watcher.dirtyRoots.add(root);
 }
 
 function makeNode(p: string, importTargets: string[] = []): FileNode {
@@ -146,8 +146,9 @@ describe("SessionState", {
       await state.getOrBuildWorkspace(root);
       state.storeLastAnalyze(root, { kind: "workspace" });
 
-      const changeImpactCaches = (state as unknown as { changeImpactCaches: Map<string, unknown> })
-        .changeImpactCaches;
+      const changeImpactCaches = (
+        state as unknown as { changeImpactCaches: { caches: Map<string, unknown> } }
+      ).changeImpactCaches.caches;
       const staleEntry = { impact: new Map(), graphHash: "stale" };
       changeImpactCaches.set(root, staleEntry);
 

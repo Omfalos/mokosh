@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { ExportKind } from "../languages";
 import { detectNonJsEntryPoints, exportKindFor } from "../languages";
-import type { ExportedSymbol } from "../types/node";
+import type { ExportedSymbol, FileNode } from "../types/node";
 import type { Graph } from "./model";
 
 export type { ExportKind };
@@ -170,6 +170,80 @@ function resolveExportsValue(value: unknown, graph: Graph): string | null {
   return null;
 }
 
+const WELL_KNOWN_ENTRY_CANDIDATES = ["src/index.ts", "src/index.js", "index.ts", "index.js"];
+
+type PackageJsonEntryFields = { main?: string; module?: string; exports?: unknown; bin?: unknown };
+
+/**
+ * @description Reads and parses `<root>/package.json`; IO and parse errors yield `null`.
+ * @param {string} root - Absolute project root.
+ * @returns {PackageJsonEntryFields | null} The entry-related fields, or `null`.
+ */
+function readPackageJson(root: string): PackageJsonEntryFields | null {
+  const pkgPath = path.join(root, "package.json");
+  if (!fs.existsSync(pkgPath)) return null;
+  try {
+    return JSON.parse(fs.readFileSync(pkgPath, "utf8")) as PackageJsonEntryFields;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * @description Resolves a `package.json` `exports` field (string or subpath map) to graph paths.
+ * @param {unknown} exportsField - The raw `exports` value.
+ * @param {Graph} graph - Graph to probe.
+ * @returns {string[]} Resolved project-relative paths, in declaration order.
+ */
+function exportsEntryPaths(exportsField: unknown, graph: Graph): string[] {
+  if (typeof exportsField === "string") {
+    const resolved = tryResolveSrcEquiv(exportsField, graph);
+    return resolved ? [resolved] : [];
+  }
+  if (!exportsField || typeof exportsField !== "object" || Array.isArray(exportsField)) return [];
+  return Object.values(exportsField as Record<string, unknown>)
+    .map((value) => resolveExportsValue(value, graph))
+    .filter((resolved): resolved is string => resolved !== null);
+}
+
+/**
+ * @description Extracts the file specifiers from a `package.json` `bin` field (string or map).
+ * @param {unknown} bin - The raw `bin` value.
+ * @returns {string[]} Script file specifiers.
+ */
+function binSpecifiers(bin: unknown): string[] {
+  if (typeof bin === "string") return [bin];
+  if (!bin || typeof bin !== "object" || Array.isArray(bin)) return [];
+  return Object.values(bin as Record<string, unknown>).filter(
+    (value): value is string => typeof value === "string",
+  );
+}
+
+/**
+ * @description Adds the names a node's re-export edges expose to `accessible` and returns the
+ *   wildcard targets whose own re-exports must also be walked. The TypeScript parser represents
+ *   `export * from "…"` as `symbols: ["*"]`; named re-exports carry the actual names and need no
+ *   recursion.
+ * @param {Graph} graph - The dependency graph.
+ * @param {FileNode} node - The file whose re-export edges are followed.
+ * @param {Set<string>} accessible - Accumulator of exposed symbol names; mutated.
+ * @returns {string[]} Paths of wildcard re-export targets to visit next.
+ */
+function followReExports(graph: Graph, node: FileNode, accessible: Set<string>): string[] {
+  const wildcardTargets: string[] = [];
+  for (const imp of node.imports) {
+    if (imp.type !== "re-export" || imp.isExternal || !imp.toPath) continue;
+    if (!imp.symbols?.length || imp.symbols.includes("*")) {
+      const target = graph.nodes.get(imp.toPath);
+      if (target) for (const sym of target.exports) accessible.add(sym.name);
+      wildcardTargets.push(imp.toPath);
+    } else {
+      for (const name of imp.symbols) accessible.add(name);
+    }
+  }
+  return wildcardTargets;
+}
+
 /**
  * Walks the `export * from` and named `export { … } from` chains starting at each entry
  * point and returns every symbol name accessible to consumers of those entry points.
@@ -200,25 +274,7 @@ function collectAccessibleSymbolNames(graph: Graph, entryPoints: string[]): Set<
     // Direct exports declared in this file (catches concrete declarations in entry points)
     for (const sym of node.exports) accessible.add(sym.name);
 
-    // Follow re-export edges.
-    // The TypeScript parser represents `export * from "…"` as symbols: ["*"].
-    // Named re-exports like `export { foo } from "…"` carry the actual names.
-    for (const imp of node.imports) {
-      if (imp.type !== "re-export" || imp.isExternal || !imp.toPath) continue;
-
-      const isWildcard = !imp.symbols?.length || imp.symbols.includes("*");
-      if (isWildcard) {
-        // Wildcard re-export: expose all target exports and recurse into that file
-        const target = graph.nodes.get(imp.toPath);
-        if (target) {
-          for (const sym of target.exports) accessible.add(sym.name);
-        }
-        queue.push(imp.toPath);
-      } else {
-        // Named re-export: expose only the listed names, do not recurse
-        for (const name of imp.symbols as string[]) accessible.add(name);
-      }
-    }
+    for (const target of followReExports(graph, node, accessible)) queue.push(target);
   }
 
   return accessible;
@@ -254,64 +310,31 @@ export function detectEntryPoint(graph: Graph, root: string): string | null {
  */
 export function detectAllEntryPoints(graph: Graph, root: string): string[] {
   const found: string[] = [];
+  const add = (spec: string): void => {
+    const resolved = tryResolveSrcEquiv(spec, graph);
+    if (resolved && !found.includes(resolved)) found.push(resolved);
+  };
 
-  const pkgPath = path.join(root, "package.json");
-  if (fs.existsSync(pkgPath)) {
-    try {
-      const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8")) as {
-        main?: string;
-        module?: string;
-        exports?: unknown;
-        bin?: unknown;
-      };
-
-      // Modern packages: parse exports map (handles conditional exports)
-      if (pkg.exports && typeof pkg.exports === "object" && !Array.isArray(pkg.exports)) {
-        for (const value of Object.values(pkg.exports as Record<string, unknown>)) {
-          const resolved = resolveExportsValue(value, graph);
-          if (resolved && !found.includes(resolved)) found.push(resolved);
-        }
-      } else if (typeof pkg.exports === "string") {
-        const resolved = tryResolveSrcEquiv(pkg.exports, graph);
-        if (resolved) found.push(resolved);
-      }
-
-      // `bin` scripts are real additional entry points (CLI / server binaries). Their transitive
-      // deps are implementation, not dead code — count them so `unreachableFromEntry` stays a
-      // meaningful signal. Additive to `exports`; listed after it so `found[0]` stays the lib root.
-      const binValues =
-        typeof pkg.bin === "string"
-          ? [pkg.bin]
-          : pkg.bin && typeof pkg.bin === "object" && !Array.isArray(pkg.bin)
-            ? Object.values(pkg.bin as Record<string, unknown>).filter(
-                (value): value is string => typeof value === "string",
-              )
-            : [];
-      for (const binValue of binValues) {
-        const resolved = tryResolveSrcEquiv(binValue, graph);
-        if (resolved && !found.includes(resolved)) found.push(resolved);
-      }
-
-      // Legacy fallbacks: main / module
-      if (found.length === 0) {
-        for (const field of [pkg.main, pkg.module].filter(Boolean) as string[]) {
-          const resolved = tryResolveSrcEquiv(field, graph);
-          if (resolved && !found.includes(resolved)) found.push(resolved);
-        }
-      }
-    } catch {
-      // ignore parse/IO errors
+  const pkg = readPackageJson(root);
+  if (pkg) {
+    // Modern packages: the exports map (handles conditional exports).
+    for (const resolved of exportsEntryPaths(pkg.exports, graph)) {
+      if (!found.includes(resolved)) found.push(resolved);
+    }
+    // `bin` scripts are real additional entry points (CLI / server binaries). Their transitive
+    // deps are implementation, not dead code — count them so `unreachableFromEntry` stays a
+    // meaningful signal. Additive to `exports`; listed after it so `found[0]` stays the lib root.
+    for (const binValue of binSpecifiers(pkg.bin)) add(binValue);
+    // Legacy fallbacks: main / module
+    if (found.length === 0) {
+      for (const field of [pkg.main, pkg.module].filter(Boolean) as string[]) add(field);
     }
   }
 
   // Well-known JS/TS candidates
   if (found.length === 0) {
-    for (const candidate of ["src/index.ts", "src/index.js", "index.ts", "index.js"]) {
-      if (graph.nodes.has(candidate)) {
-        found.push(candidate);
-        break;
-      }
-    }
+    const candidate = WELL_KNOWN_ENTRY_CANDIDATES.find((name) => graph.nodes.has(name));
+    if (candidate) found.push(candidate);
   }
 
   // Non-JS projects have no package.json convention — fall back to a per-language heuristic.

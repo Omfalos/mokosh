@@ -32,12 +32,16 @@ export function registerConfigMatcher(matcher: ConfigMatcher): void {
 }
 
 /**
- * @description Tests a lowercase basename against all built-in and user-registered config matchers.
+ * @description Tests a lowercase basename against all built-in config matchers plus `extraMatchers`.
  * @param baseName - The lowercase file basename to test, e.g. `"tsconfig.json"`.
+ * @param extraMatchers - User matchers to apply on top of the built-ins; defaults to the process-wide registry.
  * @returns `true` if any registered matcher matches the basename.
  */
-export function isConfigFile(baseName: string): boolean {
-  return [...builtinConfigMatchers, ...userConfigMatchers].some((matcher) => {
+export function isConfigFile(
+  baseName: string,
+  extraMatchers: readonly ConfigMatcher[] = userConfigMatchers,
+): boolean {
+  return [...builtinConfigMatchers, ...extraMatchers].some((matcher) => {
     if (typeof matcher === "string") return baseName.includes(matcher);
     if (matcher instanceof RegExp) return matcher.test(baseName);
     return matcher(baseName);
@@ -136,4 +140,78 @@ export function resetClassifyRegistries(): void {
   userTestPatterns.length = 0;
   userTestLibraries.length = 0;
   currentBarrelThreshold = DEFAULT_BARREL_THRESHOLD;
+}
+
+// ─── Explicit classification config ──────────────────────────────────────────
+
+/**
+ * @description The user-configurable inputs to file classification, as an explicit value rather
+ *   than process-global registry state. The parser takes one so classification no longer depends
+ *   on which thread it runs in: parse workers don't share the main thread's registries, so
+ *   anything not carried in the task payload was silently ignored on the pooled path. Built-in
+ *   patterns/libraries/matchers are not repeated here — only the user additions and threshold.
+ */
+export interface ClassifyConfig {
+  /** User-registered test-file basename substrings (on top of the built-ins). */
+  testPatterns: readonly string[];
+  /** User-registered testing-library import substrings (on top of the built-ins). */
+  testLibraries: readonly string[];
+  /** User-registered config-file matchers (on top of the built-ins). */
+  configMatchers: readonly ConfigMatcher[];
+  /** Export-statement ratio above which a file is classified as a barrel. */
+  barrelThreshold: number;
+}
+
+/**
+ * @description Snapshots the current process-wide registries (populated by `applyConfig` /
+ *   `register*`) into an explicit {@link ClassifyConfig}.
+ * @returns A copy of the user-registered patterns, libraries, matchers and the barrel threshold.
+ */
+export function getClassifyConfig(): ClassifyConfig {
+  return {
+    testPatterns: [...userTestPatterns],
+    testLibraries: [...userTestLibraries],
+    configMatchers: [...userConfigMatchers],
+    barrelThreshold: currentBarrelThreshold,
+  };
+}
+
+/**
+ * @description Makes a {@link ClassifyConfig} safe to send to a worker thread. Predicate-function
+ *   matchers can't cross the structured-clone boundary, so they are removed; strings and RegExps
+ *   survive.
+ * @param config - The config to prepare.
+ * @returns The cloneable config and how many function matchers were dropped.
+ */
+export function toTransferableClassifyConfig(config: ClassifyConfig): {
+  config: ClassifyConfig;
+  droppedMatchers: number;
+} {
+  const configMatchers = config.configMatchers.filter((matcher) => typeof matcher !== "function");
+  return {
+    config: { ...config, configMatchers },
+    droppedMatchers: config.configMatchers.length - configMatchers.length,
+  };
+}
+
+/**
+ * @description Classifies the user-configurable parts of a file, resolving the built-in lists
+ *   against the explicit `config`.
+ * @param config - The explicit classification config.
+ * @returns Resolved predicates for test-pattern, config-file and test-library checks plus the barrel threshold.
+ */
+export function resolveClassifier(config: ClassifyConfig): {
+  isTestFile: (baseName: string) => boolean;
+  isConfig: (baseName: string) => boolean;
+  isTestLibrary: (specifier: string) => boolean;
+  barrelThreshold: number;
+} {
+  const patterns = [...builtinTestPatterns, ...config.testPatterns];
+  const libraries = [...builtinTestLibraries, ...config.testLibraries];
+  return {
+    isTestFile: (baseName) => patterns.some((pattern) => baseName.includes(pattern)),
+    isConfig: (baseName) => isConfigFile(baseName, config.configMatchers),
+    isTestLibrary: (specifier) => libraries.some((lib) => specifier.includes(lib)),
+    barrelThreshold: config.barrelThreshold,
+  };
 }
